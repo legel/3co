@@ -426,7 +426,7 @@ class Environment():
     node_output = nodes.new(type='ShaderNodeOutputMaterial')   
     node_output.location = (400,0)
     links = self.vinyl_material.node_tree.links
-    link = links.new(self.vinyl_material.outputs[0], node_output.inputs[0])
+    link = links.new(self.vinyl.outputs[0], node_output.inputs[0])
     self.obj.data.materials.append(self.vinyl_material)
 
 
@@ -441,3 +441,8 @@ camera.perceive(focal_point=Point(x=0.0, y=2.0, z=0.1), target=Point(x=0.0, y=0.
 
 
 hitpoint_locations, hitpoint_colors, hitpoint_image_origins = lasers.raycasts_from_pixels()
+
+# make hitpoints properties of OpticalSystem Pixels
+# create mesh in the plane of the camera sensor
+# create method for launching raycasts from first set of projected hitpoints through camera focal point to mesh of camera sensor plane
+# convert (x,y,z) of camera mesh hitpoints to (h,v) sub-pixel coordinates in camera space
