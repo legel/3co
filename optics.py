@@ -7,6 +7,7 @@ from pprint import pprint
 from math import cos, sin
 import bmesh
 from PIL import Image
+from mathutils import Vector
 
 bpy.context.scene.render.engine = 'CYCLES'
 
@@ -81,7 +82,7 @@ class Pixel():
 
 class OpticalSystem():
   def __init__(self, photonics, focal_length, pixel_size, vertical_pixels, horizontal_pixels):
-    self.image = Image.open('black_hole.jpg')
+    self.image = Image.open('entropy.png')
     self.focal_length = focal_length
     self.vertical_pixels = vertical_pixels
     self.horizontal_pixels = horizontal_pixels
@@ -110,14 +111,14 @@ class OpticalSystem():
     self.projector_data.spot_size = 3.14159
     self.projector_data.cycles.max_bounces = 0
     self.projector_data.use_nodes = True  
-    self.projector_data.node_tree.nodes["Emission"].inputs[1].default_value = 10000
+    self.projector_data.node_tree.nodes["Emission"].inputs[1].default_value = 1000
 
     # warp mapping of light
     mapping = self.projector_data.node_tree.nodes.new(type='ShaderNodeMapping')
     mapping.location = 300,0
     mapping.rotation[2] = 3.14159
     mapping.scale[1] = 1.779 # derived from projected image dimensions (1366w / 768h)
-    mapping.scale[2] = 0.7 # this controls size of the projection
+    mapping.scale[2] = 0.7272404614 # this controls size of the projection
 
     # separate xyz
     separate_xyz = self.projector_data.node_tree.nodes.new(type='ShaderNodeSeparateXYZ')
@@ -164,7 +165,8 @@ class OpticalSystem():
 
     # image texture
     image_texture = self.projector_data.node_tree.nodes.new(type='ShaderNodeTexImage')
-    image_texture.image = bpy.data.images.load('/Users/3co/Downloads/black_hole.jpg')
+    image_texture.image = bpy.data.images.load('entropy.png')
+
     image_texture.extension = 'CLIP'
     image_texture.location = 2100,0
     self.projector_data.node_tree.links.new(image_texture.outputs['Color'], self.projector_data.node_tree.nodes["Emission"].inputs[0])
@@ -194,9 +196,12 @@ class OpticalSystem():
       if self.photonics == "projectors":
         self.projectors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
         self.projectors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, self.rotation_euler_z)
+        self.projectors.delta_rotation_euler = (0.0, math.radians(-90.0), 0.0)
+        self.projectors.delta_scale = (-1.0, 1.0, 1.0) # flips image that is projected horizontally, to match inverted raycasting
       elif self.photonics == "sensors":
         self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
-        self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, self.rotation_euler_z)        
+        self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, self.rotation_euler_z)
+        self.sensors.delta_rotation_euler = (0.0, math.radians(-90.0), 0.0)
 
   def compute_image_center(self):
     focal_ratio = self.focal_length / (self.focal_length + self.focal_point.distance(self.target))
@@ -296,6 +301,60 @@ class OpticalSystem():
         self.pixels[h][v].calculate_unit_vectors_through_focal_point(self.focal_point)
 
       print("{}, {} : {}, {}, {}".format(h, v, center_x, center_y, center_z))
+  
+  def highlight_hitpoint(self, location, diffuse_color):
+    x = location.x
+    y = location.y
+    z = location.z 
+    print("hitpoint_({},{},{})".format(x,y,z))
+    mesh = bpy.data.meshes.new('hitpoint_({},{},{})'.format(x,y,z))
+    sphere = bpy.data.objects.new('hitpoint_({},{},{})_object'.format(x,y,z), mesh)
+    sphere.location = location
+    bpy.context.collection.objects.link(sphere)
+    bpy.context.view_layer.objects.active = sphere
+    sphere.select_set( state = True, view_layer = None)
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, diameter=0.01)
+    bm.to_mesh(mesh)
+    bm.free()
+    bpy.ops.object.modifier_add(type='SUBSURF')
+    bpy.ops.object.shade_smooth()
+
+    emission_material = bpy.data.materials.new(name="emission_for_({},{},{})".format(x,y,z))
+    emission_material.use_nodes = True
+    nodes = emission_material.node_tree.nodes
+    for node in nodes:
+      nodes.remove(node)
+    node_emission = nodes.new(type='ShaderNodeEmission')
+    node_emission.inputs[0].default_value = diffuse_color
+    node_emission.inputs[1].default_value = 100.0 # strength
+    node_emission.location = (0,0)
+    node_output = nodes.new(type='ShaderNodeOutputMaterial')   
+    node_output.location = (400,0)
+    links = emission_material.node_tree.links
+    link = links.new(node_emission.outputs[0], node_output.inputs[0])
+    sphere.data.materials.append(emission_material)
+
+
+  def raycasts_from_pixels(self):
+    img = Image.open('entropy.png')
+    hitpoint_xyz_coordinate = []
+    hitpoint_pixel = []
+    hitpoint_color = []
+    for h in range(self.horizontal_pixels):   
+      for v in range(self.vertical_pixels):
+        origin = Vector((self.pixels[h][v].center.x, self.pixels[h][v].center.y, self.pixels[h][v].center.z))
+        direction = Vector((self.pixels[h][v].unit_x, self.pixels[h][v].unit_y, self.pixels[h][v].unit_z))
+
+        hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)      
+        if hit:
+          pixel = img.getpixel((h, v))
+          diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
+          hitpoint_xyz_coordinate.append(location)
+          hitpoint_color.append(diffuse_color)
+          hitpoint_pixel.append((h,v))
+
+    return hitpoint_xyz_coordinate, hitpoint_color, hitpoint_pixel
 
 class ObjectModel():
   def __init__(self, filepath=None):
@@ -324,11 +383,61 @@ class ObjectModel():
     obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
 
-lasers = OpticalSystem(photonics="projectors", focal_length=0.1127, pixel_size=0.0600, vertical_pixels=64, horizontal_pixels=114) # 768 x 1366 -> distance / width = 0.7272404614
-camera = OpticalSystem(photonics="sensors", focal_length=0.2400, pixel_size=0.0429, vertical_pixels=50, horizontal_pixels=150) # 3456 x 5184
+class Environment():
+  def __init__(self):
+    self.create_mesh()
+    self.create_materials()
 
-lasers.perceive(focal_point=Point(x=0.0, y=4.0, z=0.0), target=Point(x=0.0, y=0.0, z=0.0))
-camera.perceive(focal_point=Point(x=0.0, y=4.0, z=0.1), target=Point(x=0.0, y=0.0, z=0.0))
+  def create_mesh(self):
+    self.mesh = bpy.data.meshes.new("vinyl_backdrop")
+    self.obj = bpy.data.objects.new("vinyl_backdrop_object", self.mesh)
+    bpy.context.collection.objects.link(self.obj)
+    bpy.context.view_layer.objects.active = self.obj
+    self.obj.select_set( state = True, view_layer = None)
+    mesh = bpy.context.object.data
+    bm = bmesh.new()
+    top_left = bm.verts.new((-100,-4,100))
+    top_right = bm.verts.new((100,-4,100))
+    bottom_left = bm.verts.new((-100,-4,-100))
+    bottom_right = bm.verts.new((100,-4,-100))
+    center = bm.verts.new((0,-4, 0))
+    bm.edges.new( [top_left, top_right] )
+    bm.faces.new( [top_left, top_right, center]) 
+    bm.edges.new( [top_left, bottom_left] )
+    bm.faces.new( [top_left, bottom_left, center]) 
+    bm.edges.new( [top_right, bottom_right] )
+    bm.faces.new( [top_right, bottom_right, center]) 
+    bm.edges.new( [bottom_left, bottom_right] )
+    bm.faces.new( [bottom_left, bottom_right, center]) 
+    bm.to_mesh(mesh)  
+    bm.free()
 
+  def create_materials(self):
+    self.vinyl_material = bpy.data.materials.new(name="vinyl_backdrop_material")
+    self.vinyl_material.use_nodes = True
+    nodes = self.vinyl_material.node_tree.nodes
+    for node in nodes:
+      nodes.remove(node)
+    self.vinyl = nodes.new(type='ShaderNodeBsdfPrincipled')
+    self.vinyl.inputs['Sheen Tint'].default_value = 0.2
+    self.vinyl.inputs['Roughness'].default_value = 0.2
+    self.vinyl.inputs['Base Color'].default_value = (1,1,1,1)
+    self.vinyl.location = (0,0)
+    node_output = nodes.new(type='ShaderNodeOutputMaterial')   
+    node_output.location = (400,0)
+    links = self.vinyl_material.node_tree.links
+    link = links.new(self.vinyl_material.outputs[0], node_output.inputs[0])
+    self.obj.data.materials.append(self.vinyl_material)
+
+
+environment = Environment()
 model = ObjectModel(filepath="phone.dae")
 
+lasers = OpticalSystem(photonics="projectors", focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+camera = OpticalSystem(photonics="sensors", focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184) # 3456 x 5184
+
+lasers.perceive(focal_point=Point(x=0.0, y=2.0, z=0.0), target=Point(x=0.0, y=0.0, z=0.0))
+camera.perceive(focal_point=Point(x=0.0, y=2.0, z=0.1), target=Point(x=0.0, y=0.0, z=0.0))
+
+
+hitpoint_locations, hitpoint_colors, hitpoint_image_origins = lasers.raycasts_from_pixels()
