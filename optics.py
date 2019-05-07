@@ -10,6 +10,8 @@ from PIL import Image
 from mathutils import Vector
 
 bpy.context.scene.render.engine = 'CYCLES'
+bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
+bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 
 class Point():
   def __init__(self, x=0, y=0, z=0):
@@ -695,7 +697,7 @@ class Scanner():
     print("unit_z_v: {}".format(unit_z_v))
     print("distance_v_o: {}".format(distance_v_o))
     print("distance_h_o: {}".format(distance_h_o))
-    print("test_corner: {}".format(test_corner.xyz()))
+    #print("test_corner: {}".format(test_corner.xyz()))
 
     print("unit_x_v")
 
