@@ -25,6 +25,47 @@ class Point():
   def xyz(self):
     return (self.x, self.y, self.z)
 
+class Triangle():
+  def __init__(self, a, b, c):
+    # each argument is a Point(x,y,z)
+    self.a = a
+    self.b = b
+    self.c = c
+    self.solve_distances()
+    self.solve_angles_with_law_of_cosines()
+
+  def solve_distances(self):
+    self.distance_c = self.a.distance(self.b)
+    self.distance_a = self.b.distance(self.c)
+    self.distance_b = self.c.distance(self.a)
+
+  def solve_angles_with_law_of_cosines(self):
+    if self.distance_b != 0.0 and self.distance_c != 0.0:
+      raw = (self.distance_b**2 + self.distance_c**2 - self.distance_a**2) / (2 * self.distance_b * self.distance_c)
+      self.angle_a = math.acos(self.normalize_floating_point(raw))
+    else:
+      self.angle_a = 0.0
+
+    if self.distance_c != 0.0 and self.distance_a != 0.0:
+      raw = (self.distance_c**2 + self.distance_a**2 - self.distance_b**2) / (2 * self.distance_c * self.distance_a)
+      self.angle_b = math.acos(self.normalize_floating_point(raw))
+    else:
+      self.angle_b = 0.0
+
+    if self.distance_a != 0.0 and self.distance_b != 0.0:
+      raw = (self.distance_a**2 + self.distance_b**2 - self.distance_c**2) / (2 * self.distance_a * self.distance_b)
+      self.angle_c = math.acos(self.normalize_floating_point(raw))
+    else:
+      self.angle_c = 0.0
+
+  def normalize_floating_point(self, i):
+    if i < -1.0:
+      return -1.0
+    elif i > 1.0:
+      return 1.0
+    else:
+      return i
+
 class Pixel():
   def __init__(self, h, v):
     self.h = h
@@ -80,9 +121,16 @@ class Pixel():
     link = links.new(node_emission.outputs[0], node_output.inputs[0])
     obj.data.materials.append(emission_material)
 
-class OpticalSystem():
-  def __init__(self, photonics, focal_length, pixel_size, vertical_pixels, horizontal_pixels):
-    self.image = Image.open('entropy.png')
+
+class Photonics():
+  def __init__(self, projectors_or_sensors, focal_point, focal_length, pixel_size, vertical_pixels, horizontal_pixels, hardcode_field_of_view=False):
+    # projectors_or_sensors  :: value is a string "projectors" or "sensors" to describe if pixels should emit or sense photons
+    # focal_point  :: focal point in (x,y,z) at which the optical system is positioned
+    # focal_length  :: focal length in meters
+    # pixel_size  :: size of one side of pixel in real space in meters, assuming pixel is a square
+    # vertical_pixels  :: number of vertical pixels
+    # horionztal_pixels :: number of horizontal pixels  
+    self.focal_point = focal_point
     self.focal_length = focal_length
     self.vertical_pixels = vertical_pixels
     self.horizontal_pixels = horizontal_pixels
@@ -93,17 +141,29 @@ class OpticalSystem():
     self.image_center = Point()
     self.relative_horizontal_half_pixel_size = 0.5 * self.pixel_size / float(self.horizontal_size)
     self.relative_vertical_half_pixel_size = 0.5 * self.pixel_size / float(self.vertical_size)
-    self.photonics = photonics
-    if photonics == "projectors":
+    self.projectors_or_sensors = projectors_or_sensors
+    self.hardcode_field_of_view = hardcode_field_of_view
+    self.highlighted_hitpoints = []
+    self.sampled_hitpoint_pixels = []
+    if projectors_or_sensors == "projectors":
       self.initialize_projectors()
-    elif photonics == "sensors":
+    elif projectors_or_sensors == "sensors":
       self.initialize_sensors()
 
   def initialize_sensors(self):
     self.sensor_data = bpy.data.cameras.new("sensor_data")
     self.sensors = bpy.data.objects.new("sensor_object", self.sensor_data)
-    # parametersize camera
     bpy.context.scene.collection.objects.link(self.sensors)
+    bpy.data.cameras["sensor_data"].clip_start = 0.01 # meters
+    bpy.data.cameras["sensor_data"].lens = self.focal_length * 1000 # millimeters
+    if self.hardcode_field_of_view:
+      bpy.data.cameras["sensor_data"].sensor_width = 0.00000429 * 5184 * 1000 # millimeters of pixel size x horizontal pixels on Canon 1300D
+      self.horizontal_size = 0.00000429 * 5184
+      self.vertical_size = 0.00000429 * 3456
+    else:
+      bpy.data.cameras["sensor_data"].sensor_width = self.horizontal_size * 1000 # millimeters
+    bpy.data.scenes["Scene"].render.resolution_x = self.horizontal_pixels
+    bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
 
   def initialize_projectors(self):
     self.projector_data = bpy.data.lights.new(name="projector_data", type='SPOT')
@@ -166,6 +226,7 @@ class OpticalSystem():
     # image texture
     image_texture = self.projector_data.node_tree.nodes.new(type='ShaderNodeTexImage')
     image_texture.image = bpy.data.images.load('entropy.png')
+    self.image_to_project = image_texture.image
 
     image_texture.extension = 'CLIP'
     image_texture.location = 2100,0
@@ -179,29 +240,77 @@ class OpticalSystem():
     self.projectors = bpy.data.objects.new(name="projector_object", object_data=self.projector_data)
     bpy.context.scene.collection.objects.link(self.projectors)
 
-  def perceive(self, focal_point, target):
-    # focal_point  :: focal point in (x,y,z) at which the optical system is positioned
+  def project(self, filepath):
+    self.filepath_of_image_to_project = filepath
+    self.image_to_project = bpy.data.images.load(filepath)
+
+  def focus_on(self, target):
     # target :: target point in (x,y,z) toward which the optical system is oriented
-    self.focal_point = focal_point
     self.target = target
     self.reorient()
+    self.measure_raycasts_from_pixels()
+    if self.projectors_or_sensors == "sensors":
+      self.expand_plane_of_sensor()
+
+  def expand_plane_of_sensor(self, expansion=1.0): # expansion is a multiplier of the size of the sensor plane
+    min_h = 0
+    min_v = 0
+    max_h = self.horizontal_pixels - 1
+    max_v = self.vertical_pixels - 1
+    min_h_min_v_corner = self.pixels[min_h][min_v].center
+    min_h_max_v_corner = self.pixels[min_h][max_v].center
+    max_h_min_v_corner = self.pixels[max_h][min_v].center
+    max_h_max_v_corner = self.pixels[max_h][max_v].center
+    expanded_corners = []
+    for corner in [min_h_min_v_corner, min_h_max_v_corner, max_h_min_v_corner, max_h_max_v_corner]:
+      expanded_x = (1 - expansion) * self.image_center.x + expansion * corner.x
+      expanded_y = (1 - expansion) * self.image_center.y + expansion * corner.y
+      expanded_z = (1 - expansion) * self.image_center.z + expansion * corner.z
+      expanded_corners.append(Point(expanded_x, expanded_y, expanded_z))
+    self.create_mesh_from_corners(expanded_corners)
+
+  def create_mesh_from_corners(self, corners):
+    # input is a list of 4 corners, each of which is a Point(x,y,z)
+    # output is simulation of a rectangular mesh with faces for triangles connecting 4 corners 
+    corner_1, corner_2, corner_3, corner_4 = corners
+    plane = bpy.data.meshes.new("sensor_plane")
+    obj = bpy.data.objects.new("sensor_plane_object", plane)
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(state = True, view_layer = None)
+    mesh = bpy.context.object.data
+    bm = bmesh.new()
+    top_left = bm.verts.new((corner_1.x, corner_1.y, corner_1.z))
+    top_right = bm.verts.new((corner_2.x, corner_2.y, corner_2.z))
+    bottom_left = bm.verts.new((corner_3.x, corner_3.y, corner_3.z))
+    bottom_right = bm.verts.new((corner_4.x, corner_4.y, corner_4.z))
+    center = bm.verts.new((self.image_center.x, self.image_center.y, self.image_center.z))
+    bm.edges.new( [top_left, top_right] )
+    bm.faces.new( [top_left, top_right, center]) 
+    bm.edges.new( [top_left, bottom_left] )
+    bm.faces.new( [top_left, bottom_left, center]) 
+    bm.edges.new( [top_right, bottom_right] )
+    bm.faces.new( [top_right, bottom_right, center]) 
+    bm.edges.new( [bottom_left, bottom_right] )
+    bm.faces.new( [bottom_left, bottom_right, center]) 
+    bm.to_mesh(mesh)  
+    bm.free()
 
   def reorient(self):
     if type(self.focal_point) == type(Point()) and type(self.target) == type(Point()):
       self.compute_image_center()
       self.compute_euler_angles()
-      self.compute_pitch_yaw_roll()
       self.compute_xyz_of_boundary_pixels()
       self.orient_xyz_and_unit_vectors_for_all_pixels()
-      if self.photonics == "projectors":
+      adjusted_euler_z = self.rotation_euler_z * -1.0 # to correct for a notational difference between rendering engine and notes
+
+      if self.projectors_or_sensors == "projectors":
         self.projectors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
-        self.projectors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, self.rotation_euler_z)
-        self.projectors.delta_rotation_euler = (0.0, math.radians(-90.0), 0.0)
+        self.projectors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
         self.projectors.delta_scale = (-1.0, 1.0, 1.0) # flips image that is projected horizontally, to match inverted raycasting
-      elif self.photonics == "sensors":
+      elif self.projectors_or_sensors == "sensors":
         self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
-        self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, self.rotation_euler_z)
-        self.sensors.delta_rotation_euler = (0.0, math.radians(-90.0), 0.0)
+        self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
 
   def compute_image_center(self):
     focal_ratio = self.focal_length / (self.focal_length + self.focal_point.distance(self.target))
@@ -211,41 +320,44 @@ class OpticalSystem():
     self.image_center.y = (self.focal_point.y - self.target.y * focal_ratio) / (1 - focal_ratio)
     self.image_center.z = (self.focal_point.z - self.target.z * focal_ratio) / (1 - focal_ratio)
 
-  def compute_pitch_yaw_roll(self):
-    # initialize
-    self.pitch = 0.0
-    self.yaw = 0.0
-    self.roll = 0.0 # always 0 degrees, because we never rotate optical system about its lens, radially
-
-    # compute these terms once for use in derivations below
-    x_orientation = (self.focal_point.x - self.image_center.x)**2
-    y_orientation = (self.focal_point.y - self.image_center.y)**2
-    z_orientation = (self.focal_point.z - self.image_center.z)**2
-
-    if x_orientation + y_orientation != 0.0:
-      self.yaw = np.arcsin((self.focal_point.x - self.image_center.x) / math.sqrt(x_orientation + y_orientation))
-
-    if x_orientation + y_orientation + z_orientation != 0.0:
-      self.pitch = np.arcsin((self.focal_point.z - self.image_center.z) / math.sqrt(x_orientation + y_orientation + z_orientation))
-
   def compute_euler_angles(self):
-    dx = self.target.x - self.image_center.x
-    dy = self.target.y - self.image_center.y
-    dz = self.target.z - self.image_center.z
-    distance_to_target = math.sqrt(dx**2 + dy**2 + dz**2)
-    self.rotation_euler_x = 0.0
-    self.rotation_euler_y = -1.0 * math.acos(dz / distance_to_target)
-    self.rotation_euler_z = math.atan2(dy, dx)
+    # compute euler angles from default angle of image top pointing to +y, image right pointing to +x, image view pointing to -z
+    o = self.image_center
+    t = self.target
+    b = Point(o.x, o.y, o.z - 2 * o.distance(t))
+
+    euler_x_triangle = Triangle(a = o, b = t, c = b)
+    self.rotation_euler_x = euler_x_triangle.angle_a
+    if self.rotation_euler_x == 0.0:
+      if o.z < t.z:
+        self.rotation_euler_x == math.radians(180.0)
+
+    target_point = Point(t.x, t.y, 0)
+    origin_point = Point(o.x, o.y, 0)
+    base_point = Point(t.x, t.y - 1.0, 0)
+
+    euler_z_triangle = Triangle(a = target_point, b = origin_point, c = base_point)
+    self.rotation_euler_z = euler_z_triangle.angle_a   
+    if o.x > t.x:
+      self.rotation_euler_z = self.rotation_euler_z * -1.0 
+    if self.rotation_euler_z == 0.0:
+      if o.y > t.y:
+        self.rotation_euler_z == math.radians(180.0)
+
+    self.rotation_euler_y = 0.0 # definition
 
   def compute_xyz_of_boundary_pixels(self):
-    horizontal_boundary_x = -1 * cos(self.yaw) * 0.5 * self.horizontal_size + self.image_center.x                # x of rightmost vertically-centered point on sensor
-    horizontal_boundary_y = sin(self.yaw) * 0.5 * self.horizontal_size + self.image_center.y                     # y of rightmost vertically-centered point on sensor
-    horizontal_boundary_z = self.image_center.z                                                                  # z of rightmost vertically-centered point on sensor
+    pitch = self.rotation_euler_x 
+    yaw =  self.rotation_euler_z
+
+    horizontal_boundary_x = self.image_center.x - cos(yaw) * 0.5 * self.horizontal_size # x of rightmost vertically-centered point on sensor
+    horizontal_boundary_y = self.image_center.y + sin(yaw) * 0.5 * self.horizontal_size # y of rightmost vertically-centered point on sensor
+    horizontal_boundary_z = self.image_center.z  # z of rightmost vertically-centered point on sensor
     self.image_horizontal_edge = Point(horizontal_boundary_x, horizontal_boundary_y, horizontal_boundary_z)
 
-    vertical_boundary_x = -1 * sin(self.pitch) * sin(self.yaw) * 0.5 * self.vertical_size + self.image_center.x  # x of topmost horizontally-centered point on sensor
-    vertical_boundary_y = -1 * sin(self.pitch) * cos(self.yaw) * 0.5 * self.vertical_size + self.image_center.y  # y of topmost horizontally-centered point on sensor
-    vertical_boundary_z = cos(self.pitch) * 0.5 * self.vertical_size + self.image_center.z                            # z of topmost horizontally-centered on sensor
+    vertical_boundary_x = self.image_center.x - cos(pitch) * sin(yaw) * 0.5 * self.vertical_size # x of topmost horizontally-centered point on sensor
+    vertical_boundary_y = self.image_center.y - cos(yaw) * cos(pitch) * 0.5 * self.vertical_size # y of topmost horizontally-centered point on sensor
+    vertical_boundary_z = self.image_center.z - sin(pitch) * 0.5 * self.vertical_size # z of topmost horizontally-centered on sensor
     self.image_vertical_edge = Point(vertical_boundary_x, vertical_boundary_y, vertical_boundary_z)
 
   def orient_xyz_and_unit_vectors_for_all_pixels(self): 
@@ -293,20 +405,18 @@ class OpticalSystem():
         top_right_z = top_z_of_vertical_vector + right_z_of_horizontal_vector - self.image_center.z
         self.pixels[h][v].top_right_corner = Point(top_right_x, top_right_y, top_right_z)
 
-        center_x = round((bottom_left_x + bottom_right_x + top_left_x + top_right_x) / 4.0, 6)
-        center_y = round((bottom_left_y + bottom_right_y + top_left_y + top_right_y) / 4.0, 6)
-        center_z = round((bottom_left_z + bottom_right_z + top_left_z + top_right_z) / 4.0, 6)
+        center_x = (bottom_left_x + bottom_right_x + top_left_x + top_right_x) / 4.0
+        center_y = (bottom_left_y + bottom_right_y + top_left_y + top_right_y) / 4.0
+        center_z = (bottom_left_z + bottom_right_z + top_left_z + top_right_z) / 4.0
         self.pixels[h][v].center = Point(center_x, center_y, center_z)
 
         self.pixels[h][v].calculate_unit_vectors_through_focal_point(self.focal_point)
-
-      print("{}, {} : {}, {}, {}".format(h, v, center_x, center_y, center_z))
+      #print("{}, {} : {}, {}, {}".format(h, v, center_x, center_y, center_z))
   
   def highlight_hitpoint(self, location, diffuse_color):
-    x = location.x
-    y = location.y
-    z = location.z 
-    print("hitpoint_({},{},{})".format(x,y,z))
+    x = location[0]
+    y = location[1]
+    z = location[2] 
     mesh = bpy.data.meshes.new('hitpoint_({},{},{})'.format(x,y,z))
     sphere = bpy.data.objects.new('hitpoint_({},{},{})_object'.format(x,y,z), mesh)
     sphere.location = location
@@ -314,11 +424,11 @@ class OpticalSystem():
     bpy.context.view_layer.objects.active = sphere
     sphere.select_set( state = True, view_layer = None)
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, diameter=0.01)
+    bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, diameter=0.001)
     bm.to_mesh(mesh)
-    bm.free()
     bpy.ops.object.modifier_add(type='SUBSURF')
     bpy.ops.object.shade_smooth()
+    bm.free()
 
     emission_material = bpy.data.materials.new(name="emission_for_({},{},{})".format(x,y,z))
     emission_material.use_nodes = True
@@ -334,29 +444,22 @@ class OpticalSystem():
     links = emission_material.node_tree.links
     link = links.new(node_emission.outputs[0], node_output.inputs[0])
     sphere.data.materials.append(emission_material)
+    sphere.hide_viewport = True
+    self.highlighted_hitpoints.append(sphere)
 
-
-  def raycasts_from_pixels(self):
-    img = Image.open('entropy.png')
-    hitpoint_xyz_coordinate = []
-    hitpoint_pixel = []
-    hitpoint_color = []
+  def measure_raycasts_from_pixels(self):
     for h in range(self.horizontal_pixels):   
       for v in range(self.vertical_pixels):
         origin = Vector((self.pixels[h][v].center.x, self.pixels[h][v].center.y, self.pixels[h][v].center.z))
         direction = Vector((self.pixels[h][v].unit_x, self.pixels[h][v].unit_y, self.pixels[h][v].unit_z))
+        hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)
+        if not hit:
+          print("No hitpoint for raycast from pixel ({},{})".format(h, v))
+        self.pixels[h][v].hitpoint = Point(location[0], location[1], location[2])
+      #print("{} pixel ({},{}) with hitpoint {}".format(self.projectors_or_sensors, h, v, self.pixels[h][v].hitpoint.xyz()))
 
-        hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)      
-        if hit:
-          pixel = img.getpixel((h, v))
-          diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
-          hitpoint_xyz_coordinate.append(location)
-          hitpoint_color.append(diffuse_color)
-          hitpoint_pixel.append((h,v))
 
-    return hitpoint_xyz_coordinate, hitpoint_color, hitpoint_pixel
-
-class ObjectModel():
+class Model():
   def __init__(self, filepath=None):
     if filepath:
       self.import_object_to_scan(filepath=filepath)
@@ -367,6 +470,7 @@ class ObjectModel():
     for object_in_scene in bpy.context.scene.objects:
       if object_in_scene.type == 'MESH':
         bpy.context.view_layer.objects.active = object_in_scene
+        self.object_name = object_in_scene.name
         object_in_scene.select_set(state=True)
     bpy.ops.object.join()
 
@@ -383,10 +487,15 @@ class ObjectModel():
     obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
 
+
 class Environment():
-  def __init__(self):
+  def __init__(self, model):
+    self.add_model(model_filepath=model)
     self.create_mesh()
     self.create_materials()
+
+  def add_model(self,model_filepath):
+    self.model = Model(model_filepath)
 
   def create_mesh(self):
     self.mesh = bpy.data.meshes.new("vinyl_backdrop")
@@ -396,11 +505,13 @@ class Environment():
     self.obj.select_set( state = True, view_layer = None)
     mesh = bpy.context.object.data
     bm = bmesh.new()
-    top_left = bm.verts.new((-100,-4,100))
-    top_right = bm.verts.new((100,-4,100))
-    bottom_left = bm.verts.new((-100,-4,-100))
-    bottom_right = bm.verts.new((100,-4,-100))
-    center = bm.verts.new((0,-4, 0))
+
+    top_left = bm.verts.new((-100, 100, -2))
+    top_right = bm.verts.new((100, 100, -2))
+    bottom_left = bm.verts.new((-100,-100, -2))
+    bottom_right = bm.verts.new((100,-100, -2))
+    center = bm.verts.new((0, 0, -2))
+
     bm.edges.new( [top_left, top_right] )
     bm.faces.new( [top_left, top_right, center]) 
     bm.edges.new( [top_left, bottom_left] )
@@ -419,7 +530,7 @@ class Environment():
     for node in nodes:
       nodes.remove(node)
     self.vinyl = nodes.new(type='ShaderNodeBsdfPrincipled')
-    self.vinyl.inputs['Sheen Tint'].default_value = 0.2
+    self.vinyl.inputs['Sheen Tint'].default_value = 0.8
     self.vinyl.inputs['Roughness'].default_value = 0.2
     self.vinyl.inputs['Base Color'].default_value = (1,1,1,1)
     self.vinyl.location = (0,0)
@@ -430,19 +541,170 @@ class Environment():
     self.obj.data.materials.append(self.vinyl_material)
 
 
-environment = Environment()
-model = ObjectModel(filepath="phone.dae")
+class Scanner():
+  def __init__(self, sensors, projectors=None, structured_light_image=None, environment=None):
+    self.environment = environment
+    self.sensors = sensors
+    self.projectors = projectors
+    if structured_light_image:
+      self.projectors.image_to_project = bpy.data.images.load(structured_light_image)
 
-lasers = OpticalSystem(photonics="projectors", focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
-camera = OpticalSystem(photonics="sensors", focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184) # 3456 x 5184
+  def scan(self, location):
+    if self.projectors: # first project on location, if scanner has projectors
+      self.localizations = []
+      self.projectors.focus_on(location)
+    self.sensors.focus_on(location)
+    self.save_data() # save metadata of hitpoints, etc. for training
+    if self.projectors: 
+      self.localize_projections_in_sensor_plane()
 
-lasers.perceive(focal_point=Point(x=0.0, y=2.0, z=0.0), target=Point(x=0.0, y=0.0, z=0.0))
-camera.perceive(focal_point=Point(x=0.0, y=2.0, z=0.1), target=Point(x=0.0, y=0.0, z=0.0))
+  def save_data(self):
+    pass
+
+  def localize_projections_in_sensor_plane(self):
+    object_name = self.environment.model.object_name
+    bpy.data.objects[object_name].hide_viewport = True
+    self.environment.obj = hide_viewport = True
+
+    img = Image.open('entropy.png')
+
+    for i in range(100):
+      h = int(random.uniform(0, self.projectors.horizontal_pixels))
+      v = int(random.uniform(0, self.projectors.vertical_pixels))
+      self.projectors.sampled_hitpoint_pixels.append((h,v))
+    # for h in range(self.projectors.horizontal_pixels):   
+    #   for v in range(self.projectors.vertical_pixels):
+      origin = self.projectors.pixels[h][v].hitpoint
+      destination = self.sensors.focal_point
+      distance = origin.distance(destination)
+      unit_x = (destination.x - origin.x) / distance
+      unit_y = (destination.y - origin.y) / distance
+      unit_z = (destination.z - origin.z) / distance
+      direction = Vector((unit_x, unit_y, unit_z))
+
+      # move a millimeter closer to sensor, to escape object originally hit
+      origin.x = origin.x + unit_x * 0.001
+      origin.y = origin.y + unit_y * 0.001
+      origin.z = origin.z + unit_z * 0.001
+
+      hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=Vector((origin.x, origin.y, origin.z)), direction=direction)
+
+      if not hit:
+        print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
+        print("Try expanding the size of the sensor plane".format(h, v))
+      self.projectors.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
+      print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.projectors.pixels[h][v].hitpoint.xyz(), self.projectors.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
+
+      # random_hitpoint_sample = random.uniform(0, 1)
+      # if random_hitpoint_sample > 0.995:
+      pixel = img.getpixel((h,v))
+      diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
+      self.projectors.highlight_hitpoint(location, diffuse_color)
+
+    self.localization_in_sensor_coordinates()
+    for hitpoint in self.projectors.highlighted_hitpoints:
+      hitpoint.hide_viewport = False
+    bpy.data.objects[object_name].hide_viewport = False
+    self.environment.obj = hide_viewport = False
 
 
-hitpoint_locations, hitpoint_colors, hitpoint_image_origins = lasers.raycasts_from_pixels()
+  def localization_in_sensor_coordinates(self):
+    min_h = 0
+    min_v = 0
+    max_h = self.sensors.horizontal_pixels - 1
+    max_v = self.sensors.vertical_pixels - 1
 
-# make hitpoints properties of OpticalSystem Pixels
-# create mesh in the plane of the camera sensor
-# create method for launching raycasts from first set of projected hitpoints through camera focal point to mesh of camera sensor plane
-# convert (x,y,z) of camera mesh hitpoints to (h,v) sub-pixel coordinates in camera space
+    origin = self.sensors.pixels[max_h][max_v].center
+    h_edge = self.sensors.pixels[max_h][min_v].center
+    v_edge = self.sensors.pixels[min_h][max_v].center
+
+    # #pixel = img.getpixel((h,v))
+    # v_color = (1, 0, 0, 1)
+    # self.projectors.highlight_hitpoint(v_edge.xyz(), v_color)
+
+    # h_color = (0, 1, 0, 1)
+    # self.projectors.highlight_hitpoint(h_edge.xyz(), h_color)
+
+    # origin_color = (0, 0, 1, 1)
+    # self.projectors.highlight_hitpoint(origin.xyz(), origin_color)
+
+    distance_v_o = origin.distance(v_edge)
+    distance_h_o = origin.distance(h_edge)
+
+    unit_x_v = (v_edge.x - origin.x) / distance_v_o
+    unit_y_v = (v_edge.y - origin.y) / distance_v_o
+    unit_z_v = (v_edge.z - origin.z) / distance_v_o
+
+    unit_x_h = (h_edge.x - origin.x) / distance_h_o
+    unit_y_h = (h_edge.y - origin.y) / distance_h_o
+    unit_z_h = (h_edge.z - origin.z) / distance_h_o
+
+    # s_h = 4.0
+    # s_v = 1.0
+
+    # test_x = origin.x + unit_x_v * distance_v_o * s_v + unit_x_h * distance_h_o * s_h
+    # test_y = origin.y + unit_y_v * distance_v_o * s_v + unit_y_h * distance_h_o * s_h
+    # test_z = origin.z + unit_z_v * distance_v_o * s_v + unit_z_h * distance_h_o * s_h
+    # test_corner = Point(test_x, test_y, test_z)
+
+    # print("unit_x_v")
+
+    # test_color = (1, 1, 1, 1)
+    # self.projectors.highlight_hitpoint(test_corner.xyz(), test_color)
+
+    normalizing_h_denominator = distance_h_o * unit_y_h   #(v_edge.z - origin.z) * (origin.y - h_edge.z) + (origin.y - v_edge.y) * (origin.z - h_edge.z)
+    normalizing_v_denominator = distance_v_o * (unit_x_v - (unit_x_h / unit_y_h) * unit_y_v )
+    y_v = unit_y_v * distance_v_o
+    unit_h_xy = unit_x_h / unit_y_h 
+  
+    for hitpoint, coordinate in zip(self.projectors.highlighted_hitpoints, self.projectors.sampled_hitpoint_pixels):
+      h, v = coordinate
+    # for h in range(self.projectors.horizontal_pixels):   
+    #   for v in range(self.projectors.vertical_pixels):
+      hitpoint = self.projectors.pixels[h][v].hitpoint_in_sensor_plane
+      #print("Hitpoint: {}".format(hitpoint.xyz()))
+
+      numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy) #(hitpoint.y + relative_h * (origin.y - h_edge.y) - origin.y)
+
+      relative_v = numerator_relative_v / normalizing_v_denominator
+
+      numerator_relative_h = ( (hitpoint.y - origin.y) - relative_v * y_v)   #(v_edge.y * (hitpoint.y - origin.y) - origin.y * hitpoint.y - v_edge.z * (hitpoint.y - origin.y) + origin.z * hitpoint.y)
+      relative_h = numerator_relative_h / normalizing_h_denominator
+
+      relative_projected_h = h / float(self.projectors.horizontal_pixels)
+      relative_projected_v = v / float(self.projectors.vertical_pixels)
+
+      print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
+      print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
+      print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
+      print("Numerator relative h: {}".format(numerator_relative_h))
+      print("Numerator relative v: {}".format(numerator_relative_v))
+
+    print("h_edge: {}".format(h_edge.xyz()))
+    print("v_edge: {}".format(v_edge.xyz()))
+    print("origin: {}".format(origin.xyz()))
+    print(normalizing_h_denominator)
+    print(normalizing_v_denominator)
+
+
+    print("unit_x_h: {}".format(unit_x_h))
+    print("unit_y_h: {}".format(unit_y_h))
+    print("unit_z_h: {}".format(unit_z_h))
+    print("unit_x_v: {}".format(unit_x_v))
+    print("unit_y_v: {}".format(unit_y_v))
+    print("unit_z_v: {}".format(unit_z_v))
+    print("distance_v_o: {}".format(distance_v_o))
+    print("distance_h_o: {}".format(distance_h_o))
+    print("test_corner: {}".format(test_corner.xyz()))
+
+    print("unit_x_v")
+
+
+if __name__ == "__main__":
+  environment = Environment(model="phone.dae")
+
+  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=100, horizontal_pixels=150, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
+  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+
+  scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy.png", environment=environment)
+  scanner.scan(location=Point(0.0, 0.0, 0.0))
