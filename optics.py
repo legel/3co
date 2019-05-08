@@ -517,6 +517,7 @@ class Environment():
     self.model = Model(model_filepath)
 
   def create_mesh(self):
+    bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
     self.mesh = bpy.data.meshes.new("vinyl_backdrop")
     self.obj = bpy.data.objects.new("vinyl_backdrop_object", self.mesh)
     bpy.context.collection.objects.link(self.obj)
