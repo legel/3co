@@ -707,9 +707,9 @@ class Scanner():
       relative_projected_h = h / float(self.projectors.horizontal_pixels)
       relative_projected_v = v / float(self.projectors.vertical_pixels)
 
-      #print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
-      #print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
-      #print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
+      print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
+      print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
+      print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
       #print("Numerator relative h: {}".format(numerator_relative_h))
       #print("Numerator relative v: {}".format(numerator_relative_v))
 
@@ -736,10 +736,10 @@ class Scanner():
 if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
-  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=100, horizontal_pixels=150, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
+  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
  
 
-  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=64, horizontal_pixels=114) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy.png", environment=environment)
   scanner.scan(location=Point(0.0, 0.0, 0.0))
