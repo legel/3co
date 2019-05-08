@@ -10,8 +10,14 @@ from PIL import Image
 from mathutils import Vector
 
 bpy.context.scene.render.engine = 'CYCLES'
-bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
-bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
+bpy.context.scene.cycles.device = 'GPU'
+
+cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
+cprefs.compute_device_type = 'CUDA'
+for device in cprefs.devices:
+    device.use = True
+
+#bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 
 class Point():
   def __init__(self, x=0, y=0, z=0):
@@ -132,6 +138,7 @@ class Photonics():
     # pixel_size  :: size of one side of pixel in real space in meters, assuming pixel is a square
     # vertical_pixels  :: number of vertical pixels
     # horionztal_pixels :: number of horizontal pixels  
+    time_start = time.time()
     self.focal_point = focal_point
     self.focal_length = focal_length
     self.vertical_pixels = vertical_pixels
@@ -151,6 +158,8 @@ class Photonics():
       self.initialize_projectors()
     elif projectors_or_sensors == "sensors":
       self.initialize_sensors()
+    time_end = time.time()
+    print("Launched {} in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
 
   def initialize_sensors(self):
     self.sensor_data = bpy.data.cameras.new("sensor_data")
@@ -248,9 +257,17 @@ class Photonics():
 
   def focus_on(self, target):
     # target :: target point in (x,y,z) toward which the optical system is oriented
+    time_start = time.time()
     self.target = target
     self.reorient()
+    time_end = time.time()
+    print("Orientations of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
+
+    time_start = time.time()
     self.measure_raycasts_from_pixels()
+    time_end = time.time()
+    print("Raycasts of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
+
     if self.projectors_or_sensors == "sensors":
       self.expand_plane_of_sensor()
 
@@ -556,9 +573,19 @@ class Scanner():
       self.localizations = []
       self.projectors.focus_on(location)
     self.sensors.focus_on(location)
+    time_start = time.time()
     self.save_data() # save metadata of hitpoints, etc. for training
+
+    print("Rendering...")
+    bpy.data.scenes["Scene"].render.filepath = 'projected_image.png'
+    bpy.ops.render.render( write_still=True )
+    print("Wrote image...")
+
     if self.projectors: 
       self.localize_projections_in_sensor_plane()
+    time_end = time.time()
+    print("Computed localizations in {} seconds".format(round(time_end - time_start, 4)))
+
 
   def save_data(self):
     pass
@@ -595,7 +622,7 @@ class Scanner():
         print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
         print("Try expanding the size of the sensor plane".format(h, v))
       self.projectors.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
-      print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.projectors.pixels[h][v].hitpoint.xyz(), self.projectors.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
+      #print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.projectors.pixels[h][v].hitpoint.xyz(), self.projectors.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
 
       # random_hitpoint_sample = random.uniform(0, 1)
       # if random_hitpoint_sample > 0.995:
@@ -676,37 +703,39 @@ class Scanner():
       relative_projected_h = h / float(self.projectors.horizontal_pixels)
       relative_projected_v = v / float(self.projectors.vertical_pixels)
 
-      print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
-      print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
-      print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
-      print("Numerator relative h: {}".format(numerator_relative_h))
-      print("Numerator relative v: {}".format(numerator_relative_v))
+      #print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
+      #print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
+      #print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
+      #print("Numerator relative h: {}".format(numerator_relative_h))
+      #print("Numerator relative v: {}".format(numerator_relative_v))
 
-    print("h_edge: {}".format(h_edge.xyz()))
-    print("v_edge: {}".format(v_edge.xyz()))
-    print("origin: {}".format(origin.xyz()))
-    print(normalizing_h_denominator)
-    print(normalizing_v_denominator)
+    #print("h_edge: {}".format(h_edge.xyz()))
+    #print("v_edge: {}".format(v_edge.xyz()))
+    #print("origin: {}".format(origin.xyz()))
+    #print(normalizing_h_denominator)
+    #print(normalizing_v_denominator)
 
 
-    print("unit_x_h: {}".format(unit_x_h))
-    print("unit_y_h: {}".format(unit_y_h))
-    print("unit_z_h: {}".format(unit_z_h))
-    print("unit_x_v: {}".format(unit_x_v))
-    print("unit_y_v: {}".format(unit_y_v))
-    print("unit_z_v: {}".format(unit_z_v))
-    print("distance_v_o: {}".format(distance_v_o))
-    print("distance_h_o: {}".format(distance_h_o))
+    #print("unit_x_h: {}".format(unit_x_h))
+    #print("unit_y_h: {}".format(unit_y_h))
+    #print("unit_z_h: {}".format(unit_z_h))
+    #print("unit_x_v: {}".format(unit_x_v))
+    #print("unit_y_v: {}".format(unit_y_v))
+    #print("unit_z_v: {}".format(unit_z_v))
+    #print("distance_v_o: {}".format(distance_v_o))
+    #print("distance_h_o: {}".format(distance_h_o))
     #print("test_corner: {}".format(test_corner.xyz()))
 
-    print("unit_x_v")
+    #print("unit_x_v")
 
 
 if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=100, horizontal_pixels=150, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
-  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+ 
+
+  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=64, horizontal_pixels=114) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy.png", environment=environment)
   scanner.scan(location=Point(0.0, 0.0, 0.0))
