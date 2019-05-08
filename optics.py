@@ -9,14 +9,6 @@ import bmesh
 from PIL import Image
 from mathutils import Vector
 
-bpy.context.scene.render.engine = 'CYCLES'
-bpy.context.scene.cycles.device = 'GPU'
-
-cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
-cprefs.compute_device_type = 'CUDA'
-for device in cprefs.devices:
-    device.use = True
-
 #bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 
 class Point():
@@ -509,15 +501,25 @@ class Model():
 
 class Environment():
   def __init__(self, model):
+    self.setup_preferences()
     self.add_model(model_filepath=model)
     self.create_mesh()
     self.create_materials()
+
+  def setup_preferences(self):
+    bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
+
+    bpy.context.scene.render.engine = 'CYCLES'
+    bpy.context.scene.cycles.device = 'GPU'
+    cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
+    cprefs.compute_device_type = 'CUDA'
+    for device in cprefs.devices:
+        device.use = True
 
   def add_model(self,model_filepath):
     self.model = Model(model_filepath)
 
   def create_mesh(self):
-    bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
     self.mesh = bpy.data.meshes.new("vinyl_backdrop")
     self.obj = bpy.data.objects.new("vinyl_backdrop_object", self.mesh)
     bpy.context.collection.objects.link(self.obj)
