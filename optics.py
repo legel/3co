@@ -157,6 +157,7 @@ class Photonics():
     self.sensor_data = bpy.data.cameras.new("sensor_data")
     self.sensors = bpy.data.objects.new("sensor_object", self.sensor_data)
     bpy.context.scene.collection.objects.link(self.sensors)
+    bpy.context.scene.camera = self.sensors
     bpy.data.cameras["sensor_data"].clip_start = 0.01 # meters
     bpy.data.cameras["sensor_data"].lens = self.focal_length * 1000 # millimeters
     if self.hardcode_field_of_view:
