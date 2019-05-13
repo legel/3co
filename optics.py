@@ -578,13 +578,22 @@ class Scanner():
     if structured_light_image:
       self.projectors.image_to_project = bpy.data.images.load(structured_light_image)
 
-  def scan(self, location):
-    if self.projectors: # first project on location, if scanner has projectors
-      self.localizations = []
-      self.projectors.focus_on(location)
-    self.sensors.focus_on(location)
+  def scan(self, location, precomputed=False):
+    if precomputed:
+      print("Loading precomputed projectors and sensors...")
+      with open("sensors.txt", ‘rb’) as f:
+        self.sensors = pickle.load(f)
 
-    self.save_data() # save metadata of hitpoints, etc. for training
+      with open("projectors.txt", ‘rb’) as f:
+        self.projectors = pickle.load(f)
+
+    else:
+      if self.projectors: # first project on location, if scanner has projectors
+        self.localizations = []
+        self.projectors.focus_on(location)
+      self.sensors.focus_on(location)
+
+      self.save_data() # save metadata of hitpoints, etc. for training
 
     print("Rendering...")
     time_start = time.time()
@@ -708,4 +717,4 @@ if __name__ == "__main__":
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.005, pixel_size=0.001, vertical_pixels=10, horizontal_pixels=10) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy_nano.png", environment=environment)
-  scanner.scan(location=Point(0.0, 0.0, 0.0))
+  scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=True)
