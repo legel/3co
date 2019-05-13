@@ -256,10 +256,11 @@ class Photonics():
     time_end = time.time()
     print("Orientations of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
 
-    time_start = time.time()
-    self.measure_raycasts_from_pixels()
-    time_end = time.time()
-    print("Raycasts of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
+    if self.projectors_or_sensors == "projectors":
+      time_start = time.time()
+      self.measure_raycasts_from_pixels()
+      time_end = time.time()
+      print("Raycasts of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
 
     if self.projectors_or_sensors == "sensors":
       self.expand_plane_of_sensor()
@@ -601,38 +602,38 @@ class Scanner():
 
     img = Image.open('entropy.png')
 
-    for i in range(100):
-      h = int(random.uniform(0, self.projectors.horizontal_pixels))
-      v = int(random.uniform(0, self.projectors.vertical_pixels))
-      self.projectors.sampled_hitpoint_pixels.append((h,v))
-    # for h in range(self.projectors.horizontal_pixels):   
-    #   for v in range(self.projectors.vertical_pixels):
-      origin = self.projectors.pixels[h][v].hitpoint
-      destination = self.sensors.focal_point
-      distance = origin.distance(destination)
-      unit_x = (destination.x - origin.x) / distance
-      unit_y = (destination.y - origin.y) / distance
-      unit_z = (destination.z - origin.z) / distance
-      direction = Vector((unit_x, unit_y, unit_z))
+#    for i in range(100):
+#      h = int(random.uniform(0, self.projectors.horizontal_pixels))
+#      v = int(random.uniform(0, self.projectors.vertical_pixels))
+#      self.projectors.sampled_hitpoint_pixels.append((h,v))
+    for h in range(self.projectors.horizontal_pixels):   
+      for v in range(self.projectors.vertical_pixels):
+        origin = self.projectors.pixels[h][v].hitpoint
+        destination = self.sensors.focal_point
+        distance = origin.distance(destination)
+        unit_x = (destination.x - origin.x) / distance
+        unit_y = (destination.y - origin.y) / distance
+        unit_z = (destination.z - origin.z) / distance
+        direction = Vector((unit_x, unit_y, unit_z))
 
-      # move a millimeter closer to sensor, to escape object originally hit
-      origin.x = origin.x + unit_x * 0.001
-      origin.y = origin.y + unit_y * 0.001
-      origin.z = origin.z + unit_z * 0.001
+        # move a millimeter closer to sensor, to escape object originally hit
+        origin.x = origin.x + unit_x * 0.001
+        origin.y = origin.y + unit_y * 0.001
+        origin.z = origin.z + unit_z * 0.001
 
-      hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=Vector((origin.x, origin.y, origin.z)), direction=direction)
+        hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=Vector((origin.x, origin.y, origin.z)), direction=direction)
 
-      if not hit:
-        print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
-        print("Try expanding the size of the sensor plane".format(h, v))
-      self.projectors.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
-      #print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.projectors.pixels[h][v].hitpoint.xyz(), self.projectors.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
+        if not hit:
+          print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
+          print("Try expanding the size of the sensor plane".format(h, v))
+        self.projectors.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
+        #print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.projectors.pixels[h][v].hitpoint.xyz(), self.projectors.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
 
-      # random_hitpoint_sample = random.uniform(0, 1)
-      # if random_hitpoint_sample > 0.995:
-      pixel = img.getpixel((h,v))
-      diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
-      self.projectors.highlight_hitpoint(location, diffuse_color)
+        # random_hitpoint_sample = random.uniform(0, 1)
+        # if random_hitpoint_sample > 0.995:
+        pixel = img.getpixel((h,v))
+        diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
+        self.projectors.highlight_hitpoint(location, diffuse_color)
 
     self.localization_in_sensor_coordinates()
     for hitpoint in self.projectors.highlighted_hitpoints:
@@ -739,7 +740,7 @@ if __name__ == "__main__":
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
  
 
-  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.005, pixel_size=0.001, vertical_pixels=10, horizontal_pixels=10) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
-  scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy.png", environment=environment)
+  scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy_nano.png", environment=environment)
   scanner.scan(location=Point(0.0, 0.0, 0.0))
