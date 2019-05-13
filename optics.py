@@ -8,8 +8,17 @@ from math import cos, sin
 import bmesh
 from PIL import Image
 from mathutils import Vector
+import pickle
 
 #bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
+bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
+
+bpy.context.scene.render.engine = 'CYCLES'
+bpy.context.scene.cycles.device = 'GPU'
+cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
+cprefs.compute_device_type = 'CUDA'
+for device in cprefs.devices:
+    device.use = True
 
 class Point():
   def __init__(self, x=0, y=0, z=0):
@@ -229,7 +238,8 @@ class Photonics():
 
     # image texture
     image_texture = self.projector_data.node_tree.nodes.new(type='ShaderNodeTexImage')
-    image_texture.image = bpy.data.images.load('entropy.png')
+
+    image_texture.image = bpy.data.images.load(self.structured_light_image)
     self.image_to_project = image_texture.image
 
     image_texture.extension = 'CLIP'
@@ -265,7 +275,7 @@ class Photonics():
     if self.projectors_or_sensors == "sensors":
       self.expand_plane_of_sensor()
 
-  def expand_plane_of_sensor(self, expansion=1.0): # expansion is a multiplier of the size of the sensor plane
+  def expand_plane_of_sensor(self, expansion=5.0): # expansion is a multiplier of the size of the sensor plane
     min_h = 0
     min_v = 0
     max_h = self.horizontal_pixels - 1
@@ -503,20 +513,13 @@ class Model():
 
 class Environment():
   def __init__(self, model):
-    self.setup_preferences()
+    #self.setup_preferences()
     self.add_model(model_filepath=model)
     self.create_mesh()
     self.create_materials()
 
   def setup_preferences(self):
     bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
-
-    bpy.context.scene.render.engine = 'CYCLES'
-    bpy.context.scene.cycles.device = 'GPU'
-    cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
-    cprefs.compute_device_type = 'CUDA'
-    for device in cprefs.devices:
-        device.use = True
 
   def add_model(self,model_filepath):
     self.model = Model(model_filepath)
@@ -570,6 +573,8 @@ class Scanner():
     self.environment = environment
     self.sensors = sensors
     self.projectors = projectors
+    self.projectors.structured_light_image = structured_light_image
+    self.structured_light_image = structured_light_image
     if structured_light_image:
       self.projectors.image_to_project = bpy.data.images.load(structured_light_image)
 
@@ -596,14 +601,21 @@ class Scanner():
 
 
   def save_data(self):
-    pass
+    print("Pickling variable data...")
+
+    with open("sensors.txt", ‘wb’) as f:
+      pickle.dump(self.sensors, f)
+
+    with open("projectors.txt", ‘wb’) as f:
+      pickle.dump(self.projectors, f)
+    
 
   def localize_projections_in_sensor_plane(self):
     object_name = self.environment.model.object_name
     bpy.data.objects[object_name].hide_viewport = True
     self.environment.obj = hide_viewport = True
 
-    img = Image.open('entropy.png')
+    img = Image.open(self.structured_light_image)
 
 #    for i in range(100):
 #      h = int(random.uniform(0, self.projectors.horizontal_pixels))
