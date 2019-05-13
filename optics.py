@@ -578,14 +578,17 @@ class Scanner():
       self.localizations = []
       self.projectors.focus_on(location)
     self.sensors.focus_on(location)
-    time_start = time.time()
+
     self.save_data() # save metadata of hitpoints, etc. for training
 
     print("Rendering...")
-    bpy.data.scenes["Scene"].render.filepath = 'projected_image.png'
+    time_start = time.time()
+    bpy.data.scenes["Scene"].render.filepath = 'projected_image_nano.png'
     bpy.ops.render.render( write_still=True )
-    print("Wrote image...")
+    time_end = time.time()
+    print("Rendered image in {} seconds".format(round(time_end - time_start, 4)))
 
+    time_start = time.time()
     if self.projectors: 
       self.localize_projections_in_sensor_plane()
     time_end = time.time()
@@ -631,9 +634,9 @@ class Scanner():
 
         # random_hitpoint_sample = random.uniform(0, 1)
         # if random_hitpoint_sample > 0.995:
-        pixel = img.getpixel((h,v))
-        diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
-        self.projectors.highlight_hitpoint(location, diffuse_color)
+        #pixel = img.getpixel((h,v))
+        #diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
+        #self.projectors.highlight_hitpoint(location, diffuse_color)
 
     self.localization_in_sensor_coordinates()
     for hitpoint in self.projectors.highlighted_hitpoints:
@@ -652,16 +655,6 @@ class Scanner():
     h_edge = self.sensors.pixels[max_h][min_v].center
     v_edge = self.sensors.pixels[min_h][max_v].center
 
-    # #pixel = img.getpixel((h,v))
-    # v_color = (1, 0, 0, 1)
-    # self.projectors.highlight_hitpoint(v_edge.xyz(), v_color)
-
-    # h_color = (0, 1, 0, 1)
-    # self.projectors.highlight_hitpoint(h_edge.xyz(), h_color)
-
-    # origin_color = (0, 0, 1, 1)
-    # self.projectors.highlight_hitpoint(origin.xyz(), origin_color)
-
     distance_v_o = origin.distance(v_edge)
     distance_h_o = origin.distance(h_edge)
 
@@ -673,73 +666,33 @@ class Scanner():
     unit_y_h = (h_edge.y - origin.y) / distance_h_o
     unit_z_h = (h_edge.z - origin.z) / distance_h_o
 
-    # s_h = 4.0
-    # s_v = 1.0
-
-    # test_x = origin.x + unit_x_v * distance_v_o * s_v + unit_x_h * distance_h_o * s_h
-    # test_y = origin.y + unit_y_v * distance_v_o * s_v + unit_y_h * distance_h_o * s_h
-    # test_z = origin.z + unit_z_v * distance_v_o * s_v + unit_z_h * distance_h_o * s_h
-    # test_corner = Point(test_x, test_y, test_z)
-
-    # print("unit_x_v")
-
-    # test_color = (1, 1, 1, 1)
-    # self.projectors.highlight_hitpoint(test_corner.xyz(), test_color)
-
     normalizing_h_denominator = distance_h_o * unit_y_h   #(v_edge.z - origin.z) * (origin.y - h_edge.z) + (origin.y - v_edge.y) * (origin.z - h_edge.z)
     normalizing_v_denominator = distance_v_o * (unit_x_v - (unit_x_h / unit_y_h) * unit_y_v )
     y_v = unit_y_v * distance_v_o
     unit_h_xy = unit_x_h / unit_y_h 
   
-    for hitpoint, coordinate in zip(self.projectors.highlighted_hitpoints, self.projectors.sampled_hitpoint_pixels):
-      h, v = coordinate
-    # for h in range(self.projectors.horizontal_pixels):   
-    #   for v in range(self.projectors.vertical_pixels):
-      hitpoint = self.projectors.pixels[h][v].hitpoint_in_sensor_plane
-      #print("Hitpoint: {}".format(hitpoint.xyz()))
+    for h in range(self.projectors.horizontal_pixels):   
+      for v in range(self.projectors.vertical_pixels):
+        hitpoint = self.projectors.pixels[h][v].hitpoint_in_sensor_plane
 
-      numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy) #(hitpoint.y + relative_h * (origin.y - h_edge.y) - origin.y)
+        numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy)
+        relative_v = numerator_relative_v / normalizing_v_denominator
 
-      relative_v = numerator_relative_v / normalizing_v_denominator
+        numerator_relative_h = ( (hitpoint.y - origin.y) - relative_v * y_v)
+        relative_h = numerator_relative_h / normalizing_h_denominator
 
-      numerator_relative_h = ( (hitpoint.y - origin.y) - relative_v * y_v)   #(v_edge.y * (hitpoint.y - origin.y) - origin.y * hitpoint.y - v_edge.z * (hitpoint.y - origin.y) + origin.z * hitpoint.y)
-      relative_h = numerator_relative_h / normalizing_h_denominator
+        relative_projected_h = h / float(self.projectors.horizontal_pixels)
+        relative_projected_v = v / float(self.projectors.vertical_pixels)
 
-      relative_projected_h = h / float(self.projectors.horizontal_pixels)
-      relative_projected_v = v / float(self.projectors.vertical_pixels)
-
-      print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
-      print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
-      print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
-      #print("Numerator relative h: {}".format(numerator_relative_h))
-      #print("Numerator relative v: {}".format(numerator_relative_v))
-
-    #print("h_edge: {}".format(h_edge.xyz()))
-    #print("v_edge: {}".format(v_edge.xyz()))
-    #print("origin: {}".format(origin.xyz()))
-    #print(normalizing_h_denominator)
-    #print(normalizing_v_denominator)
-
-
-    #print("unit_x_h: {}".format(unit_x_h))
-    #print("unit_y_h: {}".format(unit_y_h))
-    #print("unit_z_h: {}".format(unit_z_h))
-    #print("unit_x_v: {}".format(unit_x_v))
-    #print("unit_y_v: {}".format(unit_y_v))
-    #print("unit_z_v: {}".format(unit_z_v))
-    #print("distance_v_o: {}".format(distance_v_o))
-    #print("distance_h_o: {}".format(distance_h_o))
-    #print("test_corner: {}".format(test_corner.xyz()))
-
-    #print("unit_x_v")
+        print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
+        print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
+        print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
 
 
 if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
- 
-
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.005, pixel_size=0.001, vertical_pixels=10, horizontal_pixels=10) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy_nano.png", environment=environment)
