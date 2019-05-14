@@ -16,8 +16,8 @@ bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, remov
 bpy.context.scene.render.engine = 'CYCLES'
 # bpy.context.scene.cycles.device = 'GPU'
 
-bpy.context.user_preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
-bpy.context.user_preferences.addons['cycles'].preferences.devices[0].use = True
+bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
+bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 
 # cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
 # cprefs.compute_device_type = 'CUDA'
