@@ -581,10 +581,10 @@ class Scanner():
   def scan(self, location, precomputed=False):
     if precomputed:
       print("Loading precomputed projectors and sensors...")
-      with open("sensors.txt", ‘rb’) as f:
+      with open("sensors.txt", 'rb') as f:
         self.sensors = pickle.load(f)
 
-      with open("projectors.txt", ‘rb’) as f:
+      with open("projectors.txt", 'rb') as f:
         self.projectors = pickle.load(f)
 
     else:
@@ -612,10 +612,10 @@ class Scanner():
   def save_data(self):
     print("Pickling variable data...")
 
-    with open("sensors.txt", ‘wb’) as f:
+    with open("sensors.txt", 'wb') as f:
       pickle.dump(self.sensors, f)
 
-    with open("projectors.txt", ‘wb’) as f:
+    with open("projectors.txt", 'wb') as f:
       pickle.dump(self.projectors, f)
     
 
