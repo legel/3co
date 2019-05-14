@@ -132,13 +132,15 @@ class Pixel():
 
 
 class Photonics():
-  def __init__(self, projectors_or_sensors, focal_point, focal_length, pixel_size, vertical_pixels, horizontal_pixels, hardcode_field_of_view=False):
+  def __init__(self, projectors_or_sensors, focal_point, focal_length, pixel_size, vertical_pixels, horizontal_pixels, hardcode_field_of_view=False, image=None):
     # projectors_or_sensors  :: value is a string "projectors" or "sensors" to describe if pixels should emit or sense photons
     # focal_point  :: focal point in (x,y,z) at which the optical system is positioned
     # focal_length  :: focal length in meters
     # pixel_size  :: size of one side of pixel in real space in meters, assuming pixel is a square
     # vertical_pixels  :: number of vertical pixels
     # horionztal_pixels :: number of horizontal pixels  
+    # hardcode_field_of_view :: for testing purposes, fix FOV regardless of provided number of pixels
+    # image :: for projectors, .png image to project 
     time_start = time.time()
     self.focal_point = focal_point
     self.focal_length = focal_length
@@ -156,6 +158,7 @@ class Photonics():
     self.highlighted_hitpoints = []
     self.sampled_hitpoint_pixels = []
     if projectors_or_sensors == "projectors":
+      self.image = image
       self.initialize_projectors()
     elif projectors_or_sensors == "sensors":
       self.initialize_sensors()
@@ -239,7 +242,7 @@ class Photonics():
     # image texture
     image_texture = self.projector_data.node_tree.nodes.new(type='ShaderNodeTexImage')
 
-    image_texture.image = bpy.data.images.load(self.structured_light_image)
+    image_texture.image = bpy.data.images.load(self.image)
     self.image_to_project = image_texture.image
 
     image_texture.extension = 'CLIP'
@@ -569,14 +572,10 @@ class Environment():
 
 
 class Scanner():
-  def __init__(self, sensors, projectors=None, structured_light_image=None, environment=None):
+  def __init__(self, sensors, projectors=None, environment=None):
     self.environment = environment
     self.sensors = sensors
     self.projectors = projectors
-    self.projectors.structured_light_image = structured_light_image
-    self.structured_light_image = structured_light_image
-    if structured_light_image:
-      self.projectors.image_to_project = bpy.data.images.load(structured_light_image)
 
   def scan(self, location, precomputed=False):
     if precomputed:
@@ -624,7 +623,7 @@ class Scanner():
     bpy.data.objects[object_name].hide_viewport = True
     self.environment.obj = hide_viewport = True
 
-    img = Image.open(self.structured_light_image)
+    img = Image.open(self.projectors.image)
 
 #    for i in range(100):
 #      h = int(random.uniform(0, self.projectors.horizontal_pixels))
@@ -714,7 +713,7 @@ if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=100, horizontal_pixels=150, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
-  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01, pixel_size=0.001, vertical_pixels=10, horizontal_pixels=10) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01, pixel_size=0.001, vertical_pixels=10, horizontal_pixels=10, image="entropy_nano.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
-  scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy_nano.png", environment=environment)
+  scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
   scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=False)
