@@ -690,6 +690,8 @@ class Scanner():
     normalizing_v_denominator = distance_v_o * (unit_x_v - (unit_x_h / unit_y_h) * unit_y_v )
     y_v = unit_y_v * distance_v_o
     unit_h_xy = unit_x_h / unit_y_h 
+
+    img = Image.open(self.projectors.image)
   
     for h in range(self.projectors.horizontal_pixels):   
       for v in range(self.projectors.vertical_pixels):
@@ -704,6 +706,10 @@ class Scanner():
         relative_projected_h = h / float(self.projectors.horizontal_pixels)
         relative_projected_v = v / float(self.projectors.vertical_pixels)
 
+        pixel = img.getpixel((h,v))
+        diffuse_color = "RED: {}, GREEN: {}, BLUE: {}".format(pixel[0], pixel[1], pixel[2])
+        print("")
+        print(diffuse_color)
         print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
         print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
         print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
