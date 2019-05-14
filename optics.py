@@ -14,11 +14,15 @@ import pickle
 bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
 
 bpy.context.scene.render.engine = 'CYCLES'
-bpy.context.scene.cycles.device = 'GPU'
-cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
-cprefs.compute_device_type = 'CUDA'
-for device in cprefs.devices:
-    device.use = True
+# bpy.context.scene.cycles.device = 'GPU'
+
+bpy.context.user_preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
+bpy.context.user_preferences.addons['cycles'].preferences.devices[0].use = True
+
+# cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
+# cprefs.compute_device_type = 'CUDA'
+# for device in cprefs.devices:
+#     device.use = True
 
 class Point():
   def __init__(self, x=0, y=0, z=0):
@@ -718,8 +722,8 @@ class Scanner():
 if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
-  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000858, vertical_pixels=1000, horizontal_pixels=1500, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184
-  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01, pixel_size=0.00001, vertical_pixels=640, horizontal_pixels=1140, image="entropy_q.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01200, pixel_size=0.000012, vertical_pixels=1000, horizontal_pixels=1500, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
+  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01, pixel_size=0.00001, vertical_pixels=768, horizontal_pixels=1366, image="entropy_q.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
   scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=False)
