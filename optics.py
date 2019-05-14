@@ -593,7 +593,7 @@ class Scanner():
         self.projectors.focus_on(location)
       self.sensors.focus_on(location)
 
-      self.save_data() # save metadata of hitpoints, etc. for training
+      #self.save_data() # save metadata of hitpoints, etc. for training
 
     print("Rendering...")
     time_start = time.time()
@@ -713,8 +713,8 @@ class Scanner():
 if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
-  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
+  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.02400, pixel_size=0.00000429, vertical_pixels=100, horizontal_pixels=150, hardcode_field_of_view=True) # 100 x 150 / 3456 x 5184
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01, pixel_size=0.001, vertical_pixels=10, horizontal_pixels=10) # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, structured_light_image="entropy_nano.png", environment=environment)
-  scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=True)
+  scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=False)
