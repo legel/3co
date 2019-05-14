@@ -11,11 +11,12 @@ from mathutils import Vector
 import pickle
 
 #bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
-bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
+#bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
 
 bpy.context.scene.render.engine = 'CYCLES'
 # bpy.context.scene.cycles.device = 'GPU'
-
+bpy.context.preferences.addons['cycles'].preferences.get_devices()
+print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
 bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
 bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 
