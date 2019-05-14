@@ -671,7 +671,7 @@ class Scanner():
     max_h = self.sensors.horizontal_pixels - 1
     max_v = self.sensors.vertical_pixels - 1
 
-    origin = self.sensors.pixels[max_h][max_v].center
+    origin = self.sensors.pixels[min_h][min_v].center
     h_edge = self.sensors.pixels[max_h][min_v].center
     v_edge = self.sensors.pixels[min_h][max_v].center
 
