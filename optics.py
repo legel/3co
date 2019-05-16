@@ -12,13 +12,18 @@ import pickle
 
 #bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 #bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
+bpy.ops.wm.open_mainfile(filepath="empty.blend")
 
 bpy.context.scene.render.engine = 'CYCLES'
 # bpy.context.scene.cycles.device = 'GPU'
 bpy.context.preferences.addons['cycles'].preferences.get_devices()
 # print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
-bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
-bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
+
+try:
+  bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
+  bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
+except TypeError:
+  pass
 
 # cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
 # cprefs.compute_device_type = 'CUDA'
@@ -175,7 +180,7 @@ class Photonics():
     self.sensors = bpy.data.objects.new("sensor_object", self.sensor_data)
     bpy.context.scene.collection.objects.link(self.sensors)
     bpy.context.scene.camera = self.sensors
-    bpy.data.cameras["sensor_data"].clip_start = 0.01 # meters
+    #bpy.data.cameras["sensor_data"].clip_start = 0.01 # meters
     bpy.data.cameras["sensor_data"].lens = self.focal_length * 1000 # millimeters
     if self.hardcode_field_of_view:
       bpy.data.cameras["sensor_data"].sensor_width = 0.00000429 * 5184 * 1000 # millimeters of pixel size x horizontal pixels on Canon 1300D
@@ -185,12 +190,12 @@ class Photonics():
       bpy.data.cameras["sensor_data"].sensor_width = self.horizontal_size * 1000 # millimeters
     bpy.data.scenes["Scene"].render.resolution_x = self.horizontal_pixels
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
-    bpy.data.cameras["sensor_data"].show_sensor = True
-    sensor_orientation_coordinates = bpy.data.cameras["sensor_data"].view_frame
-    print("Sensor coordinates from Blender:")
-    for coordinate in sensor_orientation_coordinates:
-      print("x: {}, y: {}, z: {}".format(coordinate))
-    print(sensor_orientation_coordinates)
+    # bpy.data.cameras["sensor_data"].show_sensor = True
+    # sensor_orientation_coordinates = bpy.data.cameras["sensor_data"].view_frame
+    # print("Sensor coordinates from Blender:")
+    # for coordinate in sensor_orientation_coordinates:
+    #   print("x: {}, y: {}, z: {}".format(coordinate))
+    # print(sensor_orientation_coordinates)
 
 
 
@@ -726,17 +731,19 @@ class Scanner():
 
         pixel = img.getpixel((h,v))
         diffuse_color = "RED: {}, GREEN: {}, BLUE: {}".format(pixel[0], pixel[1], pixel[2])
-        # print("")
-        # print(diffuse_color)
-        # print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
-        # print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
-        # print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
+
+
+        print("")
+        print(diffuse_color)
+        print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
+        print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
+        print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
 
 
 if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
-  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01200, pixel_size=0.000012, vertical_pixels=1000, horizontal_pixels=1500, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
+  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01200, pixel_size=0.00012, vertical_pixels=100, horizontal_pixels=150, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01, pixel_size=0.00001, vertical_pixels=768, horizontal_pixels=1366, image="entropy_q.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
