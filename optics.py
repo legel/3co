@@ -497,8 +497,14 @@ class Photonics():
     self.highlighted_hitpoints.append(sphere)
 
   def measure_raycasts_from_pixels(self):
-    for h in range(self.horizontal_pixels):   
-      for v in range(self.vertical_pixels):
+    min_h = 0
+    min_v = 0
+    max_h = self.horizontal_pixels - 1
+    max_v = self.vertical_pixels - 1
+
+    for h in [0, self.horizontal_pixels - 1]: #range(self.horizontal_pixels):   
+      for v in [0, self.vertical_pixels - 1]: #range(self.vertical_pixels):
+
         origin = Vector((self.pixels[h][v].center.x, self.pixels[h][v].center.y, self.pixels[h][v].center.z))
         direction = Vector((self.pixels[h][v].unit_x, self.pixels[h][v].unit_y, self.pixels[h][v].unit_z))
         hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)
@@ -652,8 +658,14 @@ class Scanner():
 #      h = int(random.uniform(0, self.projectors.horizontal_pixels))
 #      v = int(random.uniform(0, self.projectors.vertical_pixels))
 #      self.projectors.sampled_hitpoint_pixels.append((h,v))
-    for h in range(self.projectors.horizontal_pixels):   
-      for v in range(self.projectors.vertical_pixels):
+
+    # for h in range(self.projectors.horizontal_pixels):   
+    #   for v in range(self.projectors.vertical_pixels):
+
+    for h in [0, self.projectors.horizontal_pixels - 1]: #range(self.horizontal_pixels):   
+      for v in [0, self.projectors.vertical_pixels - 1]: 
+
+
         origin = self.projectors.pixels[h][v].hitpoint
         destination = self.sensors.focal_point
         distance = origin.distance(destination)
@@ -716,8 +728,12 @@ class Scanner():
 
     img = Image.open(self.projectors.image)
   
-    for h in range(self.projectors.horizontal_pixels):   
-      for v in range(self.projectors.vertical_pixels):
+#    for h in range(self.projectors.horizontal_pixels):   
+#      for v in range(self.projectors.vertical_pixels):
+
+    for h in [0, self.projectors.horizontal_pixels - 1]:   
+      for v in [0, self.projectors.vertical_pixels - 1]: 
+
         hitpoint = self.projectors.pixels[h][v].hitpoint_in_sensor_plane
 
         numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy)
