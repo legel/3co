@@ -16,7 +16,7 @@ import pickle
 bpy.context.scene.render.engine = 'CYCLES'
 # bpy.context.scene.cycles.device = 'GPU'
 bpy.context.preferences.addons['cycles'].preferences.get_devices()
-print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
+# print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
 bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
 bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 
@@ -185,6 +185,14 @@ class Photonics():
       bpy.data.cameras["sensor_data"].sensor_width = self.horizontal_size * 1000 # millimeters
     bpy.data.scenes["Scene"].render.resolution_x = self.horizontal_pixels
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
+    bpy.data.cameras["sensor_data"].show_sensor = True
+    sensor_orientation_coordinates = bpy.data.cameras["sensor_data"].view_frame
+    print("Sensor coordinates from Blender:")
+    for coordinate in sensor_orientation_coordinates:
+      print("x: {}, y: {}, z: {}".format(coordinate))
+    print(sensor_orientation_coordinates)
+
+
 
   def initialize_projectors(self):
     self.projector_data = bpy.data.lights.new(name="projector_data", type='SPOT')
@@ -292,6 +300,11 @@ class Photonics():
     min_h_max_v_corner = self.pixels[min_h][max_v].center
     max_h_min_v_corner = self.pixels[max_h][min_v].center
     max_h_max_v_corner = self.pixels[max_h][max_v].center
+    print("4 corners as computed from raw calculations:")
+    print(min_h_min_v_corner.xyz())
+    print(min_h_max_v_corner.xyz())
+    print(max_h_min_v_corner.xyz())
+    print(max_h_max_v_corner.xyz())
     expanded_corners = []
     for corner in [min_h_min_v_corner, min_h_max_v_corner, max_h_min_v_corner, max_h_max_v_corner]:
       expanded_x = (1 - expansion) * self.image_center.x + expansion * corner.x
@@ -713,11 +726,11 @@ class Scanner():
 
         pixel = img.getpixel((h,v))
         diffuse_color = "RED: {}, GREEN: {}, BLUE: {}".format(pixel[0], pixel[1], pixel[2])
-        print("")
-        print(diffuse_color)
-        print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
-        print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
-        print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
+        # print("")
+        # print(diffuse_color)
+        # print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
+        # print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
+        # print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
 
 
 if __name__ == "__main__":
