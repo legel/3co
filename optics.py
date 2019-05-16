@@ -15,9 +15,9 @@ import pickle
 bpy.ops.wm.open_mainfile(filepath="empty.blend")
 
 bpy.context.scene.render.engine = 'CYCLES'
-# bpy.context.scene.cycles.device = 'GPU'
+bpy.context.scene.cycles.device = 'GPU'
 bpy.context.preferences.addons['cycles'].preferences.get_devices()
-# print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
+print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
 
 try:
   bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
@@ -419,14 +419,18 @@ class Photonics():
     y_of_vertical_vectors = [(1 - relative_v) * self.image_center.y + relative_v * self.image_vertical_edge.y for relative_v in relative_vertical_coordinates]
     z_of_vertical_vectors = [(1 - relative_v) * self.image_center.z + relative_v * self.image_vertical_edge.z for relative_v in relative_vertical_coordinates]   
 
-    for h in range(self.horizontal_pixels):
+#    for h in range(self.horizontal_pixels):
+    for h in [0, self.horizontal_pixels - 1]:
+
       left_x_of_horizontal_vector = x_of_horizontal_vectors[h]
       left_y_of_horizontal_vector = y_of_horizontal_vectors[h]
       left_z_of_horizontal_vector = z_of_horizontal_vectors[h]
       right_x_of_horizontal_vector = x_of_horizontal_vectors[h+1]
       right_y_of_horizontal_vector = y_of_horizontal_vectors[h+1]
       right_z_of_horizontal_vector = z_of_horizontal_vectors[h+1]      
-      for v in range(self.vertical_pixels):
+      for v in [0, self.vertical_pixels - 1]: 
+#      for v in range(self.vertical_pixels):
+
         bottom_x_of_vertical_vector = x_of_vertical_vectors[v]
         bottom_y_of_vertical_vector = y_of_vertical_vectors[v]
         bottom_z_of_vertical_vector = z_of_vertical_vectors[v]
@@ -759,8 +763,8 @@ class Scanner():
 if __name__ == "__main__":
   environment = Environment(model="phone.dae")
 
-  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01200, pixel_size=0.00012, vertical_pixels=100, horizontal_pixels=150, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
-  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01, pixel_size=0.00001, vertical_pixels=768, horizontal_pixels=1366, image="entropy_q.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
+  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.024, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
+  lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(1.0, 1.0, 1.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
 
   scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
   scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=False)
