@@ -798,7 +798,7 @@ class Scanner():
 
 
 if __name__ == "__main__":
-  environment = Environment(model="phone.dae")
+  environment = Environment(model="/home/ubuntu/COLLADA/825adb49f4525ad125c8d3c1b3ef7c95.dae")
 
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(0.1, 0.1, 2.0), focal_length=0.024, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(-0.1, -0.1, 2.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
