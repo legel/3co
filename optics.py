@@ -13,13 +13,13 @@ import pickle
 #bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 #bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
 
-#bpy.ops.wm.open_mainfile(filepath="empty.blend")
+bpy.ops.wm.open_mainfile(filepath="empty.blend")
 
 bpy.context.scene.render.engine = 'CYCLES'
 
 try:
   bpy.context.preferences.addons['cycles'].preferences.get_devices()
-  print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
+  print(bpy.context.preferences.adFdons['cycles'].preferences.get_devices())
   bpy.context.scene.cycles.device = 'GPU'
   bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
   bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
@@ -143,7 +143,7 @@ class Pixel():
 
 
 class Photonics():
-  def __init__(self, projectors_or_sensors, focal_point, focal_length, pixel_size, vertical_pixels, horizontal_pixels, hardcode_field_of_view=False, image=None):
+  def __init__(self, projectors_or_sensors, focal_point, focal_length, pixel_size, vertical_pixels, horizontal_pixels, hardcode_field_of_view=False, image=None, target=None):
     # projectors_or_sensors  :: value is a string "projectors" or "sensors" to describe if pixels should emit or sense photons
     # focal_point  :: focal point in (x,y,z) at which the optical system is positioned
     # focal_length  :: focal length in meters
@@ -168,6 +168,7 @@ class Photonics():
     self.hardcode_field_of_view = hardcode_field_of_view
     self.highlighted_hitpoints = []
     self.sampled_hitpoint_pixels = []
+    self.target = target 
     if projectors_or_sensors == "projectors":
       self.image = image
       self.initialize_projectors()
@@ -280,22 +281,10 @@ class Photonics():
     self.filepath_of_image_to_project = filepath
     self.image_to_project = bpy.data.images.load(filepath)
 
-  def focus_on(self, target):
-    # target :: target point in (x,y,z) toward which the optical system is oriented
-    time_start = time.time()
-    self.target = target
-    self.reorient()
-    time_end = time.time()
-    print("Orientations of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
-
-    if self.projectors_or_sensors == "projectors":
-      time_start = time.time()
-      self.measure_raycasts_from_pixels()
-      time_end = time.time()
-      print("Raycasts of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
-
-    if self.projectors_or_sensors == "sensors":
-      self.expand_plane_of_sensor()
+  # def focus_on(self, target):
+  #   # target :: target point in (x,y,z) toward which the optical system is oriented
+  #   if self.projectors_or_sensors == "projectors":
+  #     self.measure_raycasts_from_pixels()
 
   def expand_plane_of_sensor(self, expansion=1.0): # expansion is a multiplier of the size of the sensor plane
     min_h = 0
@@ -352,6 +341,7 @@ class Photonics():
     bm.free()
 
   def reorient(self):
+    time_start = time.time()
     if type(self.focal_point) == type(Point()) and type(self.target) == type(Point()):
       self.compute_image_center()
       self.compute_euler_angles()
@@ -366,6 +356,10 @@ class Photonics():
       elif self.projectors_or_sensors == "sensors":
         self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
         self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
+        self.expand_plane_of_sensor()
+
+    time_end = time.time()
+    print("Orientations of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
 
   def compute_image_center(self):
     focal_ratio = self.focal_length / (self.focal_length + self.focal_point.distance(self.target))
@@ -519,6 +513,8 @@ class Photonics():
       self.highlighted_hitpoints.append(sphere)
 
   def measure_raycasts_from_pixels(self):
+    time_start = time.time()
+
     min_h = 0
     min_v = 0
     max_h = self.horizontal_pixels - 1
@@ -535,6 +531,8 @@ class Photonics():
         self.pixels[h][v].hitpoint = Point(location[0], location[1], location[2])
       #print("{} pixel ({},{}) with hitpoint {}".format(self.projectors_or_sensors, h, v, self.pixels[h][v].hitpoint.xyz()))
 
+    time_end = time.time()
+    print("Raycasts of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
 
 class Model():
   def __init__(self, filepath=None):
@@ -631,34 +629,45 @@ class Scanner():
     self.projectors = projectors
 
   def scan(self, location, precomputed=False):
-    if precomputed:
-      print("Loading precomputed projectors and sensors...")
-      with open("sensors.txt", 'rb') as f:
-        self.sensors = pickle.load(f)
+    # if projectors and/or sensors have a new target, reorient
+    if self.projectors.target != location:
+      self.projectors.target = location
+      self.reorient()
+    if self.sensors.target != location:
+      self.sensors.target = location
+      self.reorient()
 
-      with open("projectors.txt", 'rb') as f:
-        self.projectors = pickle.load(f)
+    # if precomputed: 
+    #   pass # not implemented yet
+    #   # print("Loading precomputed projectors and sensors...")
+    #   # with open("sensors.txt", 'rb') as f:
+    #   #   self.sensors = pickle.load(f)
+    #   # with open("projectors.txt", 'rb') as f:
+    #   #   self.projectors = pickle.load(f)
+    # else:
 
-    else:
-      if self.projectors: # first project on location, if scanner has projectors
-        self.localizations = []
-        self.projectors.focus_on(location)
-      self.sensors.focus_on(location)
+    if self.projectors: # first project on location, if scanner has projectors
+      self.localizations = []
+      self.projectors.measure_raycasts_from_pixels()
+
+      #   self.projectors.focus_on(location)
+      # self.sensors.focus_on(location)
 
       #self.save_data() # save metadata of hitpoints, etc. for training
 
-    print("Rendering...")
-    time_start = time.time()
-    bpy.data.scenes["Scene"].render.filepath = 'projected_image_nano.png'
-    #bpy.ops.render.render( write_still=True )
-    time_end = time.time()
-    print("Rendered image in {} seconds".format(round(time_end - time_start, 4)))
+    self.render("new.png")
 
-    time_start = time.time()
     if self.projectors: 
       self.localize_projections_in_sensor_plane()
+
+
+  def render(self, filename):
+    print("Rendering...")
+    time_start = time.time()
+    bpy.data.scenes["Scene"].render.filepath = filename
+    bpy.ops.render.render( write_still=True )
     time_end = time.time()
-    print("Computed localizations in {} seconds".format(round(time_end - time_start, 4)))
+    print("Rendered image in {} seconds".format(round(time_end - time_start, 4)))
 
 
   def save_data(self):
@@ -672,6 +681,8 @@ class Scanner():
     
 
   def localize_projections_in_sensor_plane(self):
+    time_start = time.time()
+
     object_name = self.environment.model.object_name
     bpy.data.objects[object_name].hide_viewport = True
     self.environment.obj = hide_viewport = True
@@ -722,6 +733,9 @@ class Scanner():
       hitpoint.hide_viewport = False
     bpy.data.objects[object_name].hide_viewport = False
     self.environment.obj = hide_viewport = False
+
+    time_end = time.time()
+    print("Computed localizations in {} seconds".format(round(time_end - time_start, 4)))
 
 
   def localization_in_sensor_coordinates(self):
