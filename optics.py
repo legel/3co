@@ -19,7 +19,7 @@ bpy.context.scene.render.engine = 'CYCLES'
 
 try:
   bpy.context.preferences.addons['cycles'].preferences.get_devices()
-  print(bpy.context.preferences.adFdons['cycles'].preferences.get_devices())
+  print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
   bpy.context.scene.cycles.device = 'GPU'
   bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
   bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
@@ -632,10 +632,10 @@ class Scanner():
     # if projectors and/or sensors have a new target, reorient
     if self.projectors.target != location:
       self.projectors.target = location
-      self.reorient()
+      self.projectors.reorient()
     if self.sensors.target != location:
       self.sensors.target = location
-      self.reorient()
+      self.sensors.reorient()
 
     # if precomputed: 
     #   pass # not implemented yet
