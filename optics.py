@@ -207,7 +207,7 @@ class Photonics():
     self.projector_data.spot_size = 3.14159
     self.projector_data.cycles.max_bounces = 0
     self.projector_data.use_nodes = True  
-    self.projector_data.node_tree.nodes["Emission"].inputs[1].default_value = 4525 # W/m^2 for Laser Beam Pro, derived from 200 ANSI lumens with given microdisplay size
+    self.projector_data.node_tree.nodes["Emission"].inputs[1].default_value = 4525 / 2.0 # W/m^2 for Laser Beam Pro, derived from 200 ANSI lumens with given microdisplay size
 
     # warp mapping of light
     mapping = self.projector_data.node_tree.nodes.new(type='ShaderNodeMapping')
@@ -538,7 +538,8 @@ class Model():
   def __init__(self, filepath=None):
     if filepath:
       self.import_object_to_scan(filepath=filepath)
-      self.normalize_position_and_size()
+      self.dimensions = bpy.context.object.dimensions
+      self.resample_parameters()
 
   def import_object_to_scan(self, filepath):
     bpy.ops.wm.collada_import(filepath=filepath)
@@ -548,19 +549,85 @@ class Model():
         self.object_name = object_in_scene.name
         object_in_scene.select_set(state=True)
     bpy.ops.object.join()
-
-  def normalize_position_and_size(self):
     bpy.ops.object.origin_set(type='GEOMETRY_ORIGIN', center='BOUNDS')
+
+  def resample_parameters(self):
+      self.resample_orientation()
+      self.resample_size()
+      self.resample_position()
+      self.resample_materials()    
+
+  def resample_orientation(self):
     obj = bpy.context.object
-    obj.dimensions = (obj.dimensions / max(obj.dimensions))
-    obj.location.x = 0.0
-    obj.location.y = 0.0
-    obj.location.z = 0.0
     self.x_rotation_angle = random.uniform(0, 2*math.pi)
     self.y_rotation_angle = random.uniform(0, 2*math.pi)
     self.z_rotation_angle = random.uniform(0, 2*math.pi)
     obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
+
+  def resample_size(self):
+    scale_factor = max(np.random.normal(loc=1.0, scale=0.5), 0.2)
+    bpy.context.object.dimensions = (self.dimensions * scale_factor / max(self.dimensions))
+    bpy.context.scene.update() 
+
+  def resample_position(self):
+    obj = bpy.context.object
+    obj.location.x = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
+    obj.location.y = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
+    obj.location.z = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
+    bpy.context.scene.update() 
+
+  def resample_materials(self):
+    obj = bpy.context.object
+    for material_slot in obj.material_slots:
+      m = material_slot.material
+      # reset nodes
+      m.blend_method = 'BLEND'
+      m.use_nodes = True
+      nodes = m.node_tree.nodes
+      for node in nodes:
+        nodes.remove(node)
+      shader = nodes.new(type='ShaderNodeBsdfPrincipled')
+      shader.location = (0,0)
+
+      # parameterization by *The Principled Shader* (insert Blender guru accent)
+      red = random.uniform(0, 1)
+      green = random.uniform(0, 1)
+      blue = random.uniform(0, 1)
+      alpha = min(np.random.normal(loc=1.0, scale=0.15), 1.0)
+      shader.inputs['Base Color'].default_value = (red, green, blue, alpha)
+
+      shader.inputs['Metallic'].default_value = np.random.choice(a=[0.0, 1.0], p=[0.80, 0.20]) # left is choice, right is probabilty
+
+      # weighted mixture of gaussians
+      ior_guassian_a = np.random.normal(loc=1.45, scale=0.15)
+      ior_gaussian_b = np.random.normal(loc=1.45, scale=0.5)
+      ior = min(np.random.choice(a=[ior_guassian_a, ior_gaussian_b], p=[0.80, 0.20]), 1.0)
+      shader.inputs['IOR'].default_value = ior
+
+      shader.inputs['Specular'].default_value = ((ior-1.0)/(ior+1.0))**2 / 0.08 # from "special case of Fresnel formula" as in https://docs.blender.org/manual/en/dev/render/cycles/nodes/types/shaders/principled.html
+
+      # weighted mixture of guassians
+      transmission_guassian_a = np.random.normal(loc=0.1, scale=0.3)
+      transmission_gaussian_b = np.random.normal(loc=0.9, scale=0.3)
+      transmission = max(min(np.random.choice(a=[transmission_guassian_a, transmission_gaussian_b], p=[0.75, 0.25]), 1.0), 0.0)
+      shader.inputs['Transmission'].default_value = transmission
+
+      shader.inputs['Transmission Roughness'].default_value = random.uniform(0, 1)
+      shader.inputs['Roughness'].default_value = random.uniform(0, 1)
+
+      shader.inputs['Anisotropic'].default_value = max(min(np.random.normal(loc=0.1, scale=0.3), 1.0), 0.0)
+
+      shader.inputs['Sheen'].default_value = max(min(np.random.choice(a=[0.0, np.random.normal(loc=0.5, scale=0.25)], p=[0.75, 0.25]), 1.0), 0.0)
+
+      # infrastructure
+      node_output = nodes.new(type='ShaderNodeOutputMaterial')   
+      node_output.location = (400,0)
+      links = m.node_tree.links
+      link = links.new(shader.outputs[0], node_output.inputs[0])
+
+    bpy.context.scene.update() 
+
 
 
 class Environment():
@@ -637,28 +704,14 @@ class Scanner():
       self.sensors.target = location
       self.sensors.reorient()
 
-    # if precomputed: 
-    #   pass # not implemented yet
-    #   # print("Loading precomputed projectors and sensors...")
-    #   # with open("sensors.txt", 'rb') as f:
-    #   #   self.sensors = pickle.load(f)
-    #   # with open("projectors.txt", 'rb') as f:
-    #   #   self.projectors = pickle.load(f)
-    # else:
-
     if self.projectors: # first project on location, if scanner has projectors
-      self.localizations = []
-      self.projectors.measure_raycasts_from_pixels()
-
-      #   self.projectors.focus_on(location)
-      # self.sensors.focus_on(location)
-
-      #self.save_data() # save metadata of hitpoints, etc. for training
+     self.localizations = []
+     self.projectors.measure_raycasts_from_pixels()
 
     self.render("new.png")
 
     if self.projectors: 
-      self.localize_projections_in_sensor_plane()
+     self.localize_projections_in_sensor_plane()
 
 
   def render(self, filename):
@@ -798,10 +851,23 @@ class Scanner():
 
 
 if __name__ == "__main__":
-  environment = Environment(model="/home/ubuntu/COLLADA/825adb49f4525ad125c8d3c1b3ef7c95.dae")
-
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(0.1, 0.1, 2.0), focal_length=0.024, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(-0.1, -0.1, 2.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
-
+  environment = Environment(model="phone.dae")#"/home/ubuntu/COLLADA/825adb49f4525ad125c8d3c1b3ef7c95.dae")
   scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
+
   scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=False)
+
+  # while True: 
+  #   i++
+  #   load_next_model: index = i % total_models     # walk through all models continuously
+  # 
+  # for i in range(samples_per_model):
+  #   resample_scene(): 
+        # resample_model: materials, rotation, position, size
+        # resample_environment: lighting, walls
+
+  #     see statistical_sampling.doc
+  #   compute_raycasts()
+  #   render()
+  #   compute_localizations()
