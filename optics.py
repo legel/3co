@@ -172,7 +172,7 @@ class Photonics():
 
   def initialize_sensors(self):
     self.sensor_data = bpy.data.cameras.new("sensor_data")
-    self.sensors = bpy.data.objects.new("sensor_object", self.sensor_data)
+    self.sensors = bpy.data.objects.new("Sensor", self.sensor_data)
     bpy.context.scene.collection.objects.link(self.sensors)
     bpy.context.scene.camera = self.sensors
     #bpy.data.cameras["sensor_data"].clip_start = 0.01 # meters
@@ -262,7 +262,7 @@ class Photonics():
 
     image_texture = self.projector_data.node_tree.nodes.new(type='ShaderNodeMixRGB')
 
-    self.projectors = bpy.data.objects.new(name="projector_object", object_data=self.projector_data)
+    self.projectors = bpy.data.objects.new(name="Projector", object_data=self.projector_data)
     bpy.context.scene.collection.objects.link(self.projectors)
 
   def project(self, filepath):
@@ -682,14 +682,22 @@ class Environment():
       print("({},{},{},{})".format(r,g,b,a))
 
   def delete_environment(self):
-    self.model.model_object.select_set( state = True, view_layer = None)
-    bpy.ops.object.delete() 
 
-    self.light.select_set( state = True, view_layer = None)
-    bpy.ops.object.delete() 
+    objects = {}
+    for i, obj in enumerate(bpy.data.objects):
+      obj.select_set( state = False, view_layer = None)
+      print("({}) {}".format(i,obj.name))
+      if obj.name == "Environment":
+        objects["Environment"] = obj
+      elif obj.name == "Model":
+        objects["Model"] = obj 
+      elif obj.name == "Ambient Light":
+        objects["Ambient Light"] = obj
 
-    self.mesh.select_set( state = True, view_layer = None)
-    bpy.ops.object.delete() 
+    objects["Environment"].delete()
+    objects["Model"].delete()
+    objects["Ambient Light"].delete() 
+
 
   def update(self, model):
     self.delete_environment()
@@ -707,7 +715,7 @@ class Environment():
     light.use_nodes = True  
 
     light.node_tree.nodes["Emission"].inputs[1].default_value = min(max(np.random.normal(loc=0.1, scale=0.2), 0.01), 0.4)
-    self.light = bpy.data.objects.new(name="sun_object", object_data=light)
+    self.light = bpy.data.objects.new(name="Ambient Light", object_data=light)
 
     x = np.random.normal(loc=0.0, scale=1.0)
     y = np.random.normal(loc=0.0, scale=1.0)
