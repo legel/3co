@@ -637,6 +637,9 @@ class Environment():
     self.index_materials_of_faces()
 
   def index_materials_of_faces(self):
+    for obj in bpy.data.objects:
+      obj.select_set( state = False, view_layer = None)
+
     self.model.model_object.select_set( state = True, view_layer = None)
     self.model_materials = {}
     active_object = bpy.context.active_object
@@ -650,6 +653,7 @@ class Environment():
       b = material.diffuse_color[2]
       a = material.diffuse_color[3]
       print("({},{},{},{})".format(r,g,b,a))
+    self.model.model_object.select_set( state = True, view_layer = None)
 
     self.mesh.select_set( state = True, view_layer = None)
     self.environment_materials = {}
@@ -951,6 +955,7 @@ class Simulator():
     self.number_of_models = len(self.metadata)
 
   def on(self):
+    self.environment.update(model)
     while True:
       model_index = self.samples % self.number_of_models
       number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
@@ -959,6 +964,7 @@ class Simulator():
         self.environment.update(model)
         self.scanner.scan(counter=self.samples)
         self.samples += 1
+      break
 
   def get_metadata(self, model_directory="/home/ubuntu/COLLADA"):
     models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
