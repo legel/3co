@@ -649,37 +649,33 @@ class Environment():
 
     objects["Model"].select_set( state = True, view_layer = None)
     self.model_materials = {}
-
     #active_object = bpy.context.active_object
 
     for face in objects["Model"].data.polygons:  # iterate over faces
       material = objects["Model"].material_slots[face.material_index].material
       self.model_materials[face.index] = material
-      print("Model...")
-      print(material.name)
-      r = material.diffuse_color[0]
-      g = material.diffuse_color[1]
-      b = material.diffuse_color[2]
-      a = material.diffuse_color[3]
-      print("({},{},{},{})".format(r,g,b,a))
+      # print("Model...")
+      # print(material.name)
+      # r = material.diffuse_color[0]
+      # g = material.diffuse_color[1]
+      # b = material.diffuse_color[2]
+      # a = material.diffuse_color[3]
+      # print("({},{},{},{})".format(r,g,b,a))
 
     objects["Model"].select_set( state = False, view_layer = None)
-
-
     objects["Environment"].select_set( state = True, view_layer = None)
 
     self.environment_materials = {}
-
     for face in objects["Environment"].data.polygons:  # iterate over faces
       material = objects["Environment"].material_slots[face.material_index].material
       self.environment_materials[face.index] = material
-      print("Environment...")
-      print(material.name)
-      r = material.diffuse_color[0]
-      g = material.diffuse_color[1]
-      b = material.diffuse_color[2]
-      a = material.diffuse_color[3]
-      print("({},{},{},{})".format(r,g,b,a))
+      # print("Environment...")
+      # print(material.name)
+      # r = material.diffuse_color[0]
+      # g = material.diffuse_color[1]
+      # b = material.diffuse_color[2]
+      # a = material.diffuse_color[3]
+      # print("({},{},{},{})".format(r,g,b,a))
 
   def delete_environment(self):
 
@@ -974,9 +970,9 @@ class Scanner():
 
 
 class Simulator():
-  def __init__(self, scanner, environment):
+  def __init__(self, scanner):
     self.scanner = scanner
-    self.environment = environment
+    self.environment = scanner.environment
     self.metadata = self.get_metadata()
     self.samples = 0
     self.number_of_models = len(self.metadata)
@@ -1005,7 +1001,7 @@ if __name__ == "__main__":
   # v.01 : constant camera and laser focal points, focal lengths, pixel sizes, numbers of pixels
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(0.1, 0.1, 2.0), focal_length=0.024, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184) # 100 x 150 / 3456 x 5184 with focal = 0.024
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(-0.1, -0.1, 2.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
-  scanner = Scanner(sensors=camera, projectors=lasers)
   environment = Environment()
-  simulator = Simulator(scanner=scanner, environment=environment)
+  scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
+  simulator = Simulator(scanner=scanner)
   simulator.on()
