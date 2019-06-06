@@ -694,9 +694,15 @@ class Environment():
       elif obj.name == "Ambient Light":
         objects["Ambient Light"] = obj
 
-    objects["Environment"].delete()
-    objects["Model"].delete()
-    objects["Ambient Light"].delete() 
+
+    objects["Environment"].select_set(True)
+    bpy.ops.object.delete()
+
+    objects["Model"].select_set(True)
+    bpy.ops.object.delete()
+
+    objects["Ambient Light"].select_set(True)
+    bpy.ops.object.delete() 
 
 
   def update(self, model):
