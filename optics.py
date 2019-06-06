@@ -637,12 +637,14 @@ class Environment():
     self.index_materials_of_faces()
 
   def index_materials_of_faces(self):
-    for obj in bpy.data.objects:
+    for i, obj in enumerate(bpy.data.objects):
       obj.select_set( state = False, view_layer = None)
+      print("({}) {}".format(i,obj.name))
 
     self.model.model_object.select_set( state = True, view_layer = None)
     self.model_materials = {}
     active_object = bpy.context.active_object
+
     for face in active_object.data.polygons:  # iterate over faces
       material = active_object.material_slots[face.material_index].material
       self.model_materials[face.index] = material
@@ -658,6 +660,7 @@ class Environment():
     self.mesh.select_set( state = True, view_layer = None)
     self.environment_materials = {}
     active_object = bpy.context.active_object
+
     for face in active_object.data.polygons:  # iterate over faces
       material = active_object.material_slots[face.material_index].material
       self.environment_materials[face.index] = material
@@ -757,6 +760,7 @@ class Environment():
     green = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
     blue = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
     alpha = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
+    self.vinyl_material.diffuse_color = (red,green,blue,alpha)
     self.vinyl.inputs['Base Color'].default_value = (red, green, blue, alpha)
 
     self.vinyl.inputs['Metallic'].default_value = 0.0 
@@ -955,7 +959,6 @@ class Simulator():
     self.number_of_models = len(self.metadata)
 
   def on(self):
-    self.environment.update(model)
     while True:
       model_index = self.samples % self.number_of_models
       number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
