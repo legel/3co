@@ -632,17 +632,21 @@ class Environment():
     self.index_materials_of_faces()
 
   def index_materials_of_faces(self):
+    self.model.select_set( state = True, view_layer = None)
     self.model_materials = {}
-    for face in self.model.data.polygons:  # iterate over faces
-      material = self.model.material_slots[face.material_index].material
+    active_object = bpy.context.active_object
+    for face in active_object.data.polygons:  # iterate over faces
+      material = active_object.material_slots[face.material_index].material
       self.model_materials[face.index] = material
       print("Model...")
       print(material.name)
       print(material.diffuse_color)
 
+    self.mesh.select_set( state = True, view_layer = None)
     self.environment_materials = {}
-    for face in self.mesh.data.polygons:  # iterate over faces
-      material = self.mesh.material_slots[face.material_index].material
+    active_object = bpy.context.active_object
+    for face in active_object.data.polygons:  # iterate over faces
+      material = active_object.material_slots[face.material_index].material
       self.environment_materials[face.index] = material
       print("Environment...")
       print(material.name)
