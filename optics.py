@@ -540,6 +540,11 @@ class Model():
         object_in_scene.select_set(state=True)
     bpy.ops.object.join()
     bpy.ops.object.origin_set(type='GEOMETRY_ORIGIN', center='BOUNDS')
+    self.model_object = bpy.context.object
+    print("IMPORTED OBJECT STUFF: 1,2")
+    print(bpy.context.object)
+    print(bpy.context.object.location)
+
 
   def resample_parameters(self):
       self.resample_orientation()
@@ -632,7 +637,7 @@ class Environment():
     self.index_materials_of_faces()
 
   def index_materials_of_faces(self):
-    self.model.select_set( state = True, view_layer = None)
+    self.model.model_object.select_set( state = True, view_layer = None)
     self.model_materials = {}
     active_object = bpy.context.active_object
     for face in active_object.data.polygons:  # iterate over faces
