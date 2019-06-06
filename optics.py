@@ -987,7 +987,7 @@ class Simulator():
       number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
       for i in range(number_of_samples_for_model):
         model = self.metadata[model_index]
-        self.environment.update(model)
+        self.environment.update(model["filepath"])
         self.scanner.scan(counter=self.samples)
         self.samples += 1
       break
