@@ -833,7 +833,7 @@ class Scanner():
       self.localizations = []
       self.projectors.measure_raycasts_from_pixels()
 
-    self.render("goddess.png")
+    self.render("{}.png".format(int(time.time())))
 
     if self.projectors: 
       self.localize_projections_in_sensor_plane()
@@ -988,15 +988,16 @@ class Simulator():
     self.number_of_models = len(self.metadata)
 
   def on(self):
-    while True:
-      model_index = self.samples % self.number_of_models
-      number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
-      for i in range(number_of_samples_for_model):
-        model = self.metadata[model_index]
-        self.environment.update(model["filepath"])
-        self.scanner.scan(counter=self.samples)
-        self.samples += 1
-      break
+    #while True:
+    model_index = self.samples % self.number_of_models
+    #number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
+    #for i in range(number_of_samples_for_model):
+    model = self.metadata[model_index]
+    self.environment.update(model["filepath"])
+    self.scanner.scan(counter=0) #self.samples)
+    # self.samples += 1
+    #   break
+    # break
 
   def get_metadata(self, model_directory="/home/ubuntu/COLLADA"):
     models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
