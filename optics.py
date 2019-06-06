@@ -9,11 +9,9 @@ import bmesh
 from PIL import Image
 from mathutils import Vector
 import pickle
+from os import listdir, path
 
-#bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
-#bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
-
-bpy.ops.wm.open_mainfile(filepath="empty.blend")
+#bpy.ops.wm.open_mainfile(filepath="empty.blend")
 
 bpy.context.scene.render.engine = 'CYCLES'
 
@@ -25,11 +23,6 @@ try:
   bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 except TypeError:
   pass
-
-# cprefs = bpy.context.preferences.addons['cycles'].preferences #.compute_device_type = 'CUDA'
-# cprefs.compute_device_type = 'CUDA'
-# for device in cprefs.devices:
-#     device.use = True
 
 class Point():
   def __init__(self, x=0, y=0, z=0):
@@ -192,13 +185,6 @@ class Photonics():
       bpy.data.cameras["sensor_data"].sensor_width = self.horizontal_size * 1000 # millimeters
     bpy.data.scenes["Scene"].render.resolution_x = self.horizontal_pixels
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
-    # bpy.data.cameras["sensor_data"].show_sensor = True
-    # sensor_orientation_coordinates = bpy.data.cameras["sensor_data"].view_frame
-    # print("Sensor coordinates from Blender:")
-    # for coordinate in sensor_orientation_coordinates:
-    #   print("x: {}, y: {}, z: {}".format(coordinate))
-    # print(sensor_orientation_coordinates)
-
 
 
   def initialize_projectors(self):
@@ -207,7 +193,9 @@ class Photonics():
     self.projector_data.spot_size = 3.14159
     self.projector_data.cycles.max_bounces = 0
     self.projector_data.use_nodes = True  
-    self.projector_data.node_tree.nodes["Emission"].inputs[1].default_value = 4525 / 2.0 # W/m^2 for Laser Beam Pro, derived from 200 ANSI lumens with given microdisplay size
+
+    lighting_strength = min(max(np.random.normal(loc=1000, scale=1500), 200), 5000)
+    self.projector_data.node_tree.nodes["Emission"].inputs[1].default_value = lighting_strength # W/m^2
 
     # warp mapping of light
     mapping = self.projector_data.node_tree.nodes.new(type='ShaderNodeMapping')
@@ -281,11 +269,6 @@ class Photonics():
     self.filepath_of_image_to_project = filepath
     self.image_to_project = bpy.data.images.load(filepath)
 
-  # def focus_on(self, target):
-  #   # target :: target point in (x,y,z) toward which the optical system is oriented
-  #   if self.projectors_or_sensors == "projectors":
-  #     self.measure_raycasts_from_pixels()
-
   def expand_plane_of_sensor(self, expansion=1.0): # expansion is a multiplier of the size of the sensor plane
     min_h = 0
     min_v = 0
@@ -340,7 +323,7 @@ class Photonics():
     bm.to_mesh(mesh)  
     bm.free()
 
-  def reorient(self):
+  def reorient(self, orientation_index=0):
     time_start = time.time()
     if type(self.focal_point) == type(Point()) and type(self.target) == type(Point()):
       self.compute_image_center()
@@ -348,7 +331,6 @@ class Photonics():
       self.compute_xyz_of_boundary_pixels()
       self.orient_xyz_and_unit_vectors_for_all_pixels()
       adjusted_euler_z = self.rotation_euler_z * -1.0 # to correct for a notational difference between rendering engine and notes
-
       if self.projectors_or_sensors == "projectors":
         self.projectors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
         self.projectors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
@@ -357,9 +339,17 @@ class Photonics():
         self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
         self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
         self.expand_plane_of_sensor()
-
     time_end = time.time()
     print("Orientations of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
+    self.save_metadata(orientation_index)
+
+  def save_metadata(orientation_index):
+    with open("xyz_of_{}_{}_pixels".format(self.projectors_or_sensors, orientation_index), "w") as metadata:
+      metadata.write("(h,v):(x,y,z)\n")
+      for h in [0, self.horizontal_pixels - 1]:    
+        for v in [0, self.vertical_pixels - 1]: 
+          x,y,z = self.pixels[h][v].center.xyz()
+          metadata.write("{},{}:{},{},{}\n".format(h,v,x,y,z))
 
   def compute_image_center(self):
     focal_ratio = self.focal_length / (self.focal_length + self.focal_point.distance(self.target))
@@ -566,7 +556,7 @@ class Model():
     bpy.context.scene.update() 
 
   def resample_size(self):
-    scale_factor = max(np.random.normal(loc=1.0, scale=0.5), 0.2)
+    scale_factor = max(np.random.normal(loc=1.25, scale=0.5), 0.25)
     bpy.context.object.dimensions = (self.dimensions * scale_factor / max(self.dimensions))
     bpy.context.scene.update() 
 
@@ -617,8 +607,9 @@ class Model():
       shader.inputs['Roughness'].default_value = random.uniform(0, 1)
 
       shader.inputs['Anisotropic'].default_value = max(min(np.random.normal(loc=0.1, scale=0.3), 1.0), 0.0)
+      shader.inputs['Anisotropic Rotation'].default_value = random.uniform(0,1)
 
-      shader.inputs['Sheen'].default_value = max(min(np.random.choice(a=[0.0, np.random.normal(loc=0.5, scale=0.25)], p=[0.75, 0.25]), 1.0), 0.0)
+      shader.inputs['Sheen'].default_value = max(min(np.random.choice(a=[0.0, np.random.normal(loc=0.5, scale=0.25)], p=[0.9, 0.1]), 1.0), 0.0)
 
       # infrastructure
       node_output = nodes.new(type='ShaderNodeOutputMaterial')   
@@ -629,13 +620,44 @@ class Model():
     bpy.context.scene.update() 
 
 
-
 class Environment():
-  def __init__(self, model):
-    #self.setup_preferences()
+  def __init__(self, model="phone.dae"):
+    self.resample_environment(model)
+
+  def resample_environment(model):
     self.add_model(model_filepath=model)
+    self.ambient_lighting()
     self.create_mesh()
     self.create_materials()
+    self.index_materials_of_faces()
+
+  def index_materials_of_faces():
+    self.model_materials = {}
+    for face in self.model.data.polygons:  # iterate over faces
+      material = self.model.material_slots[face.material_index].material
+      self.model_materials[face.index] = material
+      print("Model...")
+      print(material.name)
+      print(material.diffuse_color)
+
+    self.environment_materials = {}
+    for face in self.mesh.data.polygons:  # iterate over faces
+      material = self.mesh.material_slots[face.material_index].material
+      self.environment_materials[face.index] = material
+      print("Environment...")
+      print(material.name)
+      print(material.diffuse_color)
+
+
+  def delete_environment():
+    environment = [self.model, self.light, self.mesh]
+    for thing in environment:
+      thing.select_set( state = True, view_layer = None)
+      bpy.ops.object.delete() 
+
+  def update(model):
+    self.delete_environment()
+    self.resample_environment(model)
 
   def setup_preferences(self):
     bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
@@ -643,20 +665,43 @@ class Environment():
   def add_model(self,model_filepath):
     self.model = Model(model_filepath)
 
+  def ambient_lighting(self):
+    # add light
+    light = bpy.data.lights.new(name="sun", type='SUN')
+    light.use_nodes = True  
+
+    light.node_tree.nodes["Emission"].inputs[1].default_value = min(max(np.random.normal(loc=0.1, scale=0.2), 0.01), 0.4)
+    self.light = bpy.data.objects.new(name="sun_object", object_data=light)
+
+    x = np.random.normal(loc=0.0, scale=1.0)
+    y = np.random.normal(loc=0.0, scale=1.0)
+    z = np.random.normal(loc=10.0, scale=2.5)
+
+    self.light.location = (x, y, z)
+    bpy.context.scene.collection.objects.link(self.light)
+
   def create_mesh(self):
-    self.mesh = bpy.data.meshes.new("vinyl_backdrop")
-    self.obj = bpy.data.objects.new("vinyl_backdrop_object", self.mesh)
-    bpy.context.collection.objects.link(self.obj)
-    bpy.context.view_layer.objects.active = self.obj
-    self.obj.select_set( state = True, view_layer = None)
+    mesh = bpy.data.meshes.new("vinyl_backdrop")
+    self.mesh = bpy.data.objects.new("vinyl_backdrop_object", mesh)
+    bpy.context.collection.objects.link(self.mesh)
+    bpy.context.view_layer.objects.active = self.mesh
+    self.mesh.select_set( state = True, view_layer = None)
+
     mesh = bpy.context.object.data
     bm = bmesh.new()
 
-    top_left = bm.verts.new((-100, 100, -1))
-    top_right = bm.verts.new((100, 100, -1))
-    bottom_left = bm.verts.new((-100,-100, -1))
-    bottom_right = bm.verts.new((100,-100, -1))
-    center = bm.verts.new((0, 0, -1))
+    self.distance_from_origin = max(np.random.normal(loc=-1.0, scale=0.25), -0.25)
+
+    top_left = bm.verts.new((-100, 100, self.distance_from_origin))
+    top_right = bm.verts.new((100, 100, self.distance_from_origin))
+    bottom_left = bm.verts.new((-100,-100, self.distance_from_origin))
+    bottom_right = bm.verts.new((100,-100, self.distance_from_origin))
+    center = bm.verts.new((0, 0, self.distance_from_origin))
+
+    self.x_rotation_angle = np.random.normal(loc=0.0, scale=math.radians(5.0))
+    self.y_rotation_angle = np.random.normal(loc=0.0, scale=math.radians(5.0))
+    self.z_rotation_angle = np.random.normal(loc=0.0, scale=math.radians(5.0))
+    self.mesh.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # angular rotations about x,y,z axis
 
     bm.edges.new( [top_left, top_right] )
     bm.faces.new( [top_left, top_right, center]) 
@@ -669,6 +714,8 @@ class Environment():
     bm.to_mesh(mesh)  
     bm.free()
 
+    bpy.context.scene.update() 
+
   def create_materials(self):
     self.vinyl_material = bpy.data.materials.new(name="vinyl_backdrop_material")
     self.vinyl_material.use_nodes = True
@@ -677,16 +724,39 @@ class Environment():
       nodes.remove(node)
     self.vinyl = nodes.new(type='ShaderNodeBsdfPrincipled')
     self.vinyl.inputs['Sheen'].default_value = 1.0
-
     self.vinyl.inputs['Sheen Tint'].default_value = 0.8
     self.vinyl.inputs['Roughness'].default_value = 0.2
     self.vinyl.inputs['Base Color'].default_value = (1,1,1,1)
+
+    # parameterization by *The Principled Shader* (insert Blender guru accent)
+    red = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
+    green = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
+    blue = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
+    alpha = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
+    self.vinyl.inputs['Base Color'].default_value = (red, green, blue, alpha)
+
+    self.vinyl.inputs['Metallic'].default_value = 0.0 
+
+    # weighted mixture of gaussians
+    ior = np.random.normal(loc=1.45, scale=0.02)
+    self.vinyl.inputs['IOR'].default_value = ior
+    self.vinyl.inputs['Specular'].default_value = ((ior-1.0)/(ior+1.0))**2 / 0.08 # from "special case of Fresnel formula" as in https://docs.blender.org/manual/en/dev/render/cycles/nodes/types/shaders/principled.html
+
+    # weighted mixture of guassians
+    self.vinyl.inputs['Transmission'].default_value = max(np.random.normal(loc=0.1, scale=0.1), 0.0)
+
+    self.vinyl.inputs['Transmission Roughness'].default_value = random.uniform(0, 1)
+    self.vinyl.inputs['Roughness'].default_value = min(np.random.normal(loc=0.8, scale=0.1),1.0)
+
+    self.vinyl.inputs['Sheen'].default_value = max(min(np.random.normal(loc=0.6, scale=0.2), 1.0), 0.0)
+
+
     self.vinyl.location = (0,0)
     node_output = nodes.new(type='ShaderNodeOutputMaterial')   
     node_output.location = (400,0)
     links = self.vinyl_material.node_tree.links
     link = links.new(self.vinyl.outputs[0], node_output.inputs[0])
-    self.obj.data.materials.append(self.vinyl_material)
+    self.mesh.data.materials.append(self.vinyl_material)
 
 
 class Scanner():
@@ -695,24 +765,23 @@ class Scanner():
     self.sensors = sensors
     self.projectors = projectors
 
-  def scan(self, location, precomputed=False):
+  def scan(self, location=Point(0.0, 0.0, 0.0), counter=0, precomputed=False):
     # if projectors and/or sensors have a new target, reorient
     if self.projectors.target != location:
       self.projectors.target = location
-      self.projectors.reorient()
+      self.projectors.reorient(orientation_index=counter)
     if self.sensors.target != location:
       self.sensors.target = location
-      self.sensors.reorient()
+      self.sensors.reorient(orientation_index=counter)
 
-    if self.projectors: # first project on location, if scanner has projectors
-     self.localizations = []
-     self.projectors.measure_raycasts_from_pixels()
+    if self.projectors:
+      self.localizations = []
+      self.projectors.measure_raycasts_from_pixels()
 
-    self.render("new.png")
+    self.render("goddess.png")
 
     if self.projectors: 
-     self.localize_projections_in_sensor_plane()
-
+      self.localize_projections_in_sensor_plane()
 
   def render(self, filename):
     print("Rendering...")
@@ -738,7 +807,7 @@ class Scanner():
 
     object_name = self.environment.model.object_name
     bpy.data.objects[object_name].hide_viewport = True
-    self.environment.obj = hide_viewport = True
+    self.environment.mesh = hide_viewport = True
 
     img = Image.open(self.projectors.image)
 
@@ -772,20 +841,24 @@ class Scanner():
         if not hit:
           print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
           print("Try expanding the size of the sensor plane".format(h, v))
+
+        if obj == self.environment.mesh:
+          print("Hit the backdrop...")
+          material = self.environment.environment_materials[face_index] # gather information about textures... 
+          print("Color of material there: {}".format(material.diffuse_color))
+        elif obj == self.environment.model:
+          print("Hit the model...")
+          material = self.environment.model_materials[face_index]
+          print("Color of material there: {}".format(material.diffuse_color))
+
         self.projectors.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
         #print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.projectors.pixels[h][v].hitpoint.xyz(), self.projectors.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
-
-        # random_hitpoint_sample = random.uniform(0, 1)
-        # if random_hitpoint_sample > 0.995:
-        #pixel = img.getpixel((h,v))
-        #diffuse_color = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
-        #self.projectors.highlight_hitpoint(location, diffuse_color)
 
     self.localization_in_sensor_coordinates()
     for hitpoint in self.projectors.highlighted_hitpoints:
       hitpoint.hide_viewport = False
     bpy.data.objects[object_name].hide_viewport = False
-    self.environment.obj = hide_viewport = False
+    self.environment.mesh = hide_viewport = False
 
     time_end = time.time()
     print("Computed localizations in {} seconds".format(round(time_end - time_start, 4)))
@@ -812,7 +885,7 @@ class Scanner():
     unit_y_h = (h_edge.y - origin.y) / distance_h_o
     unit_z_h = (h_edge.z - origin.z) / distance_h_o
 
-    normalizing_h_denominator = distance_h_o * unit_y_h   #(v_edge.z - origin.z) * (origin.y - h_edge.z) + (origin.y - v_edge.y) * (origin.z - h_edge.z)
+    normalizing_h_denominator = distance_h_o * unit_y_h
     normalizing_v_denominator = distance_v_o * (unit_x_v - (unit_x_h / unit_y_h) * unit_y_v )
     y_v = unit_y_v * distance_v_o
     unit_h_xy = unit_x_h / unit_y_h 
@@ -849,25 +922,38 @@ class Scanner():
         print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
 
 
+class Simulator():
+  def __init__(self, scanner, environment):
+    self.scanner = scanner
+    self.environment = environment
+    self.metadata = self.get_metadata()
+    self.samples = 0
+    self.number_of_models = len(metadata)
+
+  def on():
+    while True:
+      model_index = self.samples % self.number_of_models
+      number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
+      for i in range(number_of_samples_for_model):
+        model = self.metadata[model_index]
+        self.environment.update(model)
+        self.scanner.scan(counter=self.samples)
+        self.samples += 1
+
+  def get_metadata(model_directory="/home/ubuntu/COLLADA"):
+    models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
+    total_models = len(models) - 1
+    metadata = {}
+    for i, model in enumerate(models):
+      metadata[i] = {"filename": model, "filepath": path.join(model_directory, model), "samples": []}
+    return metadata
+
 
 if __name__ == "__main__":
-  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(0.1, 0.1, 2.0), focal_length=0.024, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184, hardcode_field_of_view=False) # 100 x 150 / 3456 x 5184 with focal = 0.024
+  # v.01 : constant camera and laser focal points, focal lengths, pixel sizes, numbers of pixels
+  camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(0.1, 0.1, 2.0), focal_length=0.024, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184) # 100 x 150 / 3456 x 5184 with focal = 0.024
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(-0.1, -0.1, 2.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
-  environment = Environment(model="phone.dae")#"/home/ubuntu/COLLADA/825adb49f4525ad125c8d3c1b3ef7c95.dae")
-  scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
-
-  scanner.scan(location=Point(0.0, 0.0, 0.0), precomputed=False)
-
-  # while True: 
-  #   i++
-  #   load_next_model: index = i % total_models     # walk through all models continuously
-  # 
-  # for i in range(samples_per_model):
-  #   resample_scene(): 
-        # resample_model: materials, rotation, position, size
-        # resample_environment: lighting, walls
-
-  #     see statistical_sampling.doc
-  #   compute_raycasts()
-  #   render()
-  #   compute_localizations()
+  scanner = Scanner(sensors=camera, projectors=lasers)
+  environment = Environment()
+  simulator = Simulator(scanner=scanner, environment=environment)
+  simulator.on()
