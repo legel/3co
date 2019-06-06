@@ -905,7 +905,8 @@ class Scanner():
     self.localization_in_sensor_coordinates()
     for hitpoint in self.projectors.highlighted_hitpoints:
       hitpoint.hide_viewport = False
-    bpy.data.objects[object_name].hide_viewport = False
+
+    self.environment.model.model_object.hide_viewport = False
     self.environment.mesh = hide_viewport = False
 
     time_end = time.time()
@@ -991,6 +992,7 @@ class Simulator():
 
   def get_metadata(self, model_directory="/home/ubuntu/COLLADA"):
     models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
+    models = random.shuffle(models)
     total_models = len(models) - 1
     metadata = {}
     for i, model in enumerate(models):
