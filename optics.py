@@ -992,7 +992,7 @@ class Simulator():
 
   def get_metadata(self, model_directory="/home/ubuntu/COLLADA"):
     models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
-    models = random.shuffle(models)
+    random.shuffle(models)
     total_models = len(models) - 1
     metadata = {}
     for i, model in enumerate(models):
