@@ -532,13 +532,21 @@ class Model():
       self.resample_parameters()
 
   def import_object_to_scan(self, filepath):
+    obs = []
     bpy.ops.wm.collada_import(filepath=filepath)
     for object_in_scene in bpy.context.scene.objects:
       if object_in_scene.type == 'MESH':
+        obs.append(object_in_scene)
         bpy.context.view_layer.objects.active = object_in_scene
         self.object_name = object_in_scene.name
         object_in_scene.select_set(state=True)
-    bpy.ops.object.join()
+        print("INDIVIDUAL OBJECT FROM MODEL: {}".format(object_in_scene.name))
+
+    c = {} # override, see: https://blender.stackexchange.com/a/133024/72320
+    c["object"] = c["active_object"] = bpy.context.object
+    c["selected_objects"] = c["selected_editable_objects"] = obs
+    bpy.ops.object.join(c)
+
     bpy.ops.object.origin_set(type='GEOMETRY_ORIGIN', center='BOUNDS')
     self.model_object = bpy.context.object
     print("IMPORTED OBJECT STUFF: 1,2")
