@@ -665,12 +665,15 @@ class Environment():
       a = material.diffuse_color[3]
       print("({},{},{},{})".format(r,g,b,a))
 
-
   def delete_environment(self):
-    environment = [self.model, self.light, self.mesh]
-    for thing in environment:
-      thing.select_set( state = True, view_layer = None)
-      bpy.ops.object.delete() 
+    self.model.model_object.select_set( state = True, view_layer = None)
+    bpy.ops.object.delete() 
+
+    self.light.select_set( state = True, view_layer = None)
+    bpy.ops.object.delete() 
+
+    self.mesh.select_set( state = True, view_layer = None)
+    bpy.ops.object.delete() 
 
   def update(self, model):
     self.delete_environment()
