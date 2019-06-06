@@ -570,7 +570,7 @@ class Model():
     bpy.context.scene.update() 
 
   def resample_size(self):
-    scale_factor = max(np.random.normal(loc=1.25, scale=0.5), 0.25)
+    scale_factor = max(np.random.normal(loc=1.75, scale=0.5), 0.75)
     bpy.context.object.dimensions = (self.dimensions * scale_factor / max(self.dimensions))
     bpy.context.scene.update() 
 
