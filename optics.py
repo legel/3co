@@ -269,7 +269,7 @@ class Photonics():
     self.filepath_of_image_to_project = filepath
     self.image_to_project = bpy.data.images.load(filepath)
 
-  def expand_plane_of_sensor(self, expansion=1.0): # expansion is a multiplier of the size of the sensor plane
+  def expand_plane_of_sensor(self, expansion=10.0): # expansion is a multiplier of the size of the sensor plane
     min_h = 0
     min_v = 0
     max_h = self.horizontal_pixels - 1
