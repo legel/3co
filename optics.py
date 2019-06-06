@@ -542,6 +542,7 @@ class Model():
     bpy.ops.object.origin_set(type='GEOMETRY_ORIGIN', center='BOUNDS')
     self.model_object = bpy.context.object
     print("IMPORTED OBJECT STUFF: 1,2")
+    bpy.context.object.name = "Model"
     print(bpy.context.object)
     print(bpy.context.object.location)
 
@@ -637,16 +638,22 @@ class Environment():
     self.index_materials_of_faces()
 
   def index_materials_of_faces(self):
+    objects = {}
     for i, obj in enumerate(bpy.data.objects):
       obj.select_set( state = False, view_layer = None)
       print("({}) {}".format(i,obj.name))
+      if obj.name == "Environment":
+        objects["Environment"] = obj
+      elif obj.name == "Model":
+        objects["Model"] = obj 
 
-    self.model.model_object.select_set( state = True, view_layer = None)
+    objects["Model"].select_set( state = True, view_layer = None)
     self.model_materials = {}
-    active_object = bpy.context.active_object
 
-    for face in active_object.data.polygons:  # iterate over faces
-      material = active_object.material_slots[face.material_index].material
+    #active_object = bpy.context.active_object
+
+    for face in objects["Model"].data.polygons:  # iterate over faces
+      material = objects["Model"].material_slots[face.material_index].material
       self.model_materials[face.index] = material
       print("Model...")
       print(material.name)
@@ -655,14 +662,16 @@ class Environment():
       b = material.diffuse_color[2]
       a = material.diffuse_color[3]
       print("({},{},{},{})".format(r,g,b,a))
-    self.model.model_object.select_set( state = True, view_layer = None)
 
-    self.mesh.select_set( state = True, view_layer = None)
+    objects["Model"].select_set( state = False, view_layer = None)
+
+
+    objects["Environment"].select_set( state = True, view_layer = None)
+
     self.environment_materials = {}
-    active_object = bpy.context.active_object
 
-    for face in active_object.data.polygons:  # iterate over faces
-      material = active_object.material_slots[face.material_index].material
+    for face in objects["Environment"].data.polygons:  # iterate over faces
+      material = objects["Environment"].material_slots[face.material_index].material
       self.environment_materials[face.index] = material
       print("Environment...")
       print(material.name)
@@ -709,7 +718,7 @@ class Environment():
 
   def create_mesh(self):
     mesh = bpy.data.meshes.new("vinyl_backdrop")
-    self.mesh = bpy.data.objects.new("vinyl_backdrop_object", mesh)
+    self.mesh = bpy.data.objects.new("Environment", mesh)
     bpy.context.collection.objects.link(self.mesh)
     bpy.context.view_layer.objects.active = self.mesh
     self.mesh.select_set( state = True, view_layer = None)
