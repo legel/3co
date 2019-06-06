@@ -852,8 +852,9 @@ class Scanner():
   def localize_projections_in_sensor_plane(self):
     time_start = time.time()
 
-    object_name = self.environment.model.object_name
-    bpy.data.objects[object_name].hide_viewport = True
+    #object_name = self.environment.model.object_name
+
+    self.environment.model.model_object.hide_viewport = True
     self.environment.mesh = hide_viewport = True
 
     img = Image.open(self.projectors.image)
