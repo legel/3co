@@ -343,7 +343,7 @@ class Photonics():
     print("Orientations of {} computed in {} seconds".format(self.projectors_or_sensors, round(time_end - time_start, 4)))
     self.save_metadata(orientation_index)
 
-  def save_metadata(orientation_index):
+  def save_metadata(self, orientation_index):
     with open("xyz_of_{}_{}_pixels".format(self.projectors_or_sensors, orientation_index), "w") as metadata:
       metadata.write("(h,v):(x,y,z)\n")
       for h in [0, self.horizontal_pixels - 1]:    
@@ -624,14 +624,14 @@ class Environment():
   def __init__(self, model="phone.dae"):
     self.resample_environment(model)
 
-  def resample_environment(model):
+  def resample_environment(self, model):
     self.add_model(model_filepath=model)
     self.ambient_lighting()
     self.create_mesh()
     self.create_materials()
     self.index_materials_of_faces()
 
-  def index_materials_of_faces():
+  def index_materials_of_faces(self):
     self.model_materials = {}
     for face in self.model.data.polygons:  # iterate over faces
       material = self.model.material_slots[face.material_index].material
@@ -649,13 +649,13 @@ class Environment():
       print(material.diffuse_color)
 
 
-  def delete_environment():
+  def delete_environment(self):
     environment = [self.model, self.light, self.mesh]
     for thing in environment:
       thing.select_set( state = True, view_layer = None)
       bpy.ops.object.delete() 
 
-  def update(model):
+  def update(self, model):
     self.delete_environment()
     self.resample_environment(model)
 
@@ -930,7 +930,7 @@ class Simulator():
     self.samples = 0
     self.number_of_models = len(metadata)
 
-  def on():
+  def on(self):
     while True:
       model_index = self.samples % self.number_of_models
       number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
@@ -940,7 +940,7 @@ class Simulator():
         self.scanner.scan(counter=self.samples)
         self.samples += 1
 
-  def get_metadata(model_directory="/home/ubuntu/COLLADA"):
+  def get_metadata(self, model_directory="/home/ubuntu/COLLADA"):
     models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
     total_models = len(models) - 1
     metadata = {}
