@@ -645,7 +645,11 @@ class Environment():
       self.model_materials[face.index] = material
       print("Model...")
       print(material.name)
-      print(material.diffuse_color)
+      r = material.diffuse_color[0]
+      g = material.diffuse_color[1]
+      b = material.diffuse_color[2]
+      a = material.diffuse_color[3]
+      print("({},{},{},{})".format(r,g,b,a))
 
     self.mesh.select_set( state = True, view_layer = None)
     self.environment_materials = {}
@@ -655,7 +659,11 @@ class Environment():
       self.environment_materials[face.index] = material
       print("Environment...")
       print(material.name)
-      print(material.diffuse_color)
+      r = material.diffuse_color[0]
+      g = material.diffuse_color[1]
+      b = material.diffuse_color[2]
+      a = material.diffuse_color[3]
+      print("({},{},{},{})".format(r,g,b,a))
 
 
   def delete_environment(self):
@@ -937,7 +945,7 @@ class Simulator():
     self.environment = environment
     self.metadata = self.get_metadata()
     self.samples = 0
-    self.number_of_models = len(metadata)
+    self.number_of_models = len(self.metadata)
 
   def on(self):
     while True:
