@@ -186,6 +186,9 @@ class Photonics():
     bpy.data.scenes["Scene"].render.resolution_x = self.horizontal_pixels
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
 
+    bpy.data.scenes["Scene"].render.tile_x = 512
+    bpy.data.scenes["Scene"].render.tile_y = 512
+
 
   def initialize_projectors(self):
     self.projector_data = bpy.data.lights.new(name="projector_data", type='SPOT')
