@@ -640,7 +640,7 @@ class Model():
 
 
 class Environment():
-  def __init__(self, model):
+  def __init__(self):
     model_directory="/home/ubuntu/COLLADA"
     models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
     sampled_model_index = int(random.uniform(0, len(models) - 1))
