@@ -792,7 +792,7 @@ class Environment():
     green = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
     blue = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
     alpha = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
-    self.vinyl_material.diffuse_color = (red,green,blue)
+    #self.vinyl_material.diffuse_color = (red,green,blue)
     self.vinyl.inputs['Base Color'].default_value = (red, green, blue, alpha)
 
     self.vinyl.inputs['Metallic'].default_value = 0.0 
@@ -838,7 +838,7 @@ class Scanner():
       self.localizations = []
       self.projectors.measure_raycasts_from_pixels()
 
-    #self.render("{}.png".format(int(time.time())))
+    self.render("renders/{}.png".format(int(time.time())))
 
     if self.projectors: 
       self.localize_projections_in_sensor_plane()
