@@ -640,8 +640,13 @@ class Model():
 
 
 class Environment():
-  def __init__(self, model="phone.dae"):
-    self.resample_environment(model)
+  def __init__(self, model):
+    model_directory="/home/ubuntu/COLLADA"
+    models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
+    sampled_model_index = int(random.uniform(0, len(models) - 1))
+    model = models[sampled_model_index]
+    filepath = path.join(model_directory, model)
+    self.resample_environment(filepath)
 
   def resample_environment(self, model):
     self.add_model(model_filepath=model)
@@ -712,11 +717,6 @@ class Environment():
 
     objects["Ambient Light"].select_set(True)
     bpy.ops.object.delete() 
-
-
-  def update(self, model):
-    self.delete_environment()
-    self.resample_environment(model)
 
   def setup_preferences(self):
     bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
@@ -984,38 +984,6 @@ class Scanner():
         print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
 
 
-class Simulator():
-  def __init__(self, scanner):
-    self.scanner = scanner
-    self.environment = scanner.environment
-    self.metadata = self.get_metadata()
-    self.samples = 0
-    self.number_of_models = len(self.metadata)
-
-  def on(self):
-    #while True:
-    model_index = self.samples % self.number_of_models
-    #number_of_samples_for_model = max(int(np.random.normal(loc=100, scale=50)), 20)
-    #for i in range(number_of_samples_for_model):
-    model = self.metadata[model_index]
-    self.environment.update(model["filepath"])
-    self.scanner.scan(counter=0) #self.samples)
-    # self.samples += 1
-    #   break
-    # break
-
-  def get_metadata(self, model_directory="/home/ubuntu/COLLADA"):
-    models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
-    random.shuffle(models)
-    print("!!!!!!!!!!!!!")
-    print(models[0])
-    total_models = len(models) - 1
-    metadata = {}
-    for i, model in enumerate(models):
-      metadata[i] = {"filename": model, "filepath": path.join(model_directory, model), "samples": []}
-    return metadata
-
-
 if __name__ == "__main__":
   # v.01 : constant camera and laser focal points, focal lengths, pixel sizes, numbers of pixels
   camera = Photonics(projectors_or_sensors="sensors", focal_point=Point(0.1, 0.1, 2.0), focal_length=0.024, pixel_size=0.00000429, vertical_pixels=3456, horizontal_pixels=5184) # 100 x 150 / 3456 x 5184 with focal = 0.024
@@ -1023,9 +991,6 @@ if __name__ == "__main__":
   environment = Environment()
   scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
   scanner.scan()
-
-  simulator = Simulator(scanner=scanner)
-  simulator.on()
 
   # to do:
   # filter_glossy = off
