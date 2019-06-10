@@ -189,6 +189,8 @@ class Photonics():
     bpy.data.scenes["Scene"].render.tile_x = 512
     bpy.data.scenes["Scene"].render.tile_y = 512
 
+    bpy.data.scenes["Scene"].cycles.film_exposure = random.uniform(0.002, 0.15) # seconds of exposure / shutterspeed!
+    
 
   def initialize_projectors(self):
     self.projector_data = bpy.data.lights.new(name="projector_data", type='SPOT')
@@ -197,7 +199,7 @@ class Photonics():
     self.projector_data.cycles.max_bounces = 0
     self.projector_data.use_nodes = True  
 
-    lighting_strength = min(max(np.random.normal(loc=1000, scale=1500), 200), 5000)
+    lighting_strength = min(max(np.random.normal(loc=4525, scale=500), 4000), 5000)
     self.projector_data.node_tree.nodes["Emission"].inputs[1].default_value = lighting_strength # W/m^2
 
     # warp mapping of light
@@ -727,7 +729,7 @@ class Environment():
     light = bpy.data.lights.new(name="sun", type='SUN')
     light.use_nodes = True  
 
-    light.node_tree.nodes["Emission"].inputs[1].default_value = min(max(np.random.normal(loc=0.1, scale=0.2), 0.01), 0.4)
+    light.node_tree.nodes["Emission"].inputs[1].default_value = min(max(np.random.normal(loc=0.05, scale=0.05), 0.001), 0.2)
     self.light = bpy.data.objects.new(name="Ambient Light", object_data=light)
 
     x = np.random.normal(loc=0.0, scale=1.0)
@@ -790,7 +792,7 @@ class Environment():
     green = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
     blue = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
     alpha = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
-    self.vinyl_material.diffuse_color = (red,green,blue,alpha)
+    self.vinyl_material.diffuse_color = (red,green,blue)
     self.vinyl.inputs['Base Color'].default_value = (red, green, blue, alpha)
 
     self.vinyl.inputs['Metallic'].default_value = 0.0 
@@ -836,7 +838,7 @@ class Scanner():
       self.localizations = []
       self.projectors.measure_raycasts_from_pixels()
 
-    self.render("{}.png".format(int(time.time())))
+    #self.render("{}.png".format(int(time.time())))
 
     if self.projectors: 
       self.localize_projections_in_sensor_plane()
@@ -1020,5 +1022,11 @@ if __name__ == "__main__":
   lasers = Photonics(projectors_or_sensors="projectors", focal_point=Point(-0.1, -0.1, 2.0), focal_length=0.01127, pixel_size=0.000006, vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") # 64 x 114 / 768 x 1366 -> distance / width = 0.7272404614
   environment = Environment()
   scanner = Scanner(sensors=camera, projectors=lasers, environment=environment)
+  scanner.scan()
+
   simulator = Simulator(scanner=scanner)
   simulator.on()
+
+  # to do:
+  # filter_glossy = off
+  # light_threshold = 0.0
