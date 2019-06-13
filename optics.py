@@ -829,7 +829,7 @@ class Scanner():
     #   self.localizations = []
     #   self.lasers.measure_raycasts_from_pixels()
 
-    # #self.render("renders/{}.png".format(int(time.time())))
+    self.render("0p999/{}.png".format(int(time.time())))
 
     # if self.lasers: 
     #   self.localize_projections_in_sensor_plane()
@@ -978,7 +978,7 @@ class Scanner():
 if __name__ == "__main__":
   sensors = Optics(photonics="sensors", vertical_pixels=3456, horizontal_pixels=5184)
   lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") 
-  environment = Environment(cloud_compute=False)
+  environment = Environment(cloud_compute=True)
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
 
