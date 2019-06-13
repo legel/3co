@@ -126,9 +126,9 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
 
   def sample_focal_point(self, focal_point):
     if type(focal_point) == type(None):
-      x = np.random.normal(loc=0.0, scale=0.25)
-      y = np.random.normal(loc=0.0, scale=0.25)
-      z = min(max(np.random.normal(loc=2.5, scale=0.5), 1.0), 5.0)
+      x = np.random.normal(loc=0.0, scale=0.05)
+      y = np.random.normal(loc=0.0, scale=0.05)
+      z = min(max(np.random.normal(loc=2.0, scale=0.0333), 1.9), 2.1)
       return Point(x, y, z)
     elif type(focal_point) == type(Point()):
       print("Using supplied focal point ({},{},{}) for {}".format(focal_point.x, focal_point.y, focal_point.z, self.photonics))
