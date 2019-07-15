@@ -402,8 +402,8 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
     y_of_vertical_vectors = [(1 - relative_v) * self.image_center.y + relative_v * self.image_vertical_edge.y for relative_v in relative_vertical_coordinates]
     z_of_vertical_vectors = [(1 - relative_v) * self.image_center.z + relative_v * self.image_vertical_edge.z for relative_v in relative_vertical_coordinates]   
 
-#    for h in range(self.horizontal_pixels):
-    for h in [0, self.horizontal_pixels - 1]:
+    for h in range(self.horizontal_pixels):
+#    for h in [0, self.horizontal_pixels - 1]:
 
       left_x_of_horizontal_vector = x_of_horizontal_vectors[h]
       left_y_of_horizontal_vector = y_of_horizontal_vectors[h]
@@ -411,8 +411,8 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
       right_x_of_horizontal_vector = x_of_horizontal_vectors[h+1]
       right_y_of_horizontal_vector = y_of_horizontal_vectors[h+1]
       right_z_of_horizontal_vector = z_of_horizontal_vectors[h+1]      
-      for v in [0, self.vertical_pixels - 1]: 
-#      for v in range(self.vertical_pixels):
+#      for v in [0, self.vertical_pixels - 1]: 
+      for v in range(self.vertical_pixels):
 
         bottom_x_of_vertical_vector = x_of_vertical_vectors[v]
         bottom_y_of_vertical_vector = y_of_vertical_vectors[v]
@@ -503,9 +503,8 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
     max_h = self.horizontal_pixels - 1
     max_v = self.vertical_pixels - 1
 
-    for h in [0, self.horizontal_pixels - 1]: #range(self.horizontal_pixels):   
-      for v in [0, self.vertical_pixels - 1]: #range(self.vertical_pixels):
-
+    for h in range(self.horizontal_pixels):   #[0, self.horizontal_pixels - 1]: 
+      for v in range(self.vertical_pixels):   #[0, self.vertical_pixels - 1]: 
         origin = Vector((self.pixels[h][v].center.x, self.pixels[h][v].center.y, self.pixels[h][v].center.z))
         direction = Vector((self.pixels[h][v].unit_x, self.pixels[h][v].unit_y, self.pixels[h][v].unit_z))
         hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)
@@ -825,14 +824,14 @@ class Scanner():
       self.sensors.target_point = target_point
       self.sensors.reorient(orientation_index=counter)
 
-    # if self.lasers:
-    #   self.localizations = []
-    #   self.lasers.measure_raycasts_from_pixels()
+    if self.lasers:
+      self.localizations = []
+      self.lasers.measure_raycasts_from_pixels()
 
     self.render("0p999/{}.png".format(int(time.time())))
 
-    # if self.lasers: 
-    #   self.localize_projections_in_sensor_plane()
+    if self.lasers: 
+      self.localize_projections_in_sensor_plane()
 
   def render(self, filename):
     print("Rendering...")
@@ -868,11 +867,11 @@ class Scanner():
 #      v = int(random.uniform(0, self.lasers.vertical_pixels))
 #      self.lasers.sampled_hitpoint_pixels.append((h,v))
 
-    # for h in range(self.lasers.horizontal_pixels):   
-    #   for v in range(self.lasers.vertical_pixels):
+    for h in range(self.lasers.horizontal_pixels):   
+      for v in range(self.lasers.vertical_pixels):
 
-    for h in [0, self.lasers.horizontal_pixels - 1]: #range(self.horizontal_pixels):   
-      for v in [0, self.lasers.vertical_pixels - 1]: 
+    # for h in [0, self.lasers.horizontal_pixels - 1]: #range(self.horizontal_pixels):   
+    #   for v in [0, self.lasers.vertical_pixels - 1]: 
 
 
         origin = self.lasers.pixels[h][v].hitpoint
@@ -894,14 +893,14 @@ class Scanner():
           print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
           print("Try expanding the size of the sensor plane".format(h, v))
 
-        if obj == self.environment.mesh:
-          print("Hit the backdrop...")
-          material = self.environment.environment_materials[face_index] # gather information about textures... 
-          print("Color of material there: {}".format(material.diffuse_color))
-        elif obj == self.environment.model:
-          print("Hit the model...")
-          material = self.environment.model_materials[face_index]
-          print("Color of material there: {}".format(material.diffuse_color))
+        # if obj == self.environment.mesh:
+        #   print("Hit the backdrop...")
+        #   material = self.environment.environment_materials[face_index] # gather information about textures... 
+        #   print("Color of material there: {}".format(material.diffuse_color))
+        # elif obj == self.environment.model:
+        #   print("Hit the model...")
+        #   material = self.environment.model_materials[face_index]
+        #   print("Color of material there: {}".format(material.diffuse_color))
 
         self.lasers.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
         #print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.lasers.pixels[h][v].hitpoint.xyz(), self.lasers.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
@@ -945,11 +944,11 @@ class Scanner():
 
     img = Image.open(self.lasers.image)
   
-#    for h in range(self.lasers.horizontal_pixels):   
-#      for v in range(self.lasers.vertical_pixels):
+   for h in range(self.lasers.horizontal_pixels):   
+     for v in range(self.lasers.vertical_pixels):
 
-    for h in [0, self.lasers.horizontal_pixels - 1]:   
-      for v in [0, self.lasers.vertical_pixels - 1]: 
+    # for h in [0, self.lasers.horizontal_pixels - 1]:   
+    #   for v in [0, self.lasers.vertical_pixels - 1]: 
 
         hitpoint = self.lasers.pixels[h][v].hitpoint_in_sensor_plane
 
@@ -982,11 +981,5 @@ if __name__ == "__main__":
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
 
-  # walk back every sampled parameter, and save in a concise metadata file
-  # parallelize computations where possible
-  # scale out raycasts for full resolution, and save those (x,y,z) values as metadata, as well
-  # make focal point, focal length, pixel size probabalistic, with spotlight conforming to the changes
-  # search for any additional hardcoded parameters that may cause conflict
-  # review samples comparing metadata and values, to confirm as a last sanity check that (h,v) coordinates are g2g
-  # transfer files upon saving to an S3 folder
-  # launch 5 GPUs running above, verify later tonight that all systems are indeed go
+  # Optics, Environment, Model, Scanner classes all need metadata, final scan() simply extracts and saves into one .csv
+  # pillow -> (h,v) coordinates :: human cheat sheet color-coded open(image): RAINBOW - SEMITRANSPARENT - BORDER - ...  
