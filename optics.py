@@ -122,7 +122,7 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
 
 
 class Optics():
-  def __init__(self, photonics, focal_point=None, target_point=None, focal_length=None, pixel_size=None, vertical_pixels=None, horizontal_pixels=None, image=None):
+  def __init__(self, photonics, focal_point=None, target_point=None, focal_length=None, pixel_size=None, vertical_pixels=None, horizontal_pixels=None, image=None, position_anchor=None):
     # photonics  := string, either "sensors" or "lasers", to describe if the photonic system should *measure* or *project* photons
     # focal_point  := focal point as Point(x,y,z) at which the optical system is positioned
     # target_point := target point as Point(x,y,z) that the optics are oriented toward; location in 3D space of what is "scanned"
@@ -131,9 +131,10 @@ class Optics():
     # vertical_pixels  := number of vertical pixels
     # horionztal_pixels := number of horizontal pixels  
     # image := for lasers, .png image to project
+    # position_anchor := position to anchor the position sampling, i.e. base sampling off of another object's existing position
     self.time_start = time.time()
     self.photonics = photonics
-    self.focal_point = self.sample_focal_point(focal_point)
+    self.focal_point = self.sample_focal_point(focal_point=focal_point, position_anchor=position_anchor)
     self.target_point = target_point 
     self.focal_length = self.sample_focal_length(focal_length)
     self.pixel_size = self.sample_pixel_size(pixel_size)
@@ -160,7 +161,6 @@ class Optics():
 
   def extract_optical_metadata(self):
     pixel_metadata = self.extract_pixel_metadata()
-
     optical_metadata = {"photonics": self.photonics,
                         "focal_point": self.focal_point.xyz(),
                         "target_point": self.target_point.xyz(),
@@ -173,18 +173,19 @@ class Optics():
                         "vertical_size": self.vertical_size,
                         "horizontal_size": self.horizontal_size,
                         "shutterspeed": self.shutterspeed,
-                        "lasers_watts_per_meters_squared": self.lasers_watts_per_meters_squared,
+                        "watts_per_meters_squared": self.lasers_watts_per_meters_squared,
                         "pixel_metadata": pixel_metadata,
                         }
-
     return optical_metadata
 
   def extract_pixel_metadata(self):
     # pixel metadata is a dictionary wrapper in the form pixel_metadata[h][v] = metadata at horizontal pixel position h, vertical pixel position v
     self.pixel_metadata = {}
-    for h in [0, self.horizontal_pixels - 1]: # range(self.horizontal_pixels):
+    for h in get_pixel_indices("horizontal"):
+      h = int(h)
       self.pixel_metadata[h] = {}
-      for v in [0, self.vertical_pixels - 1]: #range(self.vertical_pixels):
+      for v in get_pixel_indices("vertical"):
+        v = int(v)
         self.pixel_metadata[h][v] = self.pixels[h][v].get_metadata(self.photonics)
     return self.pixel_metadata
 
@@ -201,11 +202,16 @@ class Optics():
       elif v_or_h == "vertical":
         return  range(self.vertical_pixels)      
 
-  def sample_focal_point(self, focal_point):
+  def sample_focal_point(self, focal_point, position_anchor):
     if type(focal_point) == type(None):
-      x = np.random.normal(loc=0.0, scale=0.05)
-      y = np.random.normal(loc=0.0, scale=0.05)
-      z = min(max(np.random.normal(loc=2.0, scale=0.0333), 1.9), 2.1)
+      if type(position_anchor) == type(None):
+        x = np.random.normal(loc=0.0, scale=0.5)
+        y = np.random.normal(loc=0.0, scale=0.5)
+        z = min(max(np.random.normal(loc=1.5, scale=0.25), 1.2), 2.5)  
+      elif type(position_anchor) == type(Point()):  # if we're making a rigid connection to another optical system 
+        x = position_anchor.x + np.random.normal(loc=0.0, scale=0.05)
+        y = position_anchor.y + np.random.normal(loc=0.0, scale=0.05)
+        z = position_anchor.z + np.random.normal(loc=0.0, scale=0.05)  
       return Point(x, y, z)
     elif type(focal_point) == type(Point()):
       print("Using supplied focal point ({},{},{}) for {}".format(focal_point.x, focal_point.y, focal_point.z, self.photonics))
@@ -392,7 +398,8 @@ class Optics():
     bm.faces.new( [top_right, bottom_right, center]) 
     bm.edges.new( [bottom_left, bottom_right] )
     bm.faces.new( [bottom_left, bottom_right, center]) 
-    bm.to_mesh(mesh)  
+    bm.to_mesh(mesh)
+    self.photonic_plane = obj
     bm.free()
 
   def reorient(self, orientation_index=0):
@@ -575,9 +582,23 @@ class Optics():
         hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)
         if not hit:
           print("No hitpoint for raycast from pixel ({},{})".format(h, v))
-        self.pixels[h][v].hitpoint = Point(location[0], location[1], location[2])
-      #print("{} pixel ({},{}) with hitpoint {}".format(self.photonics, h, v, self.pixels[h][v].hitpoint.xyz()))
+          self.pixels[h][v].hitpoint = Point("None", "None", "None")
+        else:
+          self.pixels[h][v].hitpoint = Point(location[0], location[1], location[2])
 
+        if obj == self.environment.mesh:
+          self.pixels[h][v].hitpoint_object = "background"
+          self.pixels[h][v].hitpoint_face_index = face_index
+          self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
+        elif obj == self.environment.model:
+          self.pixels[h][v].hitpoint_object = "model"
+          self.pixels[h][v].hitpoint_face_index = face_index
+          self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
+        else:
+          self.pixels[h][v].hitpoint_object = "None"
+          self.pixels[h][v].hitpoint_face_index = "None"
+          self.pixels[h][v].hitpoint_normal =  Point("None", "None", "None")         
+        
     time_end = time.time()
     print("Raycasts of {} computed in {} seconds".format(self.photonics, round(time_end - time_start, 4)))
 
@@ -646,7 +667,7 @@ class Model():
     bpy.context.scene.update() 
 
   def resample_size(self):
-    self.scale_factor = max(np.random.normal(loc=5.0, scale=2.5), 0.75)
+    self.scale_factor = max(np.random.normal(loc=3.0, scale=2.0), 0.75)
     bpy.context.object.dimensions = (self.dimensions * self.scale_factor / max(self.dimensions))
     bpy.context.scene.update() 
 
@@ -699,7 +720,7 @@ class Model():
       # weighted mixture of gaussians
       ior_guassian_a = np.random.normal(loc=1.45, scale=0.15)
       ior_gaussian_b = np.random.normal(loc=1.45, scale=0.5)
-      ior = min(np.random.choice(a=[ior_guassian_a, ior_gaussian_b], p=[0.80, 0.20]), 1.0)
+      ior = max(np.random.choice(a=[ior_guassian_a, ior_gaussian_b], p=[0.80, 0.20]), 1.0)
       shader.inputs['IOR'].default_value = ior
       metadata["index_of_refraction"] = ior
 
@@ -769,11 +790,13 @@ class Environment():
 
   def extract_environment_metadata(self):
     model_metadata = self.model.extract_model_metadata()
-    model_metadata["face_index_to_material_index"] = self.model_face_index_to_material_index
-
+    model_materials_to_faces = self.invert_faces_to_materials(self.model_face_index_to_material_index)
+    environment_materials_to_faces = self.invert_faces_to_materials(self.environment_face_index_to_material_index)
+    model_metadata["material_index_to_face_indices"] = model_materials_to_faces 
+    
     metadata = {"model": model_metadata,
                 "ambient_lighting": 
-                    { "strength": self.ambient_light_strength,
+                    { "watts_per_meters_squared": self.ambient_light_strength,
                       "position":
                       { "x": self.ambient_light_position.x,
                         "y": self.ambient_light_position.y,
@@ -792,13 +815,20 @@ class Environment():
                         "z": math.degrees(self.z_rotation_angle)
                       },
                       "material": self.background_material_metadata ,
-                      "face_index_to_material_index": self.environment_face_index_to_material_index
+                      "material_index_to_face_indices": environment_materials_to_faces
                     },
                 }
 
     self.metadata = metadata
     return metadata
 
+  def invert_faces_to_materials(faces_to_materials):
+    materials_to_faces = {}
+    for face, material in faces_to_materials.items():
+      list_of_faces = materials_to_faces.get(material, [])
+      list_of_faces.append(int(face))
+      materials_to_faces[material] = list_of_faces
+    return materials_to_faces
 
   def index_materials_of_faces(self):
     objects = {}
@@ -1014,7 +1044,14 @@ class Scanner():
     sensors_metadata = self.sensors.extract_optical_metadata()
     lasers_metadata = self.lasers.extract_optical_metadata()
 
-    metadata = {"environment": environment_metadata, 
+    unix_time = int(time.time())
+    human_time = time.ctime(unix_time)
+
+    metadata = {"meta": 
+                  { "unix_time": unix_time,
+                    "human_time": human_time 
+                  },
+                "environment": environment_metadata, 
                 "sensors": sensors_metadata,
                 "lasers": lasers_metadata
                 }
@@ -1053,17 +1090,19 @@ class Scanner():
           print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
           print("Try expanding the size of the sensor plane".format(h, v))
 
-        # if obj == self.environment.mesh:
-        #   print("Hit the backdrop...")
-        #   material = self.environment.environment_materials[face_index] # gather information about textures... 
-        #   print("Color of material there: {}".format(material.diffuse_color))
-        # elif obj == self.environment.model:
-        #   print("Hit the model...")
-        #   material = self.environment.model_materials[face_index]
-        #   print("Color of material there: {}".format(material.diffuse_color))
 
-        self.lasers.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
-        #print("pixel ({},{}) hitpoint {} on sensor at {}".format(h, v, self.lasers.pixels[h][v].hitpoint.xyz(), self.lasers.pixels[h][v].hitpoint_in_sensor_plane.xyz()))
+        if not hit:
+          print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
+          self.lasers.pixels[h][v].hitpoint_in_sensor_plane = Point("None", "None", "None")
+        else:
+          self.lasers.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
+
+        if obj == self.environment.mesh:
+          self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "background"
+        elif obj == self.environment.model:
+          self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "model"
+        elif obj == self.sensors.photonic_plane:
+          self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "sensor_plane" 
 
     self.localization_in_sensor_coordinates()
     for hitpoint in self.lasers.highlighted_hitpoints:
@@ -1126,7 +1165,7 @@ if __name__ == "__main__":
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
   ###
   sensors = Optics(photonics="sensors", vertical_pixels=3456, horizontal_pixels=5184)
-  lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") 
+  lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="entropy.png", position_anchor=sensors) 
   environment = Environment(cloud_compute=True)
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
