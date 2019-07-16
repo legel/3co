@@ -854,10 +854,10 @@ class Environment():
       list_of_faces = materials_to_faces_using_a_list.get(material, [])
       list_of_faces.append(int(face))
       materials_to_faces_using_a_list[material] = list_of_faces
-      
+
     materials_to_faces = {}
     for material, faces in materials_to_faces_using_a_list.items():
-      materials_to_faces[material] = ",".join(faces)
+      materials_to_faces[material] = ",".join([str(face) for face in faces])
 
     return materials_to_faces
 
