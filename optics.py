@@ -187,7 +187,7 @@ class Optics():
         self.pixel_metadata[h][v] = self.pixels[h][v].get_metadata(self.photonics)
     return self.pixel_metadata
 
-  def get_pixel_indices(v_or_h):
+  def get_pixel_indices(self, v_or_h):
     # v_or_h i.e. vertical or horizontal, is a string "vertical" or "horizontal", which returns the vertical or horizontal pixel indices
     if simulation_mode == "TEST":
       if v_or_h == "horizontal":
