@@ -230,8 +230,8 @@ class Optics():
   def sample_pixel_resolution(self, vertical_pixels, horizontal_pixels):
     if type(vertical_pixels) == type(None) and type(horizontal_pixels) == type(None):
       vertical_to_horizontal_ratio_statistical_family = (5184 / 3456) * np.random.normal(loc=1.0, scale=0.1) # working from current DSLR in use, + - 10%
-      vertical_to_horizontal_ratio_statistical_family_b = 1.0 # square image
-      self.horizontal_to_vertical_pixel_ratio = np.random.choice(a=[vertical_to_horizontal_ratio_statistical_family_a, 1.0], p=[0.50, 0.50])
+      # vertical_to_horizontal_ratio_statistical_family = 1.0 # square image
+      self.horizontal_to_vertical_pixel_ratio = np.random.choice(a=[vertical_to_horizontal_ratio_statistical_family, 1.0], p=[0.50, 0.50])
 
       vertical_statistical_family_a = random.uniform(256.0, 3456.0) # millimeters
       vertical_statistical_family_b = np.random.normal(loc=1250.0, scale=1000.0)
