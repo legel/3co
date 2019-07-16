@@ -100,10 +100,17 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
                                                      "y": self.hitpoint.y, 
                                                      "z": self.hitpoint.z
                                                   }
+      laser_geometry["hitpoint_object_in_environment"] = self.pixels[h][v].hitpoint_object
+      laser_geometry["hitpoint_face_index"] = self.hitpoint_face_index
+      laser_geometry["hitpoint_normal"] = { "x": self.hitpoint_normal.x,
+                                            "y": self.hitpoint_normal.y,
+                                            "z": self.hitpoint_normal.z
+                                          }
       laser_geometry["hitpoint_in_sensor_plane"] = { "x": self.hitpoint_in_sensor_plane.x,
                                                      "y": self.hitpoint_in_sensor_plane.y,
                                                      "z": self.hitpoint_in_sensor_plane.z
                                                    }
+      laser_geometry["hitpoint_in_sensor_plane_object"] = self.hitpoint_in_sensor_plane_object
       laser_geometry["color"] = self.color
       laser_geometry["relative_horizontal_position_in_sensor_plane"] = self.relative_h 
       laser_geometry["relative_vertical_position_in_sensor_plane"] = self.relative_v
@@ -1103,6 +1110,8 @@ class Scanner():
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "model"
         elif obj == self.sensors.photonic_plane:
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "sensor_plane" 
+        else:
+          self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "None" 
 
     self.localization_in_sensor_coordinates()
     for hitpoint in self.lasers.highlighted_hitpoints:
