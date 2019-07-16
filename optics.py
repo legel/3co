@@ -145,6 +145,7 @@ class Optics():
     self.target_point = target_point 
     self.focal_length = self.sample_focal_length(focal_length)
     self.pixel_size = self.sample_pixel_size(pixel_size)
+    vertical_pixels, horizontal_pixels = self.sample_pixel_resolution(vertical_pixels, horizontal_pixels)
     self.vertical_pixels = vertical_pixels
     self.horizontal_pixels = horizontal_pixels
     if type(image) != type(None):
@@ -225,6 +226,21 @@ class Optics():
       return focal_point
     else:
       raise("The focal point argument should either be left None, to be randomly sampled, or of type Point(x,y,z), declared like focal_point=Point(0.0, 0.0, 0.0)")
+
+  def sample_pixel_resolution(self, vertical_pixels, horizontal_pixels):
+    if type(vertical_pixels) == type(None) and type(horizontal_pixels) == type(None):
+      vertical_to_horizontal_ratio_statistical_family = (5184 / 3456) * np.random.normal(loc=1.0, scale=0.1) # working from current DSLR in use, + - 10%
+      vertical_to_horizontal_ratio_statistical_family_b = 1.0 # square image
+      self.horizontal_to_vertical_pixel_ratio = np.random.choice(a=[vertical_to_horizontal_ratio_statistical_family_a, 1.0], p=[0.50, 0.50])
+
+      vertical_statistical_family_a = random.uniform(256.0, 3456.0) # millimeters
+      vertical_statistical_family_b = np.random.normal(loc=1250.0, scale=1000.0)
+
+      vertical_pixels = max(np.random.choice(a=[vertical_statistical_family_a, vertical_statistical_family_b], p=[0.50, 0.50]), 256.0)
+      horizontal_pixels = vertical_pixels * self.horizontal_to_vertical_pixel_ratio
+
+    return [vertical_pixels, horizontal_pixels]
+
 
   def sample_focal_length(self, focal_length):
     if type(focal_length) == type(None):
@@ -829,7 +845,7 @@ class Environment():
     self.metadata = metadata
     return metadata
 
-  def invert_faces_to_materials(faces_to_materials):
+  def invert_faces_to_materials(self, faces_to_materials):
     materials_to_faces = {}
     for face, material in faces_to_materials.items():
       list_of_faces = materials_to_faces.get(material, [])
@@ -1173,7 +1189,7 @@ if __name__ == "__main__":
   begin_time = time.time()
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
   ###
-  sensors = Optics(photonics="sensors", vertical_pixels=3456, horizontal_pixels=5184)
+  sensors = Optics(photonics="sensors")
   lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="entropy.png", position_anchor=sensors) 
   environment = Environment(cloud_compute=True)
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
