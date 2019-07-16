@@ -41,6 +41,9 @@ class Point(): # wrapper for (x,y,z) coordinates with helpers; can refactor to h
   def xyz(self):
     return (self.x, self.y, self.z)
 
+  def xyz_dictionary(self):
+    return {"x": self.x, "y": self.y, "z": self.z}
+
 class Triangle():
   def __init__(self, a, b, c):
     # a,b,c are each 3D points of class Point(x,y,z)
@@ -170,9 +173,9 @@ class Optics():
   def extract_optical_metadata(self):
     pixel_metadata = self.extract_pixel_metadata()
     optical_metadata = {"photonics": self.photonics,
-                        "focal_point": self.focal_point.xyz(),
-                        "target_point": self.target_point.xyz(),
-                        "principal_point": self.image_center.xyz(),
+                        "focal_point": self.focal_point.xyz_dictionary(),
+                        "target_point": self.target_point.xyz_dictionary(),
+                        "principal_point": self.image_center.xyz_dictionary(),
                         "focal_length": self.focal_length, 
                         "pixel_size": self.pixel_size,
                         "vertical_pixels": self.vertical_pixels,
@@ -846,11 +849,16 @@ class Environment():
     return metadata
 
   def invert_faces_to_materials(self, faces_to_materials):
-    materials_to_faces = {}
+    materials_to_faces_using_a_list = {}
     for face, material in faces_to_materials.items():
-      list_of_faces = materials_to_faces.get(material, [])
+      list_of_faces = materials_to_faces_using_a_list.get(material, [])
       list_of_faces.append(int(face))
-      materials_to_faces[material] = list_of_faces
+      materials_to_faces_using_a_list[material] = list_of_faces
+      
+    materials_to_faces = {}
+    for material, faces in materials_to_faces_using_a_list.items():
+      materials_to_faces[material] = ",".join(faces)
+
     return materials_to_faces
 
   def index_materials_of_faces(self):
