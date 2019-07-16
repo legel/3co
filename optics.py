@@ -189,10 +189,10 @@ class Optics():
   def extract_pixel_metadata(self):
     # pixel metadata is a dictionary wrapper in the form pixel_metadata[h][v] = metadata at horizontal pixel position h, vertical pixel position v
     self.pixel_metadata = {}
-    for h in get_pixel_indices("horizontal"):
+    for h in self.get_pixel_indices("horizontal"):
       h = int(h)
       self.pixel_metadata[h] = {}
-      for v in get_pixel_indices("vertical"):
+      for v in self.get_pixel_indices("vertical"):
         v = int(v)
         self.pixel_metadata[h][v] = self.pixels[h][v].get_metadata(self.photonics)
     return self.pixel_metadata
