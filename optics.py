@@ -412,7 +412,6 @@ class Optics():
         self.expand_plane_of_sensor()
     time_end = time.time()
     print("Orientations of {} computed in {} seconds".format(self.photonics, round(time_end - time_start, 4)))
-    self.save_metadata(orientation_index)
 
   def compute_image_center(self):
     focal_ratio = self.focal_length / (self.focal_length + self.focal_point.distance(self.target_point))
