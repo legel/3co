@@ -239,7 +239,7 @@ class Optics():
       vertical_pixels = max(np.random.choice(a=[vertical_statistical_family_a, vertical_statistical_family_b], p=[0.50, 0.50]), 256.0)
       horizontal_pixels = vertical_pixels * self.horizontal_to_vertical_pixel_ratio
 
-    return [vertical_pixels, horizontal_pixels]
+    return [int(vertical_pixels), int(horizontal_pixels)]
 
 
   def sample_focal_length(self, focal_length):
