@@ -7,8 +7,10 @@ from math import cos, sin
 import bmesh
 from PIL import Image
 from mathutils import Vector
-import pickle
+import json
 from os import listdir, path
+
+simulation_mode = "TEST" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
 # set rendering engine to be *Blender Cycles*, which is a physically-based raytracer (see e.g. https://www.cycles-renderer.org)
 bpy.context.scene.render.engine = 'CYCLES'
@@ -22,6 +24,7 @@ try:
   bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
 except TypeError:
   print("No GPU. Fuck it, do it live!")
+
 
 class Point(): # wrapper for (x,y,z) coordinates with helpers; can refactor to https://github.com/tensorflow/graphics
   def __init__(self, x=0, y=0, z=0):
@@ -89,8 +92,35 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
     self.unit_y = (focal_point.y - self.center.y) / self.distance_to_focal_point
     self.unit_z = (focal_point.z - self.center.z) / self.distance_to_focal_point
 
+  def get_metadata(self, photonics):
+    laser_geometry = {}
+    if photonics == "lasers":
+      laser_geometry["hitpoint_in_environment"] = {  "x": self.hitpoint.x, 
+                                                     "y": self.hitpoint.y, 
+                                                     "z": self.hitpoint.z
+                                                  }
+      laser_geometry["hitpoint_in_sensor_plane"] = { "x": self.hitpoint_in_sensor_plane.x,
+                                                     "y": self.hitpoint_in_sensor_plane.y
+                                                     "z": self.hitpoint_in_sensor_plane.z
+                                                   }
+      laser_geometry["color"] = self.color
+      laser_geometry["relative_horizontal_position_in_sensor_plane"] = self.relative_h 
+      laser_geometry["relative_vertical_position_in_sensor_plane"] = self.relative_v
+      
+    metadata = {"h": self.h, 
+                "v": self.v, 
+                "position": { 
+                    "x": self.center.x, 
+                    "y": self.center.y, 
+                    "z": self.center.z
+                },
+                "laser_geometry": laser_geometry
+                }
+    self.metadata = metadata
+    return metadata
 
-class Optics(): # https://en.wikipedia.org/wiki/Photonics
+
+class Optics():
   def __init__(self, photonics, focal_point=None, target_point=None, focal_length=None, pixel_size=None, vertical_pixels=None, horizontal_pixels=None, image=None):
     # photonics  := string, either "sensors" or "lasers", to describe if the photonic system should *measure* or *project* photons
     # focal_point  := focal point as Point(x,y,z) at which the optical system is positioned
@@ -100,29 +130,75 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
     # vertical_pixels  := number of vertical pixels
     # horionztal_pixels := number of horizontal pixels  
     # image := for lasers, .png image to project
-    time_start = time.time()
+    self.time_start = time.time()
     self.photonics = photonics
     self.focal_point = self.sample_focal_point(focal_point)
+    self.target_point = target_point 
     self.focal_length = self.sample_focal_length(focal_length)
     self.pixel_size = self.sample_pixel_size(pixel_size)
     self.vertical_pixels = vertical_pixels
     self.horizontal_pixels = horizontal_pixels
-    self.image = image
-    self.target_point = target_point 
+    if type(image) != type(None):
+      self.image = image
+    else:
+      self.image = ""
     self.vertical_size = self.vertical_pixels * self.pixel_size
     self.horizontal_size = self.horizontal_pixels * self.pixel_size
     self.pixels = [[Pixel(h,v) for v in range(self.vertical_pixels)] for h in range(self.horizontal_pixels)]
     self.image_center = Point()
-    self.relative_horizontal_half_pixel_size = 0.5 * self.pixel_size / float(self.horizontal_size)
-    self.relative_vertical_half_pixel_size = 0.5 * self.pixel_size / float(self.vertical_size)
     self.highlighted_hitpoints = []
     self.sampled_hitpoint_pixels = []
+    self.shutterspeed = ""
+    self.lasers_watts_per_meters_squared = ""
     if photonics == "lasers":
       self.initialize_lasers()
     elif photonics == "sensors":
       self.initialize_sensors()
-    time_end = time.time()
-    print("Launched {} in {} seconds".format(self.photonics, round(time_end - time_start, 4)))
+    self.time_end = time.time()
+    print("Launched {} in {} seconds".format(self.photonics, round(self.time_end - self.time_start, 4)))
+
+  def extract_optical_metadata(self):
+    pixel_metadata = self.extract_pixel_metadata()
+
+    optical_metadata = {"photonics": self.photonics,
+                        "focal_point": self.focal_point.xyz(),
+                        "target_point": self.target_point.xyz(),
+                        "principal_point": self.image_center.xyz(),
+                        "focal_length": self.focal_length, 
+                        "pixel_size": self.pixel_size,
+                        "vertical_pixels": self.vertical_pixels,
+                        "horizontal_pixels": self.horizontal_pixels,
+                        "image": self.image,
+                        "vertical_size": self.vertical_size,
+                        "horizontal_size": self.horizontal_size,
+                        "shutterspeed": self.shutterspeed,
+                        "lasers_watts_per_meters_squared": self.lasers_watts_per_meters_squared,
+                        "pixel_metadata": pixel_metadata,
+                        }
+
+    return optical_metadata
+
+  def extract_pixel_metadata(self):
+    # pixel metadata is a dictionary wrapper in the form pixel_metadata[h][v] = metadata at horizontal pixel position h, vertical pixel position v
+    self.pixel_metadata = {}
+    for h in [0, self.horizontal_pixels - 1]: # range(self.horizontal_pixels):
+      self.pixel_metadata[h] = {}
+      for v in [0, self.vertical_pixels - 1]: #range(self.vertical_pixels):
+        self.pixel_metadata[h][v] = self.pixels[h][v].get_metadata(self.photonics)
+    return self.pixel_metadata
+
+  def get_pixel_indices(v_or_h):
+    # v_or_h i.e. vertical or horizontal, is a string "vertical" or "horizontal", which returns the vertical or horizontal pixel indices
+    if simulation_mode == "TEST":
+      if v_or_h == "horizontal":
+        return [0, self.horizontal_pixels - 1]
+      elif v_or_h == "vertical":
+        return [0, self.vertical_pixels - 1]
+    elif simulation_mode == "ALL":
+      if v_or_h == "horizontal":
+        return range(self.horizontal_pixels)
+      elif v_or_h == "vertical":
+        return  range(self.vertical_pixels)      
 
   def sample_focal_point(self, focal_point):
     if type(focal_point) == type(None):
@@ -177,7 +253,8 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
     bpy.data.scenes["Scene"].render.tile_x = 512
     bpy.data.scenes["Scene"].render.tile_y = 512
-    bpy.data.scenes["Scene"].cycles.film_exposure = random.uniform(0.002, 0.15) # seconds of exposure / shutterspeed!
+    self.shutterspeed = random.uniform(0.002, 0.15)
+    bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
     
   def initialize_lasers(self):
     self.laser_data = bpy.data.lights.new(name="laser_data", type='SPOT')
@@ -188,6 +265,7 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
 
     lighting_strength = min(max(np.random.normal(loc=4525, scale=500), 4000), 5000)
     self.laser_data.node_tree.nodes["Emission"].inputs[1].default_value = lighting_strength # W/m^2
+    self.lasers_watts_per_meters_squared = lighting_strength
 
     # warp mapping of light
     mapping = self.laser_data.node_tree.nodes.new(type='ShaderNodeMapping')
@@ -336,14 +414,6 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
     print("Orientations of {} computed in {} seconds".format(self.photonics, round(time_end - time_start, 4)))
     self.save_metadata(orientation_index)
 
-  def save_metadata(self, orientation_index):
-    with open("xyz_of_{}_{}_pixels".format(self.photonics, orientation_index), "w") as metadata:
-      metadata.write("(h,v):(x,y,z)\n")
-      for h in [0, self.horizontal_pixels - 1]:    
-        for v in [0, self.vertical_pixels - 1]: 
-          x,y,z = self.pixels[h][v].center.xyz()
-          metadata.write("{},{}:{},{},{}\n".format(h,v,x,y,z))
-
   def compute_image_center(self):
     focal_ratio = self.focal_length / (self.focal_length + self.focal_point.distance(self.target_point))
     if focal_ratio == 1.0:
@@ -402,18 +472,14 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
     y_of_vertical_vectors = [(1 - relative_v) * self.image_center.y + relative_v * self.image_vertical_edge.y for relative_v in relative_vertical_coordinates]
     z_of_vertical_vectors = [(1 - relative_v) * self.image_center.z + relative_v * self.image_vertical_edge.z for relative_v in relative_vertical_coordinates]   
 
-    for h in range(self.horizontal_pixels):
-#    for h in [0, self.horizontal_pixels - 1]:
-
+    for h in self.get_pixel_indices("horizontal"):
       left_x_of_horizontal_vector = x_of_horizontal_vectors[h]
       left_y_of_horizontal_vector = y_of_horizontal_vectors[h]
       left_z_of_horizontal_vector = z_of_horizontal_vectors[h]
       right_x_of_horizontal_vector = x_of_horizontal_vectors[h+1]
       right_y_of_horizontal_vector = y_of_horizontal_vectors[h+1]
       right_z_of_horizontal_vector = z_of_horizontal_vectors[h+1]      
-#      for v in [0, self.vertical_pixels - 1]: 
-      for v in range(self.vertical_pixels):
-
+      for v in self.get_pixel_indices("vertical"): 
         bottom_x_of_vertical_vector = x_of_vertical_vectors[v]
         bottom_y_of_vertical_vector = y_of_vertical_vectors[v]
         bottom_z_of_vertical_vector = z_of_vertical_vectors[v]
@@ -447,7 +513,6 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
         self.pixels[h][v].center = Point(center_x, center_y, center_z)
 
         self.pixels[h][v].calculate_unit_vectors_through_focal_point(self.focal_point)
-      #print("{}, {} : {}, {}, {}".format(h, v, center_x, center_y, center_z))
   
   def highlight_hitpoint(self, location, diffuse_color):
     x = location[0]
@@ -503,8 +568,8 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
     max_h = self.horizontal_pixels - 1
     max_v = self.vertical_pixels - 1
 
-    for h in range(self.horizontal_pixels):   #[0, self.horizontal_pixels - 1]: 
-      for v in range(self.vertical_pixels):   #[0, self.vertical_pixels - 1]: 
+    for h in self.get_pixel_indices("horizontal"):
+      for v in self.get_pixel_indices("vertical"):
         origin = Vector((self.pixels[h][v].center.x, self.pixels[h][v].center.y, self.pixels[h][v].center.z))
         direction = Vector((self.pixels[h][v].unit_x, self.pixels[h][v].unit_y, self.pixels[h][v].unit_z))
         hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)
@@ -519,6 +584,7 @@ class Optics(): # https://en.wikipedia.org/wiki/Photonics
 class Model():
   def __init__(self, filepath=None):
     if filepath:
+      self.filepath = filepath
       self.import_object_to_scan(filepath=filepath)
       self.dimensions = bpy.context.object.dimensions
       self.resample_parameters()
@@ -532,7 +598,7 @@ class Model():
         bpy.context.view_layer.objects.active = object_in_scene
         self.object_name = object_in_scene.name
         object_in_scene.select_set(state=True)
-        print("INDIVIDUAL OBJECT FROM MODEL: {}".format(object_in_scene.name))
+        # print("INDIVIDUAL OBJECT FROM MODEL: {}".format(object_in_scene.name))
 
     c = {} # override, see: https://blender.stackexchange.com/a/133024/72320
     c["object"] = c["active_object"] = bpy.context.object
@@ -541,17 +607,35 @@ class Model():
 
     bpy.ops.object.origin_set(type='GEOMETRY_ORIGIN', center='BOUNDS')
     self.model_object = bpy.context.object
-    print("IMPORTED OBJECT STUFF: 1,2")
+    # print("IMPORTED OBJECT STUFF: 1,2")
     bpy.context.object.name = "Model"
-    print(bpy.context.object)
-    print(bpy.context.object.location)
-
+    # print(bpy.context.object)
+    # print(bpy.context.object.location)
 
   def resample_parameters(self):
       self.resample_orientation()
       self.resample_size()
       self.resample_position()
       self.resample_materials()    
+
+  def extract_model_metadata(self):
+    metadata = {"filepath": self.filepath,
+                "position":         { "x": self.x,
+                                      "y": self.y,
+                                      "z": self.z
+                                    },
+                "rotation_euler":   { "x": math.degrees(self.x_rotation_angle), 
+                                      "y": math.degrees(self.y_rotation_angle),
+                                      "z": math.degrees(self.z_rotation_angle) 
+                                    },
+                "dimensions_size":  { "x": self.dimensions[0],
+                                      "y": self.dimensions[1],
+                                      "z": self.dimensions[2]
+                                    },
+                "materials": self.materials_metadata
+                }
+
+    return metadata
 
   def resample_orientation(self):
     obj = bpy.context.object
@@ -562,21 +646,30 @@ class Model():
     bpy.context.scene.update() 
 
   def resample_size(self):
-    scale_factor = max(np.random.normal(loc=5.0, scale=2.5), 0.75)
+    self.scale_factor = max(np.random.normal(loc=5.0, scale=2.5), 0.75)
     bpy.context.object.dimensions = (self.dimensions * scale_factor / max(self.dimensions))
     bpy.context.scene.update() 
 
   def resample_position(self):
     obj = bpy.context.object
-    obj.location.x = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
-    obj.location.y = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
-    obj.location.z = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
+    self.x = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
+    self.y = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
+    self.z = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
+    obj.location.x = self.x
+    obj.location.y = self.y
+    obj.location.z = self.z
     bpy.context.scene.update() 
 
   def resample_materials(self):
     obj = bpy.context.object
-    for material_slot in obj.material_slots:
+    self.materials_metadata = {}
+
+    for material_slot_index, material_slot in enum(obj.material_slots):
+      material_name = material_slot.name
+      metadata = {"index": material_slot_index, "name": material_name}
+
       m = material_slot.material
+
       # reset nodes
       m.blend_method = 'BLEND'
       m.use_nodes = True
@@ -593,29 +686,54 @@ class Model():
       alpha = min(np.random.normal(loc=1.0, scale=0.15), 1.0)
       shader.inputs['Base Color'].default_value = (red, green, blue, alpha)
 
-      shader.inputs['Metallic'].default_value = np.random.choice(a=[0.0, 1.0], p=[0.80, 0.20]) # left is choice, right is probabilty
+      metadata["red"] = red
+      metadata["green"] = green
+      metadata["blue"] = blue
+      metadata["alpha"] = alpha
+
+      metallic = np.random.choice(a=[0.0, 1.0], p=[0.80, 0.20]) # left is choice, right is probabilty
+      shader.inputs['Metallic'].default_value = metallic
+      metadata["metallic"] = metallic
 
       # weighted mixture of gaussians
       ior_guassian_a = np.random.normal(loc=1.45, scale=0.15)
       ior_gaussian_b = np.random.normal(loc=1.45, scale=0.5)
       ior = min(np.random.choice(a=[ior_guassian_a, ior_gaussian_b], p=[0.80, 0.20]), 1.0)
       shader.inputs['IOR'].default_value = ior
+      metadata["index_of_refraction"] = ior
 
-      shader.inputs['Specular'].default_value = ((ior-1.0)/(ior+1.0))**2 / 0.08 # from "special case of Fresnel formula" as in https://docs.blender.org/manual/en/dev/render/cycles/nodes/types/shaders/principled.html
+      specular = ((ior-1.0)/(ior+1.0))**2 / 0.08 # from "special case of Fresnel formula" as in https://docs.blender.org/manual/en/dev/render/cycles/nodes/types/shaders/principled.html
+      shader.inputs['Specular'].default_value = specular
+      metadata["specular"] = specular
 
       # weighted mixture of guassians
       transmission_guassian_a = np.random.normal(loc=0.1, scale=0.3)
       transmission_gaussian_b = np.random.normal(loc=0.9, scale=0.3)
       transmission = max(min(np.random.choice(a=[transmission_guassian_a, transmission_gaussian_b], p=[0.75, 0.25]), 1.0), 0.0)
       shader.inputs['Transmission'].default_value = transmission
+      metadata["transmission"] = transmission
 
-      shader.inputs['Transmission Roughness'].default_value = random.uniform(0, 1)
-      shader.inputs['Roughness'].default_value = random.uniform(0, 1)
+      transmission_roughness = random.uniform(0, 1)
+      shader.inputs['Transmission Roughness'].default_value
+      metadata["transmission_roughness"] = transmission_roughness
 
-      shader.inputs['Anisotropic'].default_value = max(min(np.random.normal(loc=0.1, scale=0.3), 1.0), 0.0)
-      shader.inputs['Anisotropic Rotation'].default_value = random.uniform(0,1)
+      roughness = random.uniform(0, 1)
+      shader.inputs['Roughness'].default_value = roughness
+      metadata["roughness"] = roughness
 
-      shader.inputs['Sheen'].default_value = max(min(np.random.choice(a=[0.0, np.random.normal(loc=0.5, scale=0.25)], p=[0.9, 0.1]), 1.0), 0.0)
+      anisotropic = max(min(np.random.normal(loc=0.1, scale=0.3), 1.0), 0.0)
+      shader.inputs['Anisotropic'].default_value = anisotropic
+      metadata["anisotropic"] = anisotropic
+
+      anisotropic_rotation = random.uniform(0,1)
+      shader.inputs['Anisotropic Rotation'].default_value = anisotropic_rotation
+      metadata["anisotropic_rotation"] = anisotropic_rotation
+
+      sheen = max(min(np.random.choice(a=[0.0, np.random.normal(loc=0.5, scale=0.25)], p=[0.9, 0.1]), 1.0), 0.0)
+      shader.inputs['Sheen'].default_value = sheen
+      metadata["sheen"] = sheen
+
+      self.materials_metadata[int(material_slot_index)] = metadata
 
       # infrastructure
       node_output = nodes.new(type='ShaderNodeOutputMaterial')   
@@ -634,6 +752,7 @@ class Environment():
       sampled_model_index = int(random.uniform(0, len(models) - 1))
       model = models[sampled_model_index]
       filepath = path.join(model_directory, model)
+      self.model_name = model
       self.resample_environment(filepath)
     else:
       self.resample_environment("phone.dae") # check for the almighty smartphone in your pocket
@@ -645,11 +764,43 @@ class Environment():
     self.create_materials()
     self.index_materials_of_faces()
 
+  def extract_environment_metadata(self):
+    model_metadata = self.model.extract_model_metadata()
+    model_metadata["face_index_to_material_index"] = self.model_face_index_to_material_index
+
+    metadata = {"model": model_metadata,
+                "ambient_lighting": 
+                    { "strength": self.ambient_light_strength,
+                      "position":
+                      { "x": self.ambient_light_position.x,
+                        "y": self.ambient_light_position.y,
+                        "z": self.ambient_light_position.z
+                      } 
+                    },
+                "background": 
+                    { "position": 
+                      { "x": 0.0,
+                        "y": 0.0,
+                        "z": self.distance_from_origin
+                      },
+                      "rotation_euler":
+                      { "x": math.degrees(self.x_rotation_angle),
+                        "y": math.degrees(self.y_rotation_angle),
+                        "z": math.degrees(self.z_rotation_angle)
+                      },
+                      "material": self.background_material_metadata ,
+                      "face_index_to_material_index": self.environment_face_index_to_material_index
+                    },
+                }
+
+    self.metadata = metadata
+    return metadata
+
+
   def index_materials_of_faces(self):
     objects = {}
     for i, obj in enumerate(bpy.data.objects):
       obj.select_set( state = False, view_layer = None)
-      print("({}) {}".format(i,obj.name))
       if obj.name == "Environment":
         objects["Environment"] = obj
       elif obj.name == "Model":
@@ -657,36 +808,25 @@ class Environment():
 
     objects["Model"].select_set( state = True, view_layer = None)
     self.model_materials = {}
+    self.model_face_index_to_material_index = {}
     #active_object = bpy.context.active_object
 
     for face in objects["Model"].data.polygons:  # iterate over faces
       material = objects["Model"].material_slots[face.material_index].material
+      self.model_face_index_to_material_index[face.index] = face.material_index
       self.model_materials[face.index] = material
-      # print("Model...")
-      # print(material.name)
-      # r = material.diffuse_color[0]
-      # g = material.diffuse_color[1]
-      # b = material.diffuse_color[2]
-      # a = material.diffuse_color[3]
-      # print("({},{},{},{})".format(r,g,b,a))
 
     objects["Model"].select_set( state = False, view_layer = None)
     objects["Environment"].select_set( state = True, view_layer = None)
 
     self.environment_materials = {}
+    self.environment_face_index_to_material_index = {}
     for face in objects["Environment"].data.polygons:  # iterate over faces
       material = objects["Environment"].material_slots[face.material_index].material
+      self.environment_face_index_to_material_index[face.index] = face.material_index
       self.environment_materials[face.index] = material
-      # print("Environment...")
-      # print(material.name)
-      # r = material.diffuse_color[0]
-      # g = material.diffuse_color[1]
-      # b = material.diffuse_color[2]
-      # a = material.diffuse_color[3]
-      # print("({},{},{},{})".format(r,g,b,a))
 
   def delete_environment(self):
-
     objects = {}
     for i, obj in enumerate(bpy.data.objects):
       obj.select_set( state = False, view_layer = None)
@@ -719,12 +859,17 @@ class Environment():
     light = bpy.data.lights.new(name="sun", type='SUN')
     light.use_nodes = True  
 
-    light.node_tree.nodes["Emission"].inputs[1].default_value = min(max(np.random.normal(loc=0.05, scale=0.05), 0.001), 0.2)
+    light_power = min(max(np.random.normal(loc=0.05, scale=0.05), 0.001), 0.2)
+    light.node_tree.nodes["Emission"].inputs[1].default_value = light_power
+    self.ambient_light_strength = light_power
+
     self.light = bpy.data.objects.new(name="Ambient Light", object_data=light)
 
     x = np.random.normal(loc=0.0, scale=1.0)
     y = np.random.normal(loc=0.0, scale=1.0)
     z = np.random.normal(loc=10.0, scale=2.5)
+
+    self.ambient_light_position = Point(x,y,z)
 
     self.light.location = (x, y, z)
     bpy.context.scene.collection.objects.link(self.light)
@@ -766,16 +911,13 @@ class Environment():
     bpy.context.scene.update() 
 
   def create_materials(self):
+    self.background_material_metadata = {}
     self.vinyl_material = bpy.data.materials.new(name="vinyl_backdrop_material")
     self.vinyl_material.use_nodes = True
     nodes = self.vinyl_material.node_tree.nodes
     for node in nodes:
       nodes.remove(node)
     self.vinyl = nodes.new(type='ShaderNodeBsdfPrincipled')
-    self.vinyl.inputs['Sheen'].default_value = 1.0
-    self.vinyl.inputs['Sheen Tint'].default_value = 0.8
-    self.vinyl.inputs['Roughness'].default_value = 0.2
-    self.vinyl.inputs['Base Color'].default_value = (1,1,1,1)
 
     # parameterization by *The Principled Shader* (insert Blender guru accent)
     red = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
@@ -784,22 +926,42 @@ class Environment():
     alpha = min(np.random.normal(loc=0.995, scale=0.03), 1.0)
     #self.vinyl_material.diffuse_color = (red,green,blue)
     self.vinyl.inputs['Base Color'].default_value = (red, green, blue, alpha)
+    self.background_material_metadata["red"] = red
+    self.background_material_metadata["green"] = green
+    self.background_material_metadata["blue"] = blue
+    self.background_material_metadata["alpha"] = alpha
 
-    self.vinyl.inputs['Metallic'].default_value = 0.0 
+    metallic = 0.0
+    self.vinyl.inputs['Metallic'].default_value = metallic
+    self.background_material_metadata["metallic"] = metallic
 
     # weighted mixture of gaussians
     ior = np.random.normal(loc=1.45, scale=0.02)
     self.vinyl.inputs['IOR'].default_value = ior
-    self.vinyl.inputs['Specular'].default_value = ((ior-1.0)/(ior+1.0))**2 / 0.08 # from "special case of Fresnel formula" as in https://docs.blender.org/manual/en/dev/render/cycles/nodes/types/shaders/principled.html
+    self.background_material_metadata["index_of_refraction"] = ior
+
+    specular = ((ior-1.0)/(ior+1.0))**2 / 0.08 # from "special case of Fresnel formula" as in https://docs.blender.org/manual/en/dev/render/cycles/nodes/types/shaders/principled.html
+    self.vinyl.inputs['Specular'].default_value = specular
+    self.background_material_metadata["specular"] = specular
 
     # weighted mixture of guassians
-    self.vinyl.inputs['Transmission'].default_value = max(np.random.normal(loc=0.1, scale=0.1), 0.0)
+    transmission = max(np.random.normal(loc=0.1, scale=0.1), 0.0)
+    self.vinyl.inputs['Transmission'].default_value = transmission
+    self.background_material_metadata["transmission"] = transmission
 
-    self.vinyl.inputs['Transmission Roughness'].default_value = random.uniform(0, 1)
-    self.vinyl.inputs['Roughness'].default_value = min(np.random.normal(loc=0.8, scale=0.1),1.0)
+    transmission_roughness = random.uniform(0, 1)
+    self.vinyl.inputs['Transmission Roughness'].default_value = transmission_roughness
+    self.background_material_metadata["transmission_roughness"] = transmission_roughness
 
-    self.vinyl.inputs['Sheen'].default_value = max(min(np.random.normal(loc=0.6, scale=0.2), 1.0), 0.0)
 
+    roughness = min(np.random.normal(loc=0.8, scale=0.1),1.0)
+    self.vinyl.inputs['Roughness'].default_value = roughness
+    self.background_material_metadata["roughness"] = roughness
+
+
+    sheen = max(min(np.random.normal(loc=0.6, scale=0.2), 1.0), 0.0)
+    self.vinyl.inputs['Sheen'].default_value = sheen
+    self.background_material_metadata["sheen"] = sheen
 
     self.vinyl.location = (0,0)
     node_output = nodes.new(type='ShaderNodeOutputMaterial')   
@@ -828,10 +990,12 @@ class Scanner():
       self.localizations = []
       self.lasers.measure_raycasts_from_pixels()
 
-    self.render("0p999/{}.png".format(int(time.time())))
+    self.render("beta_{}.png".format(int(time.time())))
 
     if self.lasers: 
       self.localize_projections_in_sensor_plane()
+
+    self.save_metadata()
 
   def render(self, filename):
     print("Rendering...")
@@ -842,38 +1006,31 @@ class Scanner():
     print("Rendered image in {} seconds".format(round(time_end - time_start, 4)))
 
 
-  def save_data(self):
-    print("Pickling variable data...")
+  def save_metadata(self):
+    environment_metadata = self.environment.extract_environment_metadata() # done
+    sensors_metadata = self.sensors.extract_optical_metadata()
+    lasers_metadata = self.lasers.extract_optical_metadata()
 
-    with open("sensors.txt", 'wb') as f:
-      pickle.dump(self.sensors, f)
+    metadata = {"environment": environmental_metadata, 
+                "sensors": sensors_metadata,
+                "lasers": lasers_metadata
+                }
 
-    with open("lasers.txt", 'wb') as f:
-      pickle.dump(self.lasers, f)
-    
+    pprint(metadata)
+    filename = "{}_metadata.json".format(int(time.time()))
+    with open(filename, "w") as json_file:
+      json.dump(metadata, json_file)
+      print("Created {} file with metadata on render".format(filename))
+
 
   def localize_projections_in_sensor_plane(self):
     time_start = time.time()
-
-    #object_name = self.environment.model.object_name
-
     self.environment.model.model_object.hide_viewport = True
     self.environment.mesh = hide_viewport = True
-
     img = Image.open(self.lasers.image)
 
-#    for i in range(100):
-#      h = int(random.uniform(0, self.lasers.horizontal_pixels))
-#      v = int(random.uniform(0, self.lasers.vertical_pixels))
-#      self.lasers.sampled_hitpoint_pixels.append((h,v))
-
-    for h in range(self.lasers.horizontal_pixels):   
-      for v in range(self.lasers.vertical_pixels):
-
-    # for h in [0, self.lasers.horizontal_pixels - 1]: #range(self.horizontal_pixels):   
-    #   for v in [0, self.lasers.vertical_pixels - 1]: 
-
-
+    for h in self.get_pixel_indices("horizontal"):    
+      for v in self.get_pixel_indices("vertical"): 
         origin = self.lasers.pixels[h][v].hitpoint
         destination = self.sensors.focal_point
         distance = origin.distance(destination)
@@ -943,43 +1100,35 @@ class Scanner():
     unit_h_xy = unit_x_h / unit_y_h 
 
     img = Image.open(self.lasers.image)
-  
-   for h in range(self.lasers.horizontal_pixels):   
-     for v in range(self.lasers.vertical_pixels):
 
-    # for h in [0, self.lasers.horizontal_pixels - 1]:   
-    #   for v in [0, self.lasers.vertical_pixels - 1]: 
-
+    for h in self.get_pixel_indices("horizontal"):   
+      for v in self.get_pixel_indices("vertical"): 
         hitpoint = self.lasers.pixels[h][v].hitpoint_in_sensor_plane
-
         numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy)
         relative_v = numerator_relative_v / normalizing_v_denominator
-
         numerator_relative_h = ( (hitpoint.y - origin.y) - relative_v * y_v)
         relative_h = numerator_relative_h / normalizing_h_denominator
-
         relative_projected_h = h / float(self.lasers.horizontal_pixels)
         relative_projected_v = v / float(self.lasers.vertical_pixels)
-
         pixel = img.getpixel((h,v))
-        diffuse_color = "RED: {}, GREEN: {}, BLUE: {}".format(pixel[0], pixel[1], pixel[2])
-
-        print("")
-        print(diffuse_color)
-        diffuse_color_blender = (pixel[0]/float(255), pixel[1]/float(255), pixel[2]/float(255), 1)
-        self.lasers.highlight_hitpoint(hitpoint.xyz(), diffuse_color_blender)
-
-        print("PROJECTED V. SENSED horizontal position of pixel: {} (and {}) v. {}".format(round(relative_projected_h,6), round(1.0 - relative_projected_h,6), round(relative_h, 6) ))
-        print("PROJECTED V. SENSED vertical position of pixel: {} (and {}) v. {}".format(round(relative_projected_v,6), round(1.0 - relative_projected_v,6), round(relative_v, 6) ))
+        #diffuse_color = "RED: {}, GREEN: {}, BLUE: {}".format(pixel[0], pixel[1], pixel[2])
+        self.lasers.pixels[h][v].color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
+        self.lasers.pixels[h][v].relative_h = relative_h
+        self.lasers.pixels[h][v].relative_v = relative_v
         print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
 
 
 if __name__ == "__main__":
+  begin_time = time.time()
+  print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
+  ###
   sensors = Optics(photonics="sensors", vertical_pixels=3456, horizontal_pixels=5184)
   lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="entropy.png") 
   environment = Environment(cloud_compute=True)
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
+  ###
+  end_time = time.time()
+  print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
 
-  # Optics, Environment, Model, Scanner classes all need metadata, final scan() simply extracts and saves into one .csv
   # pillow -> (h,v) coordinates :: human cheat sheet color-coded open(image): RAINBOW - SEMITRANSPARENT - BORDER - ...  
