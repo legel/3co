@@ -9,6 +9,7 @@ from PIL import Image
 from mathutils import Vector
 import json
 from os import listdir, path
+from pprint import pprint
 
 simulation_mode = "TEST" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
