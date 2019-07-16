@@ -1013,7 +1013,7 @@ class Scanner():
     sensors_metadata = self.sensors.extract_optical_metadata()
     lasers_metadata = self.lasers.extract_optical_metadata()
 
-    metadata = {"environment": environmental_metadata, 
+    metadata = {"environment": environment_metadata, 
                 "sensors": sensors_metadata,
                 "lasers": lasers_metadata
                 }
