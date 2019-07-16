@@ -215,10 +215,10 @@ class Optics():
         x = np.random.normal(loc=0.0, scale=0.5)
         y = np.random.normal(loc=0.0, scale=0.5)
         z = min(max(np.random.normal(loc=1.5, scale=0.25), 1.2), 2.5)  
-      elif type(position_anchor) == type(Point()):  # if we're making a rigid connection to another optical system 
-        x = position_anchor.x + np.random.normal(loc=0.0, scale=0.05)
-        y = position_anchor.y + np.random.normal(loc=0.0, scale=0.05)
-        z = position_anchor.z + np.random.normal(loc=0.0, scale=0.05)  
+      else:  # if we're making a rigid connection to another optical system 
+        x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.05)
+        y = position_anchor.focal_point.y + np.random.normal(loc=0.0, scale=0.05)
+        z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.05)  
       return Point(x, y, z)
     elif type(focal_point) == type(Point()):
       print("Using supplied focal point ({},{},{}) for {}".format(focal_point.x, focal_point.y, focal_point.z, self.photonics))
