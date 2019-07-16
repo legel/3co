@@ -1031,8 +1031,8 @@ class Scanner():
     self.environment.mesh = hide_viewport = True
     img = Image.open(self.lasers.image)
 
-    for h in self.get_pixel_indices("horizontal"):    
-      for v in self.get_pixel_indices("vertical"): 
+    for h in self.lasers.get_pixel_indices("horizontal"):    
+      for v in self.lasers.get_pixel_indices("vertical"): 
         origin = self.lasers.pixels[h][v].hitpoint
         destination = self.sensors.focal_point
         distance = origin.distance(destination)
@@ -1103,8 +1103,8 @@ class Scanner():
 
     img = Image.open(self.lasers.image)
 
-    for h in self.get_pixel_indices("horizontal"):   
-      for v in self.get_pixel_indices("vertical"): 
+    for h in self.lasers.get_pixel_indices("horizontal"):   
+      for v in self.lasers.get_pixel_indices("vertical"): 
         hitpoint = self.lasers.pixels[h][v].hitpoint_in_sensor_plane
         numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy)
         relative_v = numerator_relative_v / normalizing_v_denominator
