@@ -100,7 +100,7 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
                                                      "y": self.hitpoint.y, 
                                                      "z": self.hitpoint.z
                                                   }
-      laser_geometry["hitpoint_object_in_environment"] = self.pixels[h][v].hitpoint_object
+      laser_geometry["hitpoint_object_in_environment"] = self.hitpoint_object
       laser_geometry["hitpoint_face_index"] = self.hitpoint_face_index
       laser_geometry["hitpoint_normal"] = { "x": self.hitpoint_normal.x,
                                             "y": self.hitpoint_normal.y,
