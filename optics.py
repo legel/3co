@@ -574,7 +574,7 @@ class Optics():
       sphere.hide_viewport = True
       self.highlighted_hitpoints.append(sphere)
 
-  def measure_raycasts_from_pixels(self):
+  def measure_raycasts_from_pixels(self, environment):
     time_start = time.time()
 
     min_h = 0
@@ -593,11 +593,11 @@ class Optics():
         else:
           self.pixels[h][v].hitpoint = Point(location[0], location[1], location[2])
 
-        if obj == self.environment.mesh:
+        if obj == environment.mesh:
           self.pixels[h][v].hitpoint_object = "background"
           self.pixels[h][v].hitpoint_face_index = face_index
           self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
-        elif obj == self.environment.model:
+        elif obj == environment.model:
           self.pixels[h][v].hitpoint_object = "model"
           self.pixels[h][v].hitpoint_face_index = face_index
           self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
@@ -1028,7 +1028,7 @@ class Scanner():
 
     if self.lasers:
       self.localizations = []
-      self.lasers.measure_raycasts_from_pixels()
+      self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
     self.render("beta_{}.png".format(int(time.time())))
 
