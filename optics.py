@@ -664,7 +664,8 @@ class Model():
     obj = bpy.context.object
     self.materials_metadata = {}
 
-    for material_slot_index, material_slot in enum(obj.material_slots):
+    material_slot_index = 0
+    for material_slot in obj.material_slots:
       material_name = material_slot.name
       metadata = {"index": material_slot_index, "name": material_name}
 
@@ -740,6 +741,8 @@ class Model():
       node_output.location = (400,0)
       links = m.node_tree.links
       link = links.new(shader.outputs[0], node_output.inputs[0])
+
+      material_slot_index += 1
 
     bpy.context.scene.update() 
 
