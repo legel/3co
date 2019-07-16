@@ -94,26 +94,26 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
     self.unit_z = (focal_point.z - self.center.z) / self.distance_to_focal_point
 
   def get_metadata(self, photonics):
-    laser_geometry = {}
+    laser_metrics = {}
     if photonics == "lasers":
-      laser_geometry["hitpoint_in_environment"] = {  "x": self.hitpoint.x, 
+      laser_metrics["hitpoint_in_environment"] = {  "x": self.hitpoint.x, 
                                                      "y": self.hitpoint.y, 
                                                      "z": self.hitpoint.z
                                                   }
-      laser_geometry["hitpoint_object_in_environment"] = self.hitpoint_object
-      laser_geometry["hitpoint_face_index"] = self.hitpoint_face_index
-      laser_geometry["hitpoint_normal"] = { "x": self.hitpoint_normal.x,
+      laser_metrics["hitpoint_object_in_environment"] = self.hitpoint_object
+      laser_metrics["hitpoint_face_index"] = self.hitpoint_face_index
+      laser_metrics["hitpoint_normal"] = { "x": self.hitpoint_normal.x,
                                             "y": self.hitpoint_normal.y,
                                             "z": self.hitpoint_normal.z
                                           }
-      laser_geometry["hitpoint_in_sensor_plane"] = { "x": self.hitpoint_in_sensor_plane.x,
+      laser_metrics["hitpoint_in_sensor_plane"] = { "x": self.hitpoint_in_sensor_plane.x,
                                                      "y": self.hitpoint_in_sensor_plane.y,
                                                      "z": self.hitpoint_in_sensor_plane.z
                                                    }
-      laser_geometry["hitpoint_in_sensor_plane_object"] = self.hitpoint_in_sensor_plane_object
-      laser_geometry["color"] = self.color
-      laser_geometry["relative_horizontal_position_in_sensor_plane"] = self.relative_h 
-      laser_geometry["relative_vertical_position_in_sensor_plane"] = self.relative_v
+      laser_metrics["hitpoint_in_sensor_plane_object"] = self.hitpoint_in_sensor_plane_object
+      laser_metrics["projected_pixel_color"] = self.projected_pixel_color
+      laser_metrics["relative_horizontal_position_in_sensor_plane"] = self.relative_h 
+      laser_metrics["relative_vertical_position_in_sensor_plane"] = self.relative_v
       
     metadata = {"h": self.h, 
                 "v": self.v, 
@@ -122,7 +122,7 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
                     "y": self.center.y, 
                     "z": self.center.z
                 },
-                "laser_geometry": laser_geometry
+                "laser_metrics": laser_metrics
                 }
     self.metadata = metadata
     return metadata
@@ -1182,7 +1182,7 @@ class Scanner():
         relative_projected_v = v / float(self.lasers.vertical_pixels)
         pixel = img.getpixel((h,v))
         #diffuse_color = "RED: {}, GREEN: {}, BLUE: {}".format(pixel[0], pixel[1], pixel[2])
-        self.lasers.pixels[h][v].color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
+        self.lasers.pixels[h][v].projected_pixel_color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
         self.lasers.pixels[h][v].relative_h = relative_h
         self.lasers.pixels[h][v].relative_v = relative_v
         print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
