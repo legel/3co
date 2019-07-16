@@ -1033,7 +1033,7 @@ class Scanner():
     self.sensors = sensors
     self.lasers = lasers
 
-  def scan(self, target_point=Point(0.0, 0.0, 0.0), counter=0, precomputed=False):
+  def scan(self, target_point=Point(0.0, 0.0, 0.0), counter=0, precomputed=False, launch_time=time.time()):
     # if lasers and/or sensors have a new target point, reorient
     if self.lasers.target_point != target_point:
       self.lasers.target_point = target_point
@@ -1046,12 +1046,12 @@ class Scanner():
       self.localizations = []
       self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
-    self.render("beta_{}.png".format(int(time.time())))
+    self.render("beta/{}.png".format(int(launch_time)))
 
     if self.lasers: 
       self.localize_projections_in_sensor_plane()
 
-    self.save_metadata()
+    self.save_metadata(int(launch_time))
 
   def render(self, filename):
     print("Rendering...")
@@ -1062,17 +1062,20 @@ class Scanner():
     print("Rendered image in {} seconds".format(round(time_end - time_start, 4)))
 
 
-  def save_metadata(self):
+  def save_metadata(self, launch_time):
     environment_metadata = self.environment.extract_environment_metadata() # done
     sensors_metadata = self.sensors.extract_optical_metadata()
     lasers_metadata = self.lasers.extract_optical_metadata()
 
     unix_time = int(time.time())
     human_time = time.ctime(unix_time)
+    human_launch_time = time.ctime(launch_time)
 
-    metadata = {"meta": 
-                  { "unix_time": unix_time,
-                    "human_time": human_time 
+    metadata = {"time": 
+                  { "launch_unix_time": launch_time,
+                    "launch_human_time": human_launch_time,
+                    "save_unix_time": unix_time,
+                    "save_human_time": human_time 
                   },
                 "environment": environment_metadata, 
                 "sensors": sensors_metadata,
@@ -1080,7 +1083,7 @@ class Scanner():
                 }
 
     pprint(metadata)
-    filename = "{}_metadata.json".format(int(time.time()))
+    filename = "beta/{}_metadata.json".format(launch_time)
     with open(filename, "w") as json_file:
       json.dump(metadata, json_file)
       print("Created {} file with metadata on render".format(filename))
