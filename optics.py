@@ -607,7 +607,7 @@ class Optics():
         direction = Vector((self.pixels[h][v].unit_x, self.pixels[h][v].unit_y, self.pixels[h][v].unit_z))
         hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=origin, direction=direction)
         if not hit:
-          print("No hitpoint for raycast from pixel ({},{})".format(h, v))
+          #print("No hitpoint for raycast from pixel ({},{})".format(h, v))
           self.pixels[h][v].hitpoint = Point("None", "None", "None")
         else:
           self.pixels[h][v].hitpoint = Point(location[0], location[1], location[2])
@@ -1090,7 +1090,7 @@ class Scanner():
                 "lasers": lasers_metadata
                 }
 
-    pprint(metadata)
+    #pprint(metadata)
     filename = "beta/{}_metadata.json".format(launch_time)
     with open(filename, "w") as json_file:
       json.dump(metadata, json_file)
@@ -1120,13 +1120,13 @@ class Scanner():
 
         hit, location, normal, face_index, obj, matrix_world = bpy.context.scene.ray_cast(view_layer=bpy.context.view_layer, origin=Vector((origin.x, origin.y, origin.z)), direction=direction)
 
-        if not hit:
-          print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
-          print("Try expanding the size of the sensor plane".format(h, v))
+        #if not hit:
+        #  print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
+        #  print("Try expanding the size of the sensor plane".format(h, v))
 
 
         if not hit:
-          print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
+          #print("No secondary hitpoint on sensor plane for raycast from hitpoint of projected pixel ({},{})".format(h, v))
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane = Point("None", "None", "None")
         else:
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane = Point(location[0], location[1], location[2])
@@ -1193,7 +1193,7 @@ class Scanner():
         self.lasers.pixels[h][v].projected_pixel_color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
         self.lasers.pixels[h][v].relative_h = relative_h
         self.lasers.pixels[h][v].relative_v = relative_v
-        print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
+        #print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
 
 
 if __name__ == "__main__":
