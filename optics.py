@@ -220,9 +220,9 @@ class Optics():
         y = np.random.normal(loc=0.0, scale=0.5)
         z = min(max(np.random.normal(loc=1.5, scale=0.25), 1.2), 2.5)  
       else:  # if we're making a rigid connection to another optical system 
-        x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.05)
-        y = position_anchor.focal_point.y + np.random.normal(loc=0.0, scale=0.05)
-        z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.05)  
+        x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.03)
+        y = position_anchor.focal_point.y + np.random.normal(loc=0.0, scale=0.03)
+        z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.03)  
       return Point(x, y, z)
     elif type(focal_point) == type(Point()):
       print("Using supplied focal point ({},{},{}) for {}".format(focal_point.x, focal_point.y, focal_point.z, self.photonics))
@@ -248,14 +248,14 @@ class Optics():
   def sample_focal_length(self, focal_length):
     if type(focal_length) == type(None):
       if self.photonics == "sensors":
-        statistical_family_a = random.uniform(10.0, 100.0) # millimeters
-        statistical_family_b = np.random.normal(loc=24.0, scale=6.0)
-        focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.50, 0.50]), 100.0), 10.0)
+        statistical_family_a = random.uniform(20.0, 30.0) # millimeters
+        statistical_family_b = np.random.normal(loc=24.0, scale=3.0)
+        focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 100.0), 10.0)
         return focal_length / 1000 # meters
       elif self.photonics == "lasers":
-        statistical_family_a = random.uniform(5.0, 50.0)
-        statistical_family_b = np.random.normal(loc=11.27, scale=2.5)
-        focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.50, 0.50]), 50.0), 5.0)       
+        statistical_family_a = random.uniform(7.0, 13.0)
+        statistical_family_b = np.random.normal(loc=11.27, scale=1.0)
+        focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 50.0), 5.0)       
         return focal_length / 1000 # meters
       else: 
         raise("The photonics argument must be a string, 'lasers' or 'sensors'...")
@@ -1201,7 +1201,7 @@ if __name__ == "__main__":
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
   ###
   sensors = Optics(photonics="sensors")
-  lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="entropy.png", position_anchor=sensors) 
+  lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="rgb.png", position_anchor=sensors) 
   environment = Environment(cloud_compute=True)
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
