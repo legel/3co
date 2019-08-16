@@ -234,12 +234,12 @@ class Optics():
     if type(vertical_pixels) == type(None) and type(horizontal_pixels) == type(None):
       vertical_to_horizontal_ratio_statistical_family = (5184 / 3456) * np.random.normal(loc=1.0, scale=0.1) # working from current DSLR in use, + - 10%
       # vertical_to_horizontal_ratio_statistical_family = 1.0 # square image
-      self.horizontal_to_vertical_pixel_ratio = np.random.choice(a=[vertical_to_horizontal_ratio_statistical_family, 1.0], p=[0.50, 0.50])
+      self.horizontal_to_vertical_pixel_ratio = np.random.choice(a=[vertical_to_horizontal_ratio_statistical_family, 1.0], p=[1.00, 0.00])
 
-      vertical_statistical_family_a = random.uniform(256.0, 3456.0) # millimeters
+      vertical_statistical_family_a = random.uniform(1024.0, 3456.0) 
       vertical_statistical_family_b = np.random.normal(loc=1250.0, scale=1000.0)
 
-      vertical_pixels = max(np.random.choice(a=[vertical_statistical_family_a, vertical_statistical_family_b], p=[0.50, 0.50]), 256.0)
+      vertical_pixels = max(np.random.choice(a=[vertical_statistical_family_a, vertical_statistical_family_b], p=[1.00, 0.00]), 256.0)
       horizontal_pixels = vertical_pixels * self.horizontal_to_vertical_pixel_ratio
 
     return [int(vertical_pixels), int(horizontal_pixels)]
@@ -267,8 +267,11 @@ class Optics():
 
   def sample_pixel_size(self, pixel_size):
     if type(pixel_size) == type(None):
-        pixel_size = max(np.random.normal(loc=5.0, scale=1.0), 1.0)       
-        return pixel_size / 1000000 # meters
+      if self.photonics == "sensors":
+        pixel_size = np.random.normal(loc=4.29, scale=0.25)     
+      elif self.photonics == "lasers":
+        pixel_size = np.random.normal(loc=6.0, scale=0.25)     
+      return pixel_size / 1000000 # meters
     elif type(pixel_size) == type(0.0):
       print("Using supplied pixel size of {} meters for {}".format(pixel_size, self.photonics))
       return pixel_size
