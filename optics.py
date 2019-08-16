@@ -11,7 +11,7 @@ import json
 from os import listdir, path
 from pprint import pprint
 
-simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
+simulation_mode = "TEST" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
 # set rendering engine to be *Blender Cycles*, which is a physically-based raytracer (see e.g. https://www.cycles-renderer.org)
 bpy.context.scene.render.engine = 'CYCLES'
@@ -171,7 +171,11 @@ class Optics():
     print("Launched {} in {} seconds".format(self.photonics, round(self.time_end - self.time_start, 4)))
 
   def extract_optical_metadata(self):
-    pixel_metadata = self.extract_pixel_metadata()
+    if simulation_mode == "TEST":
+        pixel_metadata = "" 
+    elif simulation_mode == "ALL":
+        pixel_metadata = self.extract_pixel_metadata()
+        
     optical_metadata = {"photonics": self.photonics,
                         "focal_point": self.focal_point.xyz_dictionary(),
                         "target_point": self.target_point.xyz_dictionary(),
@@ -1211,5 +1215,8 @@ if __name__ == "__main__":
   ###
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
+
+
+  # model: what are the maxima for (x,y,z)?  do they prevent visibility?
 
   # pillow -> (h,v) coordinates :: human cheat sheet color-coded open(image): RAINBOW - SEMITRANSPARENT - BORDER - ...  
