@@ -715,7 +715,7 @@ class Model():
     max_y = 0.0
     min_z = 0.0
     for vertex in bpy.context.object.data.vertices:
-      vertex = get_global_vertex(vertex, bpy.context.object.matrix_world)
+      vertex = self.get_global_vertex(vertex, bpy.context.object.matrix_world)
       print(vertex)
       if vertex.co.x < min_x:
         min_x = vertex.co.x 
