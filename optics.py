@@ -956,12 +956,12 @@ class Environment():
       self.environment_materials[face.index] = material
 
   def analyze_perspective(self):
-    self.x_midpoint = (self.environment.model.min_x + self.environment.model.max_x) / 2.0
-    self.y_midpoint = (self.environment.model.min_y + self.environment.model.max_y) / 2.0
-    self.z_midpoint = (self.environment.model.min_z + self.environment.model.max_z) / 2.0
-    self.x_edge_size = self.environment.model.max_x - self.environment.model.min_x 
-    self.y_edge_size = self.environment.model.max_y - self.environment.model.min_y 
-    self.z_edge_size = self.environment.model.max_z - self.environment.model.min_z 
+    self.x_midpoint = (self.model.min_x + self.model.max_x) / 2.0
+    self.y_midpoint = (self.model.min_y + self.model.max_y) / 2.0
+    self.z_midpoint = (self.model.min_z + self.model.max_z) / 2.0
+    self.x_edge_size = self.model.max_x - self.model.min_x 
+    self.y_edge_size = self.model.max_y - self.model.min_y 
+    self.z_edge_size = self.model.max_z - self.model.min_z 
     self.limiting_edge = max(self.x_edge_size, self.y_edge_size)
 
   def delete_environment(self):
