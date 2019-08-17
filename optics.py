@@ -132,7 +132,7 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
 
 
 class Optics():
-  def __init__(self, photonics, focal_point=None, target_point=None, focal_length=None, pixel_size=None, vertical_pixels=None, horizontal_pixels=None, image=None, position_anchor=None):
+  def __init__(self, photonics, environment=None, focal_point=None, target_point=None, focal_length=None, pixel_size=None, vertical_pixels=None, horizontal_pixels=None, image=None, position_anchor=None):
     # photonics  := string, either "sensors" or "lasers", to describe if the photonic system should *measure* or *project* photons
     # focal_point  := focal point as Point(x,y,z) at which the optical system is positioned
     # target_point := target point as Point(x,y,z) that the optics are oriented toward; location in 3D space of what is "scanned"
@@ -144,25 +144,30 @@ class Optics():
     # position_anchor := position to anchor the position sampling, i.e. base sampling off of another object's existing position
     self.time_start = time.time()
     self.photonics = photonics
-    self.focal_point = self.sample_focal_point(focal_point=focal_point, position_anchor=position_anchor)
-    self.target_point = target_point 
+    self.environment = environment
     self.focal_length = self.sample_focal_length(focal_length)
-    self.pixel_size = self.sample_pixel_size(pixel_size)
     vertical_pixels, horizontal_pixels = self.sample_pixel_resolution(vertical_pixels, horizontal_pixels)
     self.vertical_pixels = vertical_pixels
     self.horizontal_pixels = horizontal_pixels
-    if type(image) != type(None):
-      self.image = image
-    else:
-      self.image = ""
+    self.pixel_size = self.sample_pixel_size(pixel_size)
     self.vertical_size = self.vertical_pixels * self.pixel_size
     self.horizontal_size = self.horizontal_pixels * self.pixel_size
+    self.horizontal_fov = math.degrees(2.0 * math.atan(0.5 * self.horizontal_size / self.focal_length))
+    self.vertical_fov = math.degrees(2.0 * math.atan(0.5 * self.vertical_size / self.focal_length))
+    print("Optical system with {} by {} degrees field of view".format(self.horizontal_fov, self.vertical_fov))
+    self.limiting_fov = min(self.horizontal_fov, self.vertical_fov)
+    self.focal_point = self.sample_focal_point(focal_point=focal_point, position_anchor=position_anchor)
+    self.target_point = target_point 
     self.pixels = [[Pixel(h,v) for v in range(self.vertical_pixels)] for h in range(self.horizontal_pixels)]
     self.image_center = Point()
     self.highlighted_hitpoints = []
     self.sampled_hitpoint_pixels = []
     self.shutterspeed = ""
     self.lasers_watts_per_meters_squared = ""
+    if type(image) != type(None):
+      self.image = image
+    else:
+      self.image = ""
     if photonics == "lasers":
       self.initialize_lasers()
     elif photonics == "sensors":
@@ -218,11 +223,15 @@ class Optics():
         return  range(self.vertical_pixels)      
 
   def sample_focal_point(self, focal_point, position_anchor):
-    if type(focal_point) == type(None):
+    if type(self.environment) != type(None):
       if type(position_anchor) == type(None):
-        x = np.random.normal(loc=0.0, scale=0.5)
-        y = np.random.normal(loc=0.0, scale=0.5)
-        z = min(max(np.random.normal(loc=1.5, scale=0.25), 1.2), 2.5)  
+        z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
+        mean_z = self.environment.model.max_z + z_enclosure_visible_distance
+
+        x = np.random.normal(loc=self.environment.x_midpoint, scale=0.25 * self.environment.x_edge_size)
+        y = np.random.normal(loc=self.environment.y_midpoint, scale=0.25 * self.environment.y_edge_size)
+        z = np.random.normal(loc=mean_z, scale=0.25 * z_enclosure_visible_distance)
+ 
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.03)
         y = position_anchor.focal_point.y + np.random.normal(loc=0.0, scale=0.03)
@@ -232,7 +241,7 @@ class Optics():
       print("Using supplied focal point ({},{},{}) for {}".format(focal_point.x, focal_point.y, focal_point.z, self.photonics))
       return focal_point
     else:
-      raise("The focal point argument should either be left None, to be randomly sampled, or of type Point(x,y,z), declared like focal_point=Point(0.0, 0.0, 0.0)")
+      raise("Either supply an environment or a focal point of type Point(x,y,z), declared like focal_point=Point(0.0, 0.0, 0.0)")
 
   def sample_pixel_resolution(self, vertical_pixels, horizontal_pixels):
     if type(vertical_pixels) == type(None) and type(horizontal_pixels) == type(None):
@@ -722,14 +731,14 @@ class Model():
     y_coordinates = global_vertices[1::3]
     z_coordinates = global_vertices[2::3]
     print("Total of {} object points ({} coordinates of (x,y,z))".format(len(global_vertices), len(x_coordinates)))
-    min_x = min(x_coordinates)
-    max_x = max(x_coordinates)
-    min_y = min(y_coordinates)
-    max_y = max(y_coordinates)
-    min_z = min(z_coordinates)
-    max_z = max(z_coordinates)
-    print("MINIMA: (x,y,z) = ({},{},{})".format(min_x, min_y, min_z))
-    print("MAXIMA: (x,y,z) = ({},{},{})".format(max_x, max_y, max_z))
+    self.min_x = min(x_coordinates)
+    self.max_x = max(x_coordinates)
+    self.min_y = min(y_coordinates)
+    self.max_y = max(y_coordinates)
+    self.min_z = min(z_coordinates)
+    self.max_z = max(z_coordinates)
+    print("MINIMA: (x,y,z) = ({},{},{})".format(self.min_x, self.min_y, self.min_z))
+    print("MAXIMA: (x,y,z) = ({},{},{})".format(self.max_x, self.max_y, self.max_z))
 
     # for vertex in global_vertices:
     #   print(vertex)
@@ -868,6 +877,7 @@ class Environment():
     self.create_mesh()
     self.create_materials()
     self.index_materials_of_faces()
+    self.analyze_perspective()
 
   def extract_environment_metadata(self):
     model_metadata = self.model.extract_model_metadata()
@@ -944,6 +954,15 @@ class Environment():
       material = objects["Environment"].material_slots[face.material_index].material
       self.environment_face_index_to_material_index[face.index] = face.material_index
       self.environment_materials[face.index] = material
+
+  def analyze_perspective(self):
+    self.x_midpoint = (self.environment.model.min_x + self.environment.model.max_x) / 2.0
+    self.y_midpoint = (self.environment.model.min_y + self.environment.model.max_y) / 2.0
+    self.z_midpoint = (self.environment.model.min_z + self.environment.model.max_z) / 2.0
+    self.x_edge_size = self.environment.model.max_x - self.environment.model.min_x 
+    self.y_edge_size = self.environment.model.max_y - self.environment.model.min_y 
+    self.z_edge_size = self.environment.model.max_z - self.environment.model.min_z 
+    self.limiting_edge = max(self.x_edge_size, self.y_edge_size)
 
   def delete_environment(self):
     objects = {}
@@ -1096,7 +1115,13 @@ class Scanner():
     self.sensors = sensors
     self.lasers = lasers
 
-  def scan(self, target_point=Point(0.0, 0.0, 0.0), counter=0, precomputed=False, launch_time=time.time()):
+  def scan(self, target_point=None, counter=0, precomputed=False, launch_time=time.time()):
+    if type(target_point) == type(None): # derive scanning location(s) based on topology of object(s)
+      x = np.random.normal(loc=self.environment.x_midpoint, scale=0.10 * self.environment.x_edge_size)
+      y = np.random.normal(loc=self.environment.y_midpoint, scale=0.10 * self.environment.y_edge_size)
+      z = np.random.normal(loc=self.environment.z_midpoint, scale=0.10 * self.environment.z_edge_size)
+      target_point = Point(x, y, z)
+
     # if lasers and/or sensors have a new target point, reorient
     if self.lasers.target_point != target_point:
       self.lasers.target_point = target_point
@@ -1255,16 +1280,14 @@ if __name__ == "__main__":
   begin_time = time.time()
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
   ###
-  sensors = Optics(photonics="sensors")
-  lasers = Optics(photonics="lasers", vertical_pixels=768, horizontal_pixels=1366, image="rgb.png", position_anchor=sensors) 
-  environment = Environment(cloud_compute=True)
+  environment = Environment()
+  sensors = Optics(photonics="sensors", environment=environment)
+  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=768, horizontal_pixels=1366, image="rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
   ###
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
 
-
-  # model: what are the maxima for (x,y,z)?  do they prevent visibility?
 
   # pillow -> (h,v) coordinates :: human cheat sheet color-coded open(image): RAINBOW - SEMITRANSPARENT - BORDER - ...  
