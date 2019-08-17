@@ -699,7 +699,7 @@ class Model():
     obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
 
-  def get_global_vertex(local_vertex, world_matrix):
+  def get_global_vertex(self, local_vertex, world_matrix):
     local_vertex.shape = (-1, 3)
     local_vertex = np.c_[local_vertex, np.ones(local_vertex.shape[0])]
     global_vertex = np.dot(world_matrix, local_vertex.T)[0:3].T.reshape((-1))
