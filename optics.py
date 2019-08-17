@@ -718,9 +718,21 @@ class Model():
     local_vertices = np.zeros(len(bpy.context.object.data.vertices) * 3) 
     bpy.context.object.data.vertices.foreach_get('co', local_vertices)
     global_vertices = self.get_global_vertices(local_vertices, bpy.context.object.matrix_world)
+    x_coordinates = global_vertices[0::3]
+    y_coordinates = global_vertices[1::3]
+    z_coordinates = global_vertices[2::3]
+    print("Total of {} object points ({} coordinates of (x,y,z))".format(len(global_vertices), len(x_coordinates)))
+    min_x = min(x_coordinates)
+    max_x = max(x_coordinates)
+    min_y = min(y_coordinates)
+    max_y = max(y_coordinates)
+    min_z = min(z_coordinates)
+    max_z = max(z_coordinates)
+    print("MINIMA: (x,y,z) = ({},{},{})".format(min_x, min_y, min_z))
+    print("MAXIMA: (x,y,z) = ({},{},{})".format(max_x, max_y, max_z))
 
-    for vertex in global_vertices:
-      print(vertex)
+    # for vertex in global_vertices:
+    #   print(vertex)
       # vertex = self.get_global_vertex(vertex, bpy.context.object.matrix_world)
       # print(vertex)
       # if vertex.co.x < min_x:
