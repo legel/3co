@@ -699,11 +699,11 @@ class Model():
     obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
 
-  def get_global_vertex(self, local_vertex, world_matrix):
-    local_vertex.shape = (-1, 3)
-    local_vertex = np.c_[local_vertex, np.ones(local_vertex.shape[0])]
-    global_vertex = np.dot(world_matrix, local_vertex.T)[0:3].T.reshape((-1))
-    return global_vertex
+  def get_global_vertices(self, local_vertices, world_matrix):
+    local_vertices.shape = (-1, 3)
+    local_vertices = np.c_[local_vertices, np.ones(local_vertices.shape[0])]
+    global_vertices = np.dot(world_matrix, local_vertices.T)[0:3].T.reshape((-1))
+    return global_vertices
 
   def resample_size(self):
     self.scale_factor = max(np.random.normal(loc=3.0, scale=2.0), 0.75)
@@ -714,22 +714,28 @@ class Model():
     min_y = 0.0
     max_y = 0.0
     min_z = 0.0
-    for vertex in bpy.context.object.data.vertices:
-      vertex = self.get_global_vertex(vertex, bpy.context.object.matrix_world)
+
+    local_vertices = np.zeros(len(bpy.context.object.data.vertices) * 3) 
+    bpy.context.object.data.vertices.foreach_get('co', local_vertices)
+    global_vertices = self.get_global_vertices(local_vertices, bpy.context.object.matrix_world)
+
+    for vertex in global_vertices:
       print(vertex)
-      if vertex.co.x < min_x:
-        min_x = vertex.co.x 
-      elif vertex.co.x > max_x:
-        max_x = vertex.co.x
-      if vertex.co.y < min_y:
-        min_y = vertex.co.y
-      elif vertex.co.y > max_y:
-        max_y = vertex.co.y
-      if vertex.co.z < min_z:
-        min_z = vertex.co.z
-      elif vertex.co.z > max_z:
-        max_z = vertex.co.z
-    print("")
+      # vertex = self.get_global_vertex(vertex, bpy.context.object.matrix_world)
+      # print(vertex)
+      # if vertex.co.x < min_x:
+      #   min_x = vertex.co.x 
+      # elif vertex.co.x > max_x:
+      #   max_x = vertex.co.x
+      # if vertex.co.y < min_y:
+      #   min_y = vertex.co.y
+      # elif vertex.co.y > max_y:
+      #   max_y = vertex.co.y
+      # if vertex.co.z < min_z:
+      #   min_z = vertex.co.z
+      # elif vertex.co.z > max_z:
+      #   max_z = vertex.co.z
+
     bpy.context.object.dimensions = (self.dimensions * self.scale_factor / max(self.dimensions))
     bpy.context.scene.update() 
     end = time.time()
