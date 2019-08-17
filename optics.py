@@ -175,7 +175,7 @@ class Optics():
         pixel_metadata = "" 
     elif simulation_mode == "ALL":
         pixel_metadata = self.extract_pixel_metadata()
-        
+
     optical_metadata = {"photonics": self.photonics,
                         "focal_point": self.focal_point.xyz_dictionary(),
                         "target_point": self.target_point.xyz_dictionary(),
@@ -699,11 +699,41 @@ class Model():
     obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
 
+  def get_global_vertex(local_vertex, world_matrix):
+    local_vertex.shape = (-1, 3)
+    local_vertex = np.c_[local_vertex, np.ones(local_vertex.shape[0])]
+    global_vertex = np.dot(world_matrix, local_vertex.T)[0:3].T.reshape((-1))
+    return global_vertex
+
   def resample_size(self):
     self.scale_factor = max(np.random.normal(loc=3.0, scale=2.0), 0.75)
+    start = time.time()
+    print("Starting to measure size of object at {}".format(start))
+    min_x = 0.0
+    max_x = 0.0
+    min_y = 0.0
+    max_y = 0.0
+    min_z = 0.0
+    for vertex in bpy.context.object.data.vertices:
+      vertex = get_global_vertex(vertex, bpy.context.object.matrix_world)
+      print(vertex)
+      if vertex.co.x < min_x:
+        min_x = vertex.co.x 
+      elif vertex.co.x > max_x:
+        max_x = vertex.co.x
+      if vertex.co.y < min_y:
+        min_y = vertex.co.y
+      elif vertex.co.y > max_y:
+        max_y = vertex.co.y
+      if vertex.co.z < min_z:
+        min_z = vertex.co.z
+      elif vertex.co.z > max_z:
+        max_z = vertex.co.z
+    print("")
     bpy.context.object.dimensions = (self.dimensions * self.scale_factor / max(self.dimensions))
     bpy.context.scene.update() 
-
+    end = time.time()
+    print("Resized object in {} seconds".format(end-start))
   def resample_position(self):
     obj = bpy.context.object
     self.x = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
