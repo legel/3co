@@ -933,7 +933,7 @@ class Environment():
                           "y": self.model.min_y,
                           "z": self.model.min_z
                         }
-                      }.
+                      },
                       "midpoints": { 
                           "x": self.x_midpoint,
                           "y": self.y_midpoint,
