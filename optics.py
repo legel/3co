@@ -226,12 +226,11 @@ class Optics():
     if type(self.environment) != type(None):
       if type(position_anchor) == type(None):
         z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
-        mean_z = self.environment.model.max_z + z_enclosure_visible_distance * 0.45 # +45% of distance needed to see entire object
+        mean_z = self.environment.model.max_z + z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
 
         x = np.random.normal(loc=self.environment.x_midpoint, scale=0.25 * self.environment.x_edge_size)
         y = np.random.normal(loc=self.environment.y_midpoint, scale=0.25 * self.environment.y_edge_size)
-        z = np.random.normal(loc=mean_z, scale=0.15 * z_enclosure_visible_distance)
-
+        z = np.random.normal(loc=mean_z, scale=0.05 * z_enclosure_visible_distance)
 
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.03)
@@ -240,7 +239,7 @@ class Optics():
 
       print("{} focal point of ({},{},{}) sampled".format(self.photonics, x, y, z))
       return Point(x, y, z)
-      
+
     elif type(focal_point) == type(Point()):
       print("Using supplied focal point ({},{},{}) for {}".format(focal_point.x, focal_point.y, focal_point.z, self.photonics))
       return focal_point
