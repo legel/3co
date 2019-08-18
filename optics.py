@@ -302,7 +302,7 @@ class Optics():
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
     bpy.data.scenes["Scene"].render.tile_x = 512
     bpy.data.scenes["Scene"].render.tile_y = 512
-    self.shutterspeed = random.uniform(0.5, 5.0)
+    self.shutterspeed = random.uniform(0.5, 3.0)
     bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
     
   def initialize_lasers(self):
@@ -739,7 +739,7 @@ class Model():
     self.max_z = max(z_coordinates)
     print("MINIMA: (x,y,z) = ({},{},{})".format(self.min_x, self.min_y, self.min_z))
     print("MAXIMA: (x,y,z) = ({},{},{})".format(self.max_x, self.max_y, self.max_z))
-    largest_axis_edge = max(self.max_x-self.min_x, self.max_y-self.min_y, self.max_z-self.min_z)
+    largest_axis_edge = max(self.max_x-self.min_x, self.max_y-self.min_y)
     naive_estimation_for_field_of_view = 10.0
     self.scale_factor = naive_estimation_for_field_of_view / largest_axis_edge
     print("Scale factor is {}".format(self.scale_factor))
