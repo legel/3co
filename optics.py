@@ -302,7 +302,7 @@ class Optics():
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
     bpy.data.scenes["Scene"].render.tile_x = 512
     bpy.data.scenes["Scene"].render.tile_y = 512
-    self.shutterspeed = random.uniform(0.002, 0.15)
+    self.shutterspeed = random.uniform(0.5, 5.0)
     bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
     
   def initialize_lasers(self):
