@@ -715,7 +715,7 @@ class Model():
     return global_vertices
 
   def resample_size(self):
-    self.scale_factor = max(np.random.normal(loc=3.0, scale=2.0), 0.75)
+    #self.scale_factor = max(np.random.normal(loc=3.0, scale=2.0), 0.75)
     start = time.time()
     print("Starting to measure size of object at {}".format(start))
     min_x = 0.0
@@ -739,6 +739,17 @@ class Model():
     self.max_z = max(z_coordinates)
     print("MINIMA: (x,y,z) = ({},{},{})".format(self.min_x, self.min_y, self.min_z))
     print("MAXIMA: (x,y,z) = ({},{},{})".format(self.max_x, self.max_y, self.max_z))
+    largest_axis_edge = max(self.max_x-self.min_x, self.max_y-self.min_y, self.max_z-self.min_z)
+    naive_estimation_for_field_of_view = 5.0
+    self.scale_factor = naive_estimation_for_field_of_view / largest_axis_edge
+    print("Scale factor is {}".format(self.scale_factor))
+
+    self.min_x = self.min_x * self.scale_factor
+    self.max_x = self.max_x * self.scale_factor
+    self.min_y = self.min_y * self.scale_factor
+    self.max_y = self.max_y * self.scale_factor
+    self.min_z = self.min_z * self.scale_factor
+    self.max_z = self.max_z * self.scale_factor
 
     # for vertex in global_vertices:
     #   print(vertex)
@@ -761,6 +772,7 @@ class Model():
     bpy.context.scene.update() 
     end = time.time()
     print("Resized object in {} seconds".format(end-start))
+
   def resample_position(self):
     obj = bpy.context.object
     self.x = max(min(np.random.normal(loc=0.0, scale=0.05), 0.15), -0.15)
@@ -908,6 +920,31 @@ class Environment():
                       "material": self.background_material_metadata ,
                       "material_index_to_face_indices": environment_materials_to_faces
                     },
+                "analysis":
+                    {
+                      "extrema": {
+                        "maxima": {
+                          "x": self.model.max_x,
+                          "y": self.model.max_y,
+                          "z": self.model.max_z
+                        },
+                        "minima": {
+                          "x": self.model.min_x,
+                          "y": self.model.min_y,
+                          "z": self.model.min_z
+                        }
+                      }.
+                      "midpoints": { 
+                          "x": self.x_midpoint,
+                          "y": self.y_midpoint,
+                          "z": self.z_midpoint
+                        },
+                      "object_enclosure_dimensions": {
+                          "x_edge": self.x_edge_size,
+                          "y_edge": self.y_edge_size,
+                          "z_edge": self.z_edge_size
+                      }
+                    }
                 }
 
     self.metadata = metadata
@@ -963,6 +1000,7 @@ class Environment():
     self.y_edge_size = self.model.max_y - self.model.min_y 
     self.z_edge_size = self.model.max_z - self.model.min_z 
     self.limiting_edge = max(self.x_edge_size, self.y_edge_size)
+    self.scale_factor = self.model.scale_factor
 
   def delete_environment(self):
     objects = {}
@@ -1121,6 +1159,7 @@ class Scanner():
       y = np.random.normal(loc=self.environment.y_midpoint, scale=0.10 * self.environment.y_edge_size)
       z = np.random.normal(loc=self.environment.z_midpoint, scale=0.10 * self.environment.z_edge_size)
       target_point = Point(x, y, z)
+      print("Scanner targeting point ({}, {}, {})".format(x, y, z))
 
     # if lasers and/or sensors have a new target point, reorient
     if self.lasers.target_point != target_point:
@@ -1289,5 +1328,11 @@ if __name__ == "__main__":
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
 
+
+
+  # current system ignores density of points, and therefore is too extreme
+  # two ways to solve this:
+  # - actually develop a topological density metric, and sample from there
+  # - normalize object size so that the largest enclosure edge is of unit size 1, where unit size is determined by field of view
 
   # pillow -> (h,v) coordinates :: human cheat sheet color-coded open(image): RAINBOW - SEMITRANSPARENT - BORDER - ...  
