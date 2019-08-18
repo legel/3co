@@ -231,12 +231,16 @@ class Optics():
         x = np.random.normal(loc=self.environment.x_midpoint, scale=0.25 * self.environment.x_edge_size)
         y = np.random.normal(loc=self.environment.y_midpoint, scale=0.25 * self.environment.y_edge_size)
         z = np.random.normal(loc=mean_z, scale=0.15 * z_enclosure_visible_distance)
- 
+
+
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.03)
         y = position_anchor.focal_point.y + np.random.normal(loc=0.0, scale=0.03)
         z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.03)  
+
+      print("{} focal point of ({},{},{}) sampled".format(self.photonics, x, y, z))
       return Point(x, y, z)
+      
     elif type(focal_point) == type(Point()):
       print("Using supplied focal point ({},{},{}) for {}".format(focal_point.x, focal_point.y, focal_point.z, self.photonics))
       return focal_point
@@ -249,7 +253,7 @@ class Optics():
       # vertical_to_horizontal_ratio_statistical_family = 1.0 # square image
       self.horizontal_to_vertical_pixel_ratio = np.random.choice(a=[vertical_to_horizontal_ratio_statistical_family, 1.0], p=[1.00, 0.00])
 
-      vertical_statistical_family_a = random.uniform(1024.0, 3456.0) 
+      vertical_statistical_family_a = random.uniform(3000.0, 3456.0) 
       vertical_statistical_family_b = np.random.normal(loc=1250.0, scale=1000.0)
 
       vertical_pixels = max(np.random.choice(a=[vertical_statistical_family_a, vertical_statistical_family_b], p=[1.00, 0.00]), 256.0)
