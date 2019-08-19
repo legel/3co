@@ -244,7 +244,7 @@ class Optics():
 
         x = np.random.normal(loc=0.0, scale=0.01)
         y = np.random.normal(loc=0.0, scale=0.01)
-        z = np.random.normal(loc=3.0, scale=0.01)
+        z = np.random.normal(loc=2.0, scale=0.01)
 
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.001)
@@ -1083,7 +1083,7 @@ class Environment():
     mesh = bpy.context.object.data
     bm = bmesh.new()
 
-    self.distance_from_origin = max(np.random.normal(loc=-1.0, scale=0.25), -0.25)
+    self.distance_from_origin = max(np.random.normal(loc=-2.0, scale=0.25), -0.25)
 
     top_left = bm.verts.new((-100, 100, self.distance_from_origin))
     top_right = bm.verts.new((100, 100, self.distance_from_origin))
