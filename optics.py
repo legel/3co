@@ -11,7 +11,7 @@ import json
 from os import listdir, path
 from pprint import pprint
 
-simulation_mode = "TEST" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
+simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
 # cleanup, please
 for o in bpy.context.scene.objects:
@@ -266,7 +266,7 @@ class Optics():
       # vertical_to_horizontal_ratio_statistical_family = 1.0 # square image
       self.horizontal_to_vertical_pixel_ratio = np.random.choice(a=[vertical_to_horizontal_ratio_statistical_family, 1.0], p=[1.00, 0.00])
 
-      vertical_statistical_family_a = random.uniform(3000.0, 3456.0) 
+      vertical_statistical_family_a = 3456.0 #random.uniform(3200.0, 3456.0) 
       vertical_statistical_family_b = np.random.normal(loc=1250.0, scale=1000.0)
 
       vertical_pixels = max(np.random.choice(a=[vertical_statistical_family_a, vertical_statistical_family_b], p=[1.00, 0.00]), 256.0)
@@ -321,8 +321,8 @@ class Optics():
     bpy.data.scenes["Scene"].render.tile_y = 512
 
     statistical_family_a = random.uniform(0.01, 3.0) 
-    statistical_family_b = np.random.normal(loc=0.075, scale=0.033)
-    self.shutterspeed = max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 0.01)
+    statistical_family_b = np.random.normal(loc=0.066, scale=0.033)
+    self.shutterspeed = max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.2, 0.8]), 0.01)
 
     print("Shutterspeed of {} seconds".format(self.shutterspeed))
     bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
