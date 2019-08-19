@@ -242,9 +242,9 @@ class Optics():
         # z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
         # mean_z = self.environment.model.max_z #+ z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
 
-        x = 0.0 # np.random.normal(loc=self.environment.x_midpoint, scale=0.25 * self.environment.x_edge_size)
-        y = 0.0 # np.random.normal(loc=self.environment.y_midpoint, scale=0.25 * self.environment.y_edge_size)
-        z = 3.0 # np.random.normal(loc=self.environment.model.max_z + 1.0, scale=0.25 * self.environment.z_edge_size)
+        x = np.random.normal(loc=0.0, scale=0.01)
+        y = np.random.normal(loc=0.0, scale=0.01)
+        z = np.random.normal(loc=3.0, scale=0.01)
 
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.1)
