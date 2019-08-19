@@ -1192,16 +1192,16 @@ class Scanner():
       self.sensors.target_point = target_point
       self.sensors.reorient(orientation_index=counter)
 
-    # if self.lasers:
-    #   self.localizations = []
-    #   self.lasers.measure_raycasts_from_pixels(environment=self.environment)
+    if self.lasers:
+      self.localizations = []
+      self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
-    # self.render("beta/{}.png".format(int(launch_time)))
+    self.render("beta/{}.png".format(int(launch_time)))
 
-    # if self.lasers: 
-    #   self.localize_projections_in_sensor_plane()
+    if self.lasers: 
+      self.localize_projections_in_sensor_plane()
 
-    # self.save_metadata(int(launch_time))
+    self.save_metadata(int(launch_time))
 
   def render(self, filename):
     print("Rendering...")
