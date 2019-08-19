@@ -11,7 +11,7 @@ import json
 from os import listdir, path
 from pprint import pprint
 
-simulation_mode = "TEST" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
+simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
 # cleanup, please
 for o in bpy.context.scene.objects:
