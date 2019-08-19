@@ -887,14 +887,15 @@ class Model():
 
     bpy.context.scene.update() 
 
-
 class Environment():
   def __init__(self, cloud_compute=True):
     if cloud_compute:
       model_directory="/home/ubuntu/COLLADA"
       models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
-      sampled_model_index = int(random.uniform(0, len(models) - 1))
-      model = models[sampled_model_index]
+      #sampled_model_index = int(random.uniform(0, len(models) - 1))
+      #model = models[sampled_model_index]
+      model = random.sample(models)
+      print("Randomly sampled {}".format(model))
       filepath = path.join(model_directory, model)
       self.model_name = model
       self.resample_environment(filepath)
