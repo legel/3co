@@ -762,7 +762,7 @@ class Model():
     print("MINIMA: (x,y,z) = ({},{},{})".format(self.min_x, self.min_y, self.min_z))
     print("MAXIMA: (x,y,z) = ({},{},{})".format(self.max_x, self.max_y, self.max_z))
     largest_axis_edge = max(self.max_x-self.min_x, self.max_y-self.min_y)
-    naive_estimation_for_field_of_view = 20.0
+    naive_estimation_for_field_of_view = 40.0
     self.scale_factor = naive_estimation_for_field_of_view / largest_axis_edge
     print("Scale factor is {}".format(self.scale_factor))
 
