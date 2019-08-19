@@ -248,8 +248,8 @@ class Optics():
 
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.001)
-        y = position_anchor.focal_point.y + np.random.normal(loc=0.0, scale=0.05)
-        z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.001)  
+        y = position_anchor.focal_point.y #+ np.random.normal(loc=0.0, scale=0.05)
+        z = position_anchor.focal_point.z #+ np.random.normal(loc=0.0, scale=0.001)  
 
       print("{} focal point of ({},{},{}) sampled".format(self.photonics, x, y, z))
       return Point(x, y, z)
@@ -892,7 +892,7 @@ class Model():
     bpy.context.scene.update() 
 
 class Environment():
-  def __init__(self, cloud_compute=True):
+  def __init__(self, cloud_compute=False):
     if cloud_compute:
       model_directory="/home/ubuntu/COLLADA"
       models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
@@ -904,7 +904,7 @@ class Environment():
       self.model_name = model
       self.resample_environment(filepath)
     else:
-      self.resample_environment("phone.dae") # check for the almighty smartphone in your pocket
+      self.resample_environment("/Users/3co/research/phone.dae") # check for the almighty smartphone in your pocket
 
   def resample_environment(self, model):
     self.add_model(model_filepath=model)
@@ -1192,16 +1192,16 @@ class Scanner():
       self.sensors.target_point = target_point
       self.sensors.reorient(orientation_index=counter)
 
-    if self.lasers:
-      self.localizations = []
-      self.lasers.measure_raycasts_from_pixels(environment=self.environment)
+    # if self.lasers:
+    #   self.localizations = []
+    #   self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
-    self.render("beta/{}.png".format(int(launch_time)))
+    # self.render("beta/{}.png".format(int(launch_time)))
 
-    if self.lasers: 
-      self.localize_projections_in_sensor_plane()
+    # if self.lasers: 
+    #   self.localize_projections_in_sensor_plane()
 
-    self.save_metadata(int(launch_time))
+    # self.save_metadata(int(launch_time))
 
   def render(self, filename):
     print("Rendering...")
