@@ -13,8 +13,22 @@ from pprint import pprint
 
 simulation_mode = "TEST" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
+# cleanup, please
+for o in bpy.context.scene.objects:
+    if o.type == 'MESH':
+        o.select_set(True)
+    else:
+        o.select_set(False)
+
+# Call the operator only once
+bpy.ops.object.delete()
+
 # set rendering engine to be *Blender Cycles*, which is a physically-based raytracer (see e.g. https://www.cycles-renderer.org)
 bpy.context.scene.render.engine = 'CYCLES'
+
+# Save and re-open the file to clean up the data blocks
+bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath)
+bpy.ops.wm.open_mainfile(filepath=bpy.data.filepath)
 
 try:
   # activate GPU
