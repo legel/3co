@@ -27,8 +27,8 @@ bpy.ops.object.delete()
 bpy.context.scene.render.engine = 'CYCLES'
 
 # Save and re-open the file to clean up the data blocks
-bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath)
-bpy.ops.wm.open_mainfile(filepath=bpy.data.filepath)
+bpy.ops.wm.save_as_mainfile(filepath="active_file.blend")
+bpy.ops.wm.open_mainfile(filepath="active_file.blend")
 
 try:
   # activate GPU
