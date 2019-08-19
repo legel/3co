@@ -242,14 +242,14 @@ class Optics():
         # z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
         # mean_z = self.environment.model.max_z #+ z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
 
-        x = np.random.normal(loc=0.0, scale=0.01)
-        y = np.random.normal(loc=0.0, scale=0.01)
-        z = np.random.normal(loc=2.0, scale=0.01)
+        x = np.random.normal(loc=0.0, scale=0.001)
+        y = np.random.normal(loc=0.06, scale=0.0033)
+        z = np.random.normal(loc=1.75, scale=0.25)
 
       else:  # if we're making a rigid connection to another optical system 
-        x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.001)
-        y = position_anchor.focal_point.y #+ np.random.normal(loc=0.0, scale=0.05)
-        z = position_anchor.focal_point.z #+ np.random.normal(loc=0.0, scale=0.001)  
+        x = np.random.normal(loc=0.0, scale=0.001) 
+        y = np.random.normal(loc=-0.06, scale=0.0033)
+        z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.001)    
 
       print("{} focal point of ({},{},{}) sampled".format(self.photonics, x, y, z))
       return Point(x, y, z)
@@ -322,7 +322,7 @@ class Optics():
 
     statistical_family_a = random.uniform(0.01, 3.0) 
     statistical_family_b = np.random.normal(loc=0.066, scale=0.033)
-    self.shutterspeed = max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.2, 0.8]), 0.01)
+    self.shutterspeed = max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.1, 0.9]), 0.01)
 
     print("Shutterspeed of {} seconds".format(self.shutterspeed))
     bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
