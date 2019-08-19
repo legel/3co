@@ -321,7 +321,7 @@ class Optics():
     bpy.data.scenes["Scene"].render.tile_y = 512
 
     statistical_family_a = random.uniform(0.01, 3.0) 
-    statistical_family_b = np.random.normal(loc=0.25, scale=0.075)
+    statistical_family_b = np.random.normal(loc=0.075, scale=0.033)
     self.shutterspeed = max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 0.01)
 
     print("Shutterspeed of {} seconds".format(self.shutterspeed))
