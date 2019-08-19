@@ -244,7 +244,7 @@ class Optics():
 
         x = np.random.normal(loc=0.0, scale=0.001)
         y = np.random.normal(loc=0.06, scale=0.0033)
-        z = np.random.normal(loc=1.75, scale=0.25)
+        z = np.random.normal(loc=1.50, scale=0.25)
 
       else:  # if we're making a rigid connection to another optical system 
         x = np.random.normal(loc=0.0, scale=0.001) 
