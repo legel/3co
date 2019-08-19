@@ -239,12 +239,12 @@ class Optics():
   def sample_focal_point(self, focal_point, position_anchor):
     if type(self.environment) != type(None):
       if type(position_anchor) == type(None):
-        z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
-        mean_z = self.environment.model.max_z #+ z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
+        # z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
+        # mean_z = self.environment.model.max_z #+ z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
 
-        x = np.random.normal(loc=self.environment.x_midpoint, scale=0.25 * self.environment.x_edge_size)
-        y = np.random.normal(loc=self.environment.y_midpoint, scale=0.25 * self.environment.y_edge_size)
-        z = np.random.normal(loc=self.environment.model.max_z + 1.0, scale=0.25 * self.environment.z_edge_size)
+        x = 0.0 # np.random.normal(loc=self.environment.x_midpoint, scale=0.25 * self.environment.x_edge_size)
+        y = 0.0 # np.random.normal(loc=self.environment.y_midpoint, scale=0.25 * self.environment.y_edge_size)
+        z = 3.0 # np.random.normal(loc=self.environment.model.max_z + 1.0, scale=0.25 * self.environment.z_edge_size)
 
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.1)
@@ -763,7 +763,7 @@ class Model():
     print("MAXIMA: (x,y,z) = ({},{},{})".format(self.max_x, self.max_y, self.max_z))
     largest_axis_edge = max(self.max_x-self.min_x, self.max_y-self.min_y)
     naive_estimation_for_field_of_view = 40.0
-    self.scale_factor = naive_estimation_for_field_of_view / largest_axis_edge
+    self.scale_factor = 1.0 # naive_estimation_for_field_of_view / largest_axis_edge
     print("Scale factor is {}".format(self.scale_factor))
 
     self.min_x = self.min_x * self.scale_factor
@@ -1178,9 +1178,9 @@ class Scanner():
 
   def scan(self, target_point=None, counter=0, precomputed=False, launch_time=time.time()):
     if type(target_point) == type(None): # derive scanning location(s) based on topology of object(s)
-      x = np.random.normal(loc=self.environment.x_midpoint, scale=0.10 * self.environment.x_edge_size)
-      y = np.random.normal(loc=self.environment.y_midpoint, scale=0.10 * self.environment.y_edge_size)
-      z = np.random.normal(loc=self.environment.z_midpoint, scale=0.10 * self.environment.z_edge_size)
+      x = 0.0 # np.random.normal(loc=self.environment.x_midpoint, scale=0.10 * self.environment.x_edge_size)
+      y = 0.0 # np.random.normal(loc=self.environment.y_midpoint, scale=0.10 * self.environment.y_edge_size)
+      z = 0.0 # np.random.normal(loc=self.environment.z_midpoint, scale=0.10 * self.environment.z_edge_size)
       target_point = Point(x, y, z)
       print("Scanner targeting point ({}, {}, {})".format(x, y, z))
 
