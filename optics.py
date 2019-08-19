@@ -111,37 +111,34 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
     self.unit_z = (focal_point.z - self.center.z) / self.distance_to_focal_point
 
   def get_metadata(self, photonics):
-    laser_metrics = {}
+    metadata = [] # structured list, for smaller memory footprint
+    # metadata[0] = horizontal_pixel_number
+    # metadata[1] = vertical_pixel_number
+    # metadata[2] = pixel_x_in_global_space
+    # metadata[3] = pixel_y_in_global_space
+    # metadata[4] = pixel_z_in_global_space
+    metadata.extend([self.h, self.v, self.center.x, self.center.y, self.center.z])
     if photonics == "lasers":
-      laser_metrics["hitpoint_in_environment"] = {  "x": self.hitpoint.x, 
-                                                     "y": self.hitpoint.y, 
-                                                     "z": self.hitpoint.z
-                                                  }
-      laser_metrics["hitpoint_object_in_environment"] = self.hitpoint_object
-      laser_metrics["hitpoint_face_index"] = self.hitpoint_face_index
-      laser_metrics["hitpoint_normal"] = { "x": self.hitpoint_normal.x,
-                                            "y": self.hitpoint_normal.y,
-                                            "z": self.hitpoint_normal.z
-                                          }
-      laser_metrics["hitpoint_in_sensor_plane"] = { "x": self.hitpoint_in_sensor_plane.x,
-                                                     "y": self.hitpoint_in_sensor_plane.y,
-                                                     "z": self.hitpoint_in_sensor_plane.z
-                                                   }
-      laser_metrics["hitpoint_in_sensor_plane_object"] = self.hitpoint_in_sensor_plane_object
-      laser_metrics["projected_pixel_color"] = self.projected_pixel_color
-      laser_metrics["relative_horizontal_position_in_sensor_plane"] = self.relative_h 
-      laser_metrics["relative_vertical_position_in_sensor_plane"] = self.relative_v
-      
-    metadata = {"h": self.h, 
-                "v": self.v, 
-                "position": { 
-                    "x": self.center.x, 
-                    "y": self.center.y, 
-                    "z": self.center.z
-                },
-                "laser_metrics": laser_metrics
-                }
-    self.metadata = metadata
+      # metadata[5] = hitpoint_in_environment.x
+      # metadata[6] = hitpoint_in_environment.y
+      # metadata[7] = hitpoint_in_environment.z
+      # metadata[8] = hitpoint_normal.x
+      # metadata[9] = hitpoint_normal.y
+      # metadata[10] = hitpoint_normal.z
+      # metadata[11] = hitpoint_in_sensor_plane.x
+      # metadata[12] = hitpoint_in_sensor_plane.y
+      # metadata[13] = hitpoint_in_sensor_plane.z
+      # metadata[14] = relative_horizontal_position_in_sensor_plane
+      # metadata[15] = relative_vertical_position_in_sensor_plane
+      # metadata[16] = hitpoint_object_id_in_environment
+      # metadata[17] = hitpoint_face_index_on_object
+      ## NOT IN USE : self.hitpoint_in_sensor_plane_object
+      ## NOT IN USE : self.projected_pixel_color
+      metadata.extend([self.hitpoint.x, self.hitpoint.y, self.hitpoint.z])  
+      metadata.extend([self.hitpoint_normal.x, self.hitpoint_normal.y, self.hitpoint_normal.z])
+      metadata.extend([self.hitpoint_in_sensor_plane.x, self.hitpoint_in_sensor_plane.y, self.hitpoint_in_sensor_plane.z])
+      metadata.extend([self.relative_h, self.relative_v])
+      metadata.extend([self.hitpoint_object, self.hitpoint_face_index])
     return metadata
 
 
@@ -190,10 +187,10 @@ class Optics():
     print("Launched {} in {} seconds".format(self.photonics, round(self.time_end - self.time_start, 4)))
 
   def extract_optical_metadata(self):
-    if simulation_mode == "TEST":
-        pixel_metadata = "" 
-    elif simulation_mode == "ALL":
-        pixel_metadata = self.extract_pixel_metadata()
+    # if simulation_mode == "TEST":
+    #     pixel_metadata = "" 
+    # elif simulation_mode == "ALL":
+    pixel_metadata = self.extract_pixel_metadata() # structured list for memory optimization, see "get_metadata()" in Pixel class
 
     optical_metadata = {"photonics": self.photonics,
                         "focal_point": self.focal_point.xyz_dictionary(),
@@ -214,14 +211,16 @@ class Optics():
 
   def extract_pixel_metadata(self):
     # pixel metadata is a dictionary wrapper in the form pixel_metadata[h][v] = metadata at horizontal pixel position h, vertical pixel position v
-    self.pixel_metadata = {}
+    #self.pixel_metadata = {}
+    self.metadata_wrapper = []
     for h in self.get_pixel_indices("horizontal"):
       h = int(h)
-      self.pixel_metadata[h] = {}
+      #self.pixel_metadata[h] = {}
       for v in self.get_pixel_indices("vertical"):
         v = int(v)
-        self.pixel_metadata[h][v] = self.pixels[h][v].get_metadata(self.photonics)
-    return self.pixel_metadata
+        self.metadata_wrapper.extend(self.pixels[h][v].get_metadata(self.photonics))
+        #self.pixel_metadata[h][v] = self.pixels[h][v].get_metadata(self.photonics)
+    return self.metadata_wrapper
 
   def get_pixel_indices(self, v_or_h):
     # v_or_h i.e. vertical or horizontal, is a string "vertical" or "horizontal", which returns the vertical or horizontal pixel indices
@@ -1350,12 +1349,5 @@ if __name__ == "__main__":
   ###
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
-
-
-
-  # current system ignores density of points, and therefore is too extreme
-  # two ways to solve this:
-  # - actually develop a topological density metric, and sample from there
-  # - normalize object size so that the largest enclosure edge is of unit size 1, where unit size is determined by field of view
 
   # pillow -> (h,v) coordinates :: human cheat sheet color-coded open(image): RAINBOW - SEMITRANSPARENT - BORDER - ...  
