@@ -226,11 +226,11 @@ class Optics():
     if type(self.environment) != type(None):
       if type(position_anchor) == type(None):
         z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
-        mean_z = self.environment.model.max_z + z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
+        mean_z = self.environment.model.max_z #+ z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
 
         x = np.random.normal(loc=self.environment.x_midpoint, scale=0.25 * self.environment.x_edge_size)
         y = np.random.normal(loc=self.environment.y_midpoint, scale=0.25 * self.environment.y_edge_size)
-        z = np.random.normal(loc=mean_z, scale=0.05 * z_enclosure_visible_distance)
+        z = np.random.normal(loc=self.environment.model.max_z + 1.0, scale=0.25 * self.environment.z_edge_size)
 
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.03)
@@ -744,7 +744,7 @@ class Model():
     print("MINIMA: (x,y,z) = ({},{},{})".format(self.min_x, self.min_y, self.min_z))
     print("MAXIMA: (x,y,z) = ({},{},{})".format(self.max_x, self.max_y, self.max_z))
     largest_axis_edge = max(self.max_x-self.min_x, self.max_y-self.min_y)
-    naive_estimation_for_field_of_view = 10.0
+    naive_estimation_for_field_of_view = 20.0
     self.scale_factor = naive_estimation_for_field_of_view / largest_axis_edge
     print("Scale factor is {}".format(self.scale_factor))
 
