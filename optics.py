@@ -319,7 +319,11 @@ class Optics():
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
     bpy.data.scenes["Scene"].render.tile_x = 512
     bpy.data.scenes["Scene"].render.tile_y = 512
-    self.shutterspeed = max(np.random.normal(loc=1.00, scale=0.66), 0.25)
+
+    statistical_family_a = random.uniform(0.01, 3.0) 
+    statistical_family_b = np.random.normal(loc=0.25, scale=0.075)
+    self.shutterspeed = max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 0.01)
+
     print("Shutterspeed of {} seconds".format(self.shutterspeed))
     bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
     
