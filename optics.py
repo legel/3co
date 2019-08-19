@@ -249,7 +249,7 @@ class Optics():
       else:  # if we're making a rigid connection to another optical system 
         x = position_anchor.focal_point.x + np.random.normal(loc=0.0, scale=0.1)
         y = position_anchor.focal_point.y + np.random.normal(loc=0.0, scale=0.1)
-        z = position_anchor.focal_point.z #+ np.random.normal(loc=0.0, scale=0.1)  
+        z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.01)  
 
       print("{} focal point of ({},{},{}) sampled".format(self.photonics, x, y, z))
       return Point(x, y, z)
