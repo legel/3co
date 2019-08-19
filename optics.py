@@ -892,7 +892,7 @@ class Model():
     bpy.context.scene.update() 
 
 class Environment():
-  def __init__(self, cloud_compute=False):
+  def __init__(self, cloud_compute=True):
     if cloud_compute:
       model_directory="/home/ubuntu/COLLADA"
       models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
