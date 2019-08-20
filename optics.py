@@ -112,33 +112,36 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
 
   def get_metadata(self, photonics):
     metadata = [] # structured list, for smaller memory footprint
-    # metadata[0] = horizontal_pixel_number
-    # metadata[1] = vertical_pixel_number
-    # metadata[2] = pixel_x_in_global_space
-    # metadata[3] = pixel_y_in_global_space
-    # metadata[4] = pixel_z_in_global_space
-    metadata.extend([self.h, self.v, self.center.x, self.center.y, self.center.z])
     if photonics == "lasers":
-      # metadata[5] = hitpoint_in_environment.x
-      # metadata[6] = hitpoint_in_environment.y
-      # metadata[7] = hitpoint_in_environment.z
-      # metadata[8] = hitpoint_normal.x
-      # metadata[9] = hitpoint_normal.y
-      # metadata[10] = hitpoint_normal.z
-      # metadata[11] = hitpoint_in_sensor_plane.x
-      # metadata[12] = hitpoint_in_sensor_plane.y
-      # metadata[13] = hitpoint_in_sensor_plane.z
-      # metadata[14] = relative_horizontal_position_in_sensor_plane
+      # horizontal_pixel_number = self.h
+      # vertical_pixel_number = self.v
+      # pixel_x_in_global_space = self.center.x  
+      # pixel_y_in_global_space = self.center.y
+      # pixel_z_in_global_space = self.center.z
+      # hitpoint_in_environment.x = self.hitpoint.x
+      # hitpoint_in_environment.y = self.hitpoint.y
+      # hitpoint_in_environment.z = self.hitpoint.z
+      # self.hitpoint_normal.x
+      # self.hitpoint_normal.y
+      # self.hitpoint_normal.z
+      # self.hitpoint_in_sensor_plane.x
+      # self.hitpoint_in_sensor_plane.y
+      # self.hitpoint_in_sensor_plane.z
+      # relative_horizontal_position_in_sensor_plane = self.relative_h
       # metadata[15] = relative_vertical_position_in_sensor_plane
       # metadata[16] = hitpoint_object_id_in_environment
       # metadata[17] = hitpoint_face_index_on_object
       ## NOT IN USE : self.hitpoint_in_sensor_plane_object
       ## NOT IN USE : self.projected_pixel_color
-      metadata.extend([self.hitpoint.x, self.hitpoint.y, self.hitpoint.z])  
-      metadata.extend([self.hitpoint_normal.x, self.hitpoint_normal.y, self.hitpoint_normal.z])
-      metadata.extend([self.hitpoint_in_sensor_plane.x, self.hitpoint_in_sensor_plane.y, self.hitpoint_in_sensor_plane.z])
-      metadata.extend([self.relative_h, self.relative_v])
-      metadata.extend([self.hitpoint_object, self.hitpoint_face_index])
+
+      self.hitpoint_object_code = 0
+      if self.hitpoint_object != "background":
+        self.hitpoint_object_code = 1 # if not hitting the background, it's hitting the object 
+      metadata.append(round(self.relative_h, 7))
+      metadata.append(round(self.relative_v, 7))
+      metadata.append(self.hitpoint_object_code)
+      metadata.append(self.hitpoint_face_index)
+
     return metadata
 
 
