@@ -1251,7 +1251,7 @@ class Scanner():
   def visualize_ground_truth_pixel_overlap(self, launch_time):
     render_filename = "v1/{}.png".format(launch_time)
 
-    rgb_projection = image.open(self.lasers.image)
+    rgb_projection = Image.open(self.lasers.image)
     vertical_pixels = self.lasers.vertical_pixels
     horizontal_pixels = self.lasers.horizontal_pixels
 
