@@ -1396,5 +1396,3 @@ if __name__ == "__main__":
   ###
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
-
-  # pillow -> (h,v) coordinates :: human cheat sheet color-coded open(image): RAINBOW - SEMITRANSPARENT - BORDER - ...  
