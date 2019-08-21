@@ -135,8 +135,13 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
       ## NOT IN USE : self.projected_pixel_color
 
       self.hitpoint_object_code = 0
-      if self.hitpoint_object != "background":
-        self.hitpoint_object_code = 1 # if not hitting the background, it's hitting the object 
+      if self.hitpoint_object == "background":
+        self.hitpoint_object_code = 0
+      elif self.hitpoint_object == "None":
+        self.hitpoint_object_code = 1
+      else:
+        self.hitpoint_object_code = 2 # if not hitting the background or none, it's hitting the object 
+
       metadata.append(round(self.relative_h, 7))
       metadata.append(round(self.relative_v, 7))
       metadata.append(self.hitpoint_object_code)
@@ -1198,12 +1203,14 @@ class Scanner():
       self.localizations = []
       self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
-    self.render("beta/{}.png".format(int(launch_time)))
+    self.render("v1/{}.png".format(int(launch_time)))
 
     if self.lasers: 
       self.localize_projections_in_sensor_plane()
 
     self.save_metadata(int(launch_time))
+    self.visualize_ground_truth_pixel_overlap(int(launch_time))
+
 
   def render(self, filename):
     print("Rendering...")
@@ -1235,10 +1242,47 @@ class Scanner():
                 }
 
     #pprint(metadata)
-    filename = "beta/{}_metadata.json".format(launch_time)
+    filename = "v1/{}_metadata.json".format(launch_time)
     with open(filename, "w") as json_file:
       json.dump(metadata, json_file)
       print("Created {} file with metadata on render".format(filename))
+
+
+  def visualize_ground_truth_pixel_overlap(self, launch_time):
+    render_filename = "v1/{}.png".format(launch_time)
+
+    rgb_projection = image.open(self.lasers.image)
+    vertical_pixels = self.lasers.vertical_pixels
+    horizontal_pixels = self.lasers.horizontal_pixels
+
+    render = Image.open("v1/{}.png".format(launch_time))
+    rendered_horizontal_pixels, rendered_vertical_pixels = render.size
+    render_pixels = render.load()
+
+    localization = Image.new('RGB', (rendered_horizontal_pixels, rendered_vertical_pixels), color = 'white')
+    localization_pixels = localization.load()
+
+    with open("v1/{}_metadata.json".format(launch_time)) as json_file:
+      data = json.load(json_file)
+      pixels = data['lasers']['pixel_metadata']
+      for h in range(horizontal_pixels):
+        for v in range(vertical_pixels):
+          pixel = rgb_projection.getpixel((horizontal_pixels-h-1,vertical_pixels-v-1))
+
+          relative_h = pixels[4*(h*vertical_pixels + v)]
+          relative_v = pixels[4*(h*vertical_pixels + v) + 1]
+
+          h_of_render = int(relative_h * rendered_horizontal_pixels) # axis flipped, see https://3co.s3.amazonaws.com/cdl/ground_truth_localization.png
+          v_of_render = rendered_vertical_pixels - int(relative_v * rendered_vertical_pixels) 
+
+          if h_of_render >= rendered_horizontal_pixels or h_of_render < 0 or v_of_render >= rendered_vertical_pixels or v_of_render < 0:
+           continue
+
+          localization_pixels[h_of_render, v_of_render] = pixel
+          render_pixels[h_of_render, v_of_render] = pixel
+
+    localization.save('v1/{}_localization_only.png'.format(launch_time))
+    render.save('v1/{}_overlapping.png'.format(launch_time))
 
 
   def localize_projections_in_sensor_plane(self):
