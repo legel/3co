@@ -11,7 +11,7 @@ import json
 from os import listdir, path
 from pprint import pprint
 
-simulation_mode = "TEST" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
+simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
 # cleanup, please
 for o in bpy.context.scene.objects:
@@ -1265,12 +1265,13 @@ class Scanner():
     with open("v1/{}_metadata.json".format(launch_time)) as json_file:
       data = json.load(json_file)
       pixels = data['lasers']['pixel_metadata']
-      number_of_horizontal_pixels = len(self.lasers.get_pixel_indices("horizontal"))
-      number_of_vertical_pixels = len(self.lasers.get_pixel_indices("vertical"))
       for h in self.lasers.get_pixel_indices("horizontal"):    
         for v in self.lasers.get_pixel_indices("vertical"): 
-          relative_h = pixels[4*(h*number_of_vertical_pixels + v)]
-          relative_v = pixels[4*(h*number_of_vertical_pixels + v) + 1]    
+          if simulation_mode == "TEST": # no visualizations since there were no raycasts
+            continue
+            
+          relative_h = pixels[4*(h*vertical_pixels + v)]
+          relative_v = pixels[4*(h*vertical_pixels + v) + 1]    
                   
           if relative_h == "OCCLUDED" and relative_v == "OCCLUDED":
             continue
