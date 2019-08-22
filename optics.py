@@ -432,10 +432,10 @@ class Optics():
     print(min_h_max_v_corner.xyz())
     print(max_h_min_v_corner.xyz())
     print(max_h_max_v_corner.xyz())
-    self.highlight_hitpoint(min_h_min_v_corner.xyz(), (1,0,0,1))
-    self.highlight_hitpoint(min_h_max_v_corner.xyz(), (0,1,0,1))
-    self.highlight_hitpoint(max_h_min_v_corner.xyz(), (0,0,1,1))
-    self.highlight_hitpoint(max_h_max_v_corner.xyz(), (1,1,1,1))
+    # self.highlight_hitpoint(min_h_min_v_corner.xyz(), (1,0,0,1))
+    # self.highlight_hitpoint(min_h_max_v_corner.xyz(), (0,1,0,1))
+    # self.highlight_hitpoint(max_h_min_v_corner.xyz(), (0,0,1,1))
+    # self.highlight_hitpoint(max_h_max_v_corner.xyz(), (1,1,1,1))
 
     expanded_corners = []
     for corner in [min_h_min_v_corner, min_h_max_v_corner, max_h_min_v_corner, max_h_max_v_corner]:
