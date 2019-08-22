@@ -1265,11 +1265,13 @@ class Scanner():
     with open("v1/{}_metadata.json".format(launch_time)) as json_file:
       data = json.load(json_file)
       pixels = data['lasers']['pixel_metadata']
-      for h in range(horizontal_pixels):
-        for v in range(vertical_pixels):
-          relative_h = pixels[4*(h*vertical_pixels + v)]
-          relative_v = pixels[4*(h*vertical_pixels + v) + 1]
-
+      number_of_horizontal_pixels = len(self.lasers.get_pixel_indices("horizontal"))
+      number_of_vertical_pixels = len(self.lasers.get_pixel_indices("vertical"))
+      for h in self.lasers.get_pixel_indices("horizontal"):    
+        for v in self.lasers.get_pixel_indices("vertical"): 
+          relative_h = pixels[4*(h*number_of_vertical_pixels + v)]
+          relative_v = pixels[4*(h*number_of_vertical_pixels + v) + 1]    
+                  
           if relative_h == "OCCLUDED" and relative_v == "OCCLUDED":
             continue
 
