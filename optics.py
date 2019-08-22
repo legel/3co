@@ -1290,7 +1290,7 @@ class Scanner():
   def localize_projections_in_sensor_plane(self):
     time_start = time.time()
     self.environment.model.model_object.hide_viewport = False # True False = OCCLUSION FROM OBJECT
-    self.environment.mesh = hide_viewport = True
+    self.environment.mesh.hide_viewport = True
     img = Image.open(self.lasers.image)
 
     for h in self.lasers.get_pixel_indices("horizontal"):    
@@ -1331,8 +1331,8 @@ class Scanner():
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "None" 
 
     self.localization_in_sensor_coordinates()
-    for hitpoint in self.lasers.highlighted_hitpoints:
-      hitpoint.hide_viewport = False
+    # for hitpoint in self.lasers.highlighted_hitpoints:
+    #   hitpoint.hide_viewport = False
 
     self.environment.model.model_object.hide_viewport = False
     self.environment.mesh.hide_viewport = False
