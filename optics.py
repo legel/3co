@@ -1269,7 +1269,7 @@ class Scanner():
         for v in self.lasers.get_pixel_indices("vertical"): 
           if simulation_mode == "TEST": # no visualizations since there were no raycasts
             continue
-            
+
           relative_h = pixels[4*(h*vertical_pixels + v)]
           relative_v = pixels[4*(h*vertical_pixels + v) + 1]    
                   
@@ -1403,12 +1403,12 @@ class Scanner():
 if __name__ == "__main__":
   begin_time = time.time()
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
-  ###
+  
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
   lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=768, horizontal_pixels=1366, image="rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
-  ###
+  
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
