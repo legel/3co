@@ -1267,17 +1267,19 @@ class Scanner():
       pixels = data['lasers']['pixel_metadata']
       for h in range(horizontal_pixels):
         for v in range(vertical_pixels):
-          pixel = rgb_projection.getpixel((horizontal_pixels-h-1,vertical_pixels-v-1))
-
           relative_h = pixels[4*(h*vertical_pixels + v)]
           relative_v = pixels[4*(h*vertical_pixels + v) + 1]
+
+          if relative_h == "OCCLUDED" and relative_v == "OCCLUDED":
+            continue
 
           h_of_render = int(relative_h * rendered_horizontal_pixels) # axis flipped, see https://3co.s3.amazonaws.com/cdl/ground_truth_localization.png
           v_of_render = rendered_vertical_pixels - int(relative_v * rendered_vertical_pixels) 
 
           if h_of_render >= rendered_horizontal_pixels or h_of_render < 0 or v_of_render >= rendered_vertical_pixels or v_of_render < 0:
-           continue
+            continue
 
+          pixel = rgb_projection.getpixel((horizontal_pixels-h-1,vertical_pixels-v-1))
           localization_pixels[h_of_render, v_of_render] = pixel
           render_pixels[h_of_render, v_of_render] = pixel
 
@@ -1287,7 +1289,7 @@ class Scanner():
 
   def localize_projections_in_sensor_plane(self):
     time_start = time.time()
-    self.environment.model.model_object.hide_viewport = True
+    self.environment.model.model_object.hide_viewport = False # True False = OCCLUSION FROM OBJECT
     self.environment.mesh = hide_viewport = True
     img = Image.open(self.lasers.image)
 
@@ -1333,7 +1335,7 @@ class Scanner():
       hitpoint.hide_viewport = False
 
     self.environment.model.model_object.hide_viewport = False
-    self.environment.mesh = hide_viewport = False
+    self.environment.mesh.hide_viewport = False
 
     time_end = time.time()
     print("Computed localizations in {} seconds".format(round(time_end - time_start, 4)))
@@ -1366,23 +1368,34 @@ class Scanner():
     unit_h_xy = unit_x_h / unit_y_h 
 
     img = Image.open(self.lasers.image)
-
+    occlusions = 0
+    out_of_image = 0
     for h in self.lasers.get_pixel_indices("horizontal"):   
       for v in self.lasers.get_pixel_indices("vertical"): 
-        hitpoint = self.lasers.pixels[h][v].hitpoint_in_sensor_plane
-        numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy)
-        relative_v = numerator_relative_v / normalizing_v_denominator
-        numerator_relative_h = ( (hitpoint.y - origin.y) - relative_v * y_v)
-        relative_h = numerator_relative_h / normalizing_h_denominator
-        relative_projected_h = h / float(self.lasers.horizontal_pixels)
-        relative_projected_v = v / float(self.lasers.vertical_pixels)
-        pixel = img.getpixel((h,v))
-        #diffuse_color = "RED: {}, GREEN: {}, BLUE: {}".format(pixel[0], pixel[1], pixel[2])
-        self.lasers.pixels[h][v].projected_pixel_color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
-        self.lasers.pixels[h][v].relative_h = relative_h
-        self.lasers.pixels[h][v].relative_v = relative_v
-        #print("LOCALIZATION: pixel ({},{}) at ({}) with ({},{})".format(h, v, hitpoint.xyz(), relative_h, relative_v))
+        if self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object == "model":
+          self.lasers.pixels[h][v].projected_pixel_color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
+          self.lasers.pixels[h][v].relative_h = "OCCLUDED"
+          self.lasers.pixels[h][v].relative_v = "OCCLUDED"
+          occlusions += 1
+        else:
+          hitpoint = self.lasers.pixels[h][v].hitpoint_in_sensor_plane
+          numerator_relative_v = ((hitpoint.x - origin.x) - (hitpoint.y - origin.y) * unit_h_xy)
+          relative_v = numerator_relative_v / normalizing_v_denominator
+          numerator_relative_h = ( (hitpoint.y - origin.y) - relative_v * y_v)
+          relative_h = numerator_relative_h / normalizing_h_denominator
+          relative_projected_h = h / float(self.lasers.horizontal_pixels)
+          relative_projected_v = v / float(self.lasers.vertical_pixels)
+          pixel = img.getpixel((h,v))
+          self.lasers.pixels[h][v].projected_pixel_color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
+          self.lasers.pixels[h][v].relative_h = relative_h
+          self.lasers.pixels[h][v].relative_v = relative_v
+          if relative_h <= 0.0 or relative_h >= 1.0 or relative_v <= 0.0 or relative_v >= 1.0:
+            out_of_image += 1
 
+    total_pixels = self.lasers.horizontal_pixels * self.lasers.vertical_pixels 
+    print("{} of {} laser pixels were occluded by object".format(occlusions, total_pixels))
+    print("{} of {} laser pixels are outside of image field of view".format(out_of_image, total_pixels))
+    print("{} of {} laser pixels have been localized in image".format(total_pixels - occlusions - out_of_image, total_pixels))
 
 if __name__ == "__main__":
   begin_time = time.time()
