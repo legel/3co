@@ -10,6 +10,7 @@ from mathutils import Vector
 import json
 from os import listdir, path
 from pprint import pprint
+import sys
 
 simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
@@ -36,7 +37,10 @@ try:
   print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
   bpy.context.scene.cycles.device = 'GPU'
   bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
-  bpy.context.preferences.addons['cycles'].preferences.devices[0].use = True
+  argv = sys.argv
+  argv = argv[argv.index("--") + 1:]
+  gpu_number = int(argv[0])
+  bpy.context.preferences.addons['cycles'].preferences.devices[gpu_number].use = True
 except TypeError:
   print("No GPU. Fuck it, do it live!")
 
