@@ -12,6 +12,18 @@ from os import listdir, path
 from pprint import pprint
 import sys
 
+# idiosyncratic handling of arguments for Python Blender
+argv = sys.argv
+argv = argv[argv.index("--") + 1:]
+gpu_number = int(argv[0])
+output_directory = argv[1]
+
+if gpu_number == None:
+  gpu_number = 0
+
+if output_directory == None:
+  output_directory = ""
+
 simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 
 # cleanup, please
@@ -28,8 +40,8 @@ bpy.ops.object.delete()
 bpy.context.scene.render.engine = 'CYCLES'
 
 # Save and re-open the file to clean up the data blocks
-bpy.ops.wm.save_as_mainfile(filepath="active_file.blend")
-bpy.ops.wm.open_mainfile(filepath="active_file.blend")
+#bpy.ops.wm.save_as_mainfile(filepath="active_file.blend")
+#bpy.ops.wm.open_mainfile(filepath="active_file.blend")
 
 try:
   # activate GPU
@@ -37,9 +49,6 @@ try:
   print(bpy.context.preferences.addons['cycles'].preferences.get_devices())
   bpy.context.scene.cycles.device = 'GPU'
   bpy.context.preferences.addons['cycles'].preferences.compute_device_type = 'CUDA'
-  argv = sys.argv
-  argv = argv[argv.index("--") + 1:]
-  gpu_number = int(argv[0])
   bpy.context.preferences.addons['cycles'].preferences.devices[gpu_number].use = True
 except TypeError:
   print("No GPU. Fuck it, do it live!")
@@ -1207,7 +1216,7 @@ class Scanner():
       self.localizations = []
       self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
-    self.render("v1/{}.png".format(int(launch_time)))
+    self.render("{}/{}.png".format(output_directory, int(launch_time)))
 
     if self.lasers: 
       self.localize_projections_in_sensor_plane()
@@ -1246,27 +1255,27 @@ class Scanner():
                 }
 
     #pprint(metadata)
-    filename = "v1/{}_metadata.json".format(launch_time)
+    filename = "{}/{}_metadata.json".format(output_directory, launch_time)
     with open(filename, "w") as json_file:
       json.dump(metadata, json_file)
       print("Created {} file with metadata on render".format(filename))
 
 
   def visualize_ground_truth_pixel_overlap(self, launch_time):
-    render_filename = "v1/{}.png".format(launch_time)
+    render_filename = "{}/{}.png".format(output_directory, launch_time)
 
     rgb_projection = Image.open(self.lasers.image)
     vertical_pixels = self.lasers.vertical_pixels
     horizontal_pixels = self.lasers.horizontal_pixels
 
-    render = Image.open("v1/{}.png".format(launch_time))
+    render = Image.open("{}/{}.png".format(output_directory, launch_time))
     rendered_horizontal_pixels, rendered_vertical_pixels = render.size
     render_pixels = render.load()
 
     localization = Image.new('RGB', (rendered_horizontal_pixels, rendered_vertical_pixels), color = 'white')
     localization_pixels = localization.load()
 
-    with open("v1/{}_metadata.json".format(launch_time)) as json_file:
+    with open("{}/{}_metadata.json".format(output_directory, launch_time)) as json_file:
       data = json.load(json_file)
       pixels = data['lasers']['pixel_metadata']
       for h in self.lasers.get_pixel_indices("horizontal"):    
@@ -1290,8 +1299,8 @@ class Scanner():
           localization_pixels[h_of_render, v_of_render] = pixel
           render_pixels[h_of_render, v_of_render] = pixel
 
-    localization.save('v1/{}_localization_only.png'.format(launch_time))
-    render.save('v1/{}_overlapping.png'.format(launch_time))
+    localization.save('{}/{}_localization_only.png'.format(output_directory, launch_time))
+    render.save('{}/{}_overlapping.png'.format(output_directory, launch_time))
 
 
   def localize_projections_in_sensor_plane(self):
