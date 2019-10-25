@@ -207,11 +207,14 @@ class Optics():
     self.time_end = time.time()
     print("Launched {} in {} seconds".format(self.photonics, round(self.time_end - self.time_start, 4)))
 
-  def extract_optical_metadata(self):
+  def extract_optical_metadata(self, launch_time):
     # if simulation_mode == "TEST":
     #     pixel_metadata = "" 
     # elif simulation_mode == "ALL":
     pixel_metadata = self.extract_pixel_metadata() # structured list for memory optimization, see "get_metadata()" in Pixel class
+
+    if self.photonics == "lasers":
+      self.export_point_cloud(launch_time)
 
     optical_metadata = {"photonics": self.photonics,
                         "focal_point": self.focal_point.xyz_dictionary(),
@@ -229,6 +232,46 @@ class Optics():
                         "pixel_metadata": pixel_metadata,
                         }
     return optical_metadata
+
+  def export_point_cloud(self, launch_time):
+    point_cloud_mesh = bpy.data.meshes.new("point_cloud_mesh")
+    point_cloud_object = bpy.data.objects.new("point_cloud_object", point_cloud_mesh)
+    bpy.context.collection.objects.link(point_cloud_object)
+    bpy.context.view_layer.objects.active = point_cloud_object
+    point_cloud_object.select_set( state = True, view_layer = None)
+    point_cloud_mesh = bpy.context.object.data
+    bm = bmesh.new()
+
+    # make x,y,z points
+    horizontal_pixels = len(self.get_pixel_indices("horizontal"))
+    vertical_pixels = len(self.get_pixel_indices("vertical"))
+    vertices = {}
+    for h in self.get_pixel_indices("horizontal"):
+      vertices[h] = {}
+      for v in self.get_pixel_indices("vertical"):
+        point = self.pixels[h][v].hitpoint
+        vertex = bm.verts.new((point.x, point.y, point.z))
+        vertices[h][v] = vertex
+
+    for h in self.get_pixel_indices("horizontal"):
+      for v in self.get_pixel_indices("vertical"):
+        if h+1 <= horizontal_pixels - 1:
+          bm.edges.new( [vertices[h][v], vertices[h+1][v]] )
+        if v+1 <= vertical_pixels - 1:
+          bm.edges.new( [vertices[h][v], vertices[h][v+1]] )
+
+    # left = bm.verts.new((-1, -1, 0))
+    # middle = bm.verts.new((0, 1, 0))
+    # right = bm.verts.new((1, -1, 0))
+    # bm.edges.new( [left, middle] )
+    # bm.edges.new( [middle, right] )
+    # bm.edges.new( [left, right] )
+    # bm.faces.new( [left, middle, right]) 
+    bm.to_mesh(point_cloud_mesh)  
+    bm.free()
+    bpy.context.scene.update() 
+    bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
+
 
   def extract_pixel_metadata(self):
     # pixel metadata is a dictionary wrapper in the form pixel_metadata[h][v] = metadata at horizontal pixel position h, vertical pixel position v
@@ -292,6 +335,10 @@ class Optics():
       vertical_pixels = max(np.random.choice(a=[vertical_statistical_family_a, vertical_statistical_family_b], p=[1.00, 0.00]), 256.0)
       horizontal_pixels = vertical_pixels * self.horizontal_to_vertical_pixel_ratio
 
+      # hack to speed up testing
+      vertical_pixels = 150
+      horizontal_pixels = 210
+
     return [int(vertical_pixels), int(horizontal_pixels)]
 
 
@@ -301,11 +348,15 @@ class Optics():
         statistical_family_a = random.uniform(20.0, 30.0) # millimeters
         statistical_family_b = np.random.normal(loc=24.0, scale=3.0)
         focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 100.0), 10.0)
+        # hack
+        focal_length = 20
         return focal_length / 1000 # meters
       elif self.photonics == "lasers":
         statistical_family_a = random.uniform(7.0, 13.0)
         statistical_family_b = np.random.normal(loc=11.27, scale=1.0)
         focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 50.0), 5.0)       
+        # hack 
+        focal_length = 20
         return focal_length / 1000 # meters
       else: 
         raise("The photonics argument must be a string, 'lasers' or 'sensors'...")
@@ -318,9 +369,13 @@ class Optics():
   def sample_pixel_size(self, pixel_size):
     if type(pixel_size) == type(None):
       if self.photonics == "sensors":
-        pixel_size = np.random.normal(loc=4.29, scale=0.25)     
+        pixel_size = np.random.normal(loc=4.29, scale=0.25) 
+        # hack
+        pixel_size = 5    
       elif self.photonics == "lasers":
-        pixel_size = np.random.normal(loc=6.0, scale=0.25)     
+        pixel_size = np.random.normal(loc=6.0, scale=0.25)    
+        # hack 
+        pixel_size = 5 
       return pixel_size / 1000000 # meters
     elif type(pixel_size) == type(0.0):
       print("Using supplied pixel size of {} meters for {}".format(pixel_size, self.photonics))
@@ -1236,8 +1291,8 @@ class Scanner():
 
   def save_metadata(self, launch_time):
     environment_metadata = self.environment.extract_environment_metadata() # done
-    sensors_metadata = self.sensors.extract_optical_metadata()
-    lasers_metadata = self.lasers.extract_optical_metadata()
+    sensors_metadata = self.sensors.extract_optical_metadata(launch_time=launch_time)
+    lasers_metadata = self.lasers.extract_optical_metadata(launch_time=launch_time)
 
     unix_time = int(time.time())
     human_time = time.ctime(unix_time)
@@ -1406,6 +1461,7 @@ class Scanner():
           self.lasers.pixels[h][v].relative_h = relative_h
           self.lasers.pixels[h][v].relative_v = relative_v
           if relative_h <= 0.0 or relative_h >= 1.0 or relative_v <= 0.0 or relative_v >= 1.0:
+            print("Out of sensor plane: ({},{})".format(relative_h, relative_v))
             out_of_image += 1
 
     total_pixels = self.lasers.horizontal_pixels * self.lasers.vertical_pixels 
@@ -1419,7 +1475,7 @@ if __name__ == "__main__":
   
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
-  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=768, horizontal_pixels=1366, image="rgb.png", position_anchor=sensors) 
+  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=25, horizontal_pixels=40, image="40x25rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
   
