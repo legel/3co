@@ -382,11 +382,11 @@ class Optics():
       if self.photonics == "sensors":
         pixel_size = np.random.normal(loc=4.29, scale=0.25) 
         # hack
-        pixel_size = 5    
+        pixel_size = 40
       elif self.photonics == "lasers":
         pixel_size = np.random.normal(loc=6.0, scale=0.25)    
         # hack 
-        pixel_size = 20 
+        pixel_size = 40 
       return pixel_size / 1000000 # meters
     elif type(pixel_size) == type(0.0):
       print("Using supplied pixel size of {} meters for {}".format(pixel_size, self.photonics))
