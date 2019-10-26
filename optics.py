@@ -249,13 +249,13 @@ class Optics():
     for h in self.get_pixel_indices("horizontal"):
       vertices[h] = {}
       for v in self.get_pixel_indices("vertical"):
-        point = self.pixels[h][v].hitpoint
-        print(("HIT: ({},{},{})".format(point.x, point.y, point.z)))
-        ## You're in the process of confirming that the hitpoints on the laser optics exist, and then 
-        ## connecting the dots, as a grid based on the known optics... You can estimate mesh this way.
+        if self.pixels[h][v].hitpoint_object == "model":
+          point = self.pixels[h][v].hitpoint
 
-        vertex = bm.verts.new((point.x, point.y, point.z))
-        vertices[h][v] = vertex
+          print(("HIT: ({},{},{})".format(point.x, point.y, point.z)))
+
+          vertex = bm.verts.new((point.x, point.y, point.z))
+          vertices[h][v] = vertex
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
