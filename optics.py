@@ -740,7 +740,7 @@ class Optics():
           self.pixels[h][v].hitpoint_object = "background"
           self.pixels[h][v].hitpoint_face_index = face_index
           self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
-        elif obj == environment.model:
+        elif obj == environment.model_object:
           self.pixels[h][v].hitpoint_object = "model"
           self.pixels[h][v].hitpoint_face_index = face_index
           self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
@@ -1138,6 +1138,7 @@ class Environment():
 
   def add_model(self,model_filepath):
     self.model = Model(model_filepath)
+    self.model_object = self.model.model_object
 
   def ambient_lighting(self):
     # add light
@@ -1405,7 +1406,7 @@ class Scanner():
 
         if obj == self.environment.mesh:
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "background"
-        elif obj == self.environment.model:
+        elif obj == self.environment.model_object:
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "model"
         elif obj == self.sensors.photonic_plane:
           self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object = "sensor_plane" 
