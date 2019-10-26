@@ -249,6 +249,7 @@ class Optics():
     for h in self.get_pixel_indices("horizontal"):
       vertices[h] = {}
       for v in self.get_pixel_indices("vertical"):
+        print(self.pixels[h][v].hitpoint_object)
         if self.pixels[h][v].hitpoint_object == "model":
           point = self.pixels[h][v].hitpoint
           print(("HIT: ({},{},{})".format(point.x, point.y, point.z)))
