@@ -1487,7 +1487,7 @@ if __name__ == "__main__":
   
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
-  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="40x25rgb.png", position_anchor=sensors) 
+  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="160x100rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
   
