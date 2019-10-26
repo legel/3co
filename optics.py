@@ -251,11 +251,11 @@ class Optics():
       for v in self.get_pixel_indices("vertical"):
         if self.pixels[h][v].hitpoint_object == "model":
           point = self.pixels[h][v].hitpoint
-
           print(("HIT: ({},{},{})".format(point.x, point.y, point.z)))
-
           vertex = bm.verts.new((point.x, point.y, point.z))
           vertices[h][v] = vertex
+        else:
+          vertices[h][v] = None
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
@@ -263,10 +263,11 @@ class Optics():
           a = vertices[h][v]
           b = vertices[h+1][v]
           c = vertices[h][v+1]
-          bm.edges.new( [a, b] )
-          bm.edges.new( [a, c] )
-          bm.edges.new( [b, c] )
-          bm.faces.new( [a, b, c])
+          if a != None and b != None and c != None:
+            bm.edges.new( [a, b] )
+            bm.edges.new( [a, c] )
+            bm.edges.new( [b, c] )
+            bm.faces.new( [a, b, c])
 
     # left = bm.verts.new((-1, -1, 0))
     # middle = bm.verts.new((0, 1, 0))
