@@ -259,10 +259,14 @@ class Optics():
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
-        if h+1 <= horizontal_pixels - 1:
-          bm.edges.new( [vertices[h][v], vertices[h+1][v]] )
-        if v+1 <= vertical_pixels - 1:
-          bm.edges.new( [vertices[h][v], vertices[h][v+1]] )
+        if h+1 <= horizontal_pixels - 1 and v+1 <= vertical_pixels - 1:
+          a = vertices[h][v]
+          b = vertices[h+1][v]
+          c = vertices[h][v+1]
+          bm.edges.new( [a, b] )
+          bm.edges.new( [a, c] )
+          bm.edges.new( [b, c] )
+          bm.faces.new( [a, b, c])
 
     # left = bm.verts.new((-1, -1, 0))
     # middle = bm.verts.new((0, 1, 0))
@@ -271,11 +275,12 @@ class Optics():
     # bm.edges.new( [middle, right] )
     # bm.edges.new( [left, right] )
     # bm.faces.new( [left, middle, right]) 
-    bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
 
     bm.to_mesh(point_cloud_mesh)  
     bm.free()
     bpy.context.scene.update() 
+    bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
+
 
 
   def extract_pixel_metadata(self):
