@@ -387,7 +387,7 @@ class Optics():
       elif self.photonics == "lasers":
         pixel_size = np.random.normal(loc=6.0, scale=0.25)    
         # hack 
-        pixel_size = 5 
+        pixel_size = 20 
       return pixel_size / 1000000 # meters
     elif type(pixel_size) == type(0.0):
       print("Using supplied pixel size of {} meters for {}".format(pixel_size, self.photonics))
@@ -1289,7 +1289,7 @@ class Scanner():
       self.localize_projections_in_sensor_plane()
 
     self.save_metadata(int(launch_time))
-    self.visualize_ground_truth_pixel_overlap(int(launch_time))
+    #self.visualize_ground_truth_pixel_overlap(int(launch_time))
 
 
   def render(self, filename):
@@ -1487,7 +1487,7 @@ if __name__ == "__main__":
   
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
-  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=25, horizontal_pixels=40, image="40x25rgb.png", position_anchor=sensors) 
+  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="40x25rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
   scanner.scan()
   
