@@ -271,10 +271,11 @@ class Optics():
     # bm.edges.new( [middle, right] )
     # bm.edges.new( [left, right] )
     # bm.faces.new( [left, middle, right]) 
+    bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
+
     bm.to_mesh(point_cloud_mesh)  
     bm.free()
     bpy.context.scene.update() 
-    bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
 
 
   def extract_pixel_metadata(self):
