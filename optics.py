@@ -1472,7 +1472,7 @@ class Scanner():
           self.lasers.pixels[h][v].relative_h = relative_h
           self.lasers.pixels[h][v].relative_v = relative_v
           if relative_h <= 0.0 or relative_h >= 1.0 or relative_v <= 0.0 or relative_v >= 1.0:
-            print("Out of sensor plane: ({},{})".format(relative_h, relative_v))
+            #print("Out of sensor plane: ({},{})".format(relative_h, relative_v))
             out_of_image += 1
 
     total_pixels = self.lasers.horizontal_pixels * self.lasers.vertical_pixels 
