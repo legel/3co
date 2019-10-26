@@ -266,7 +266,7 @@ class Optics():
           a = vertices[h][v]
           b = vertices[h+1][v]
           c = vertices[h][v+1]
-          if a != None and b != None and c != None and d != None:
+          if a != None and b != None and c != None:
             bm.edges.new( [a, b] )
             bm.edges.new( [a, c] )
             bm.edges.new( [b, c] )
