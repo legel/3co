@@ -266,14 +266,20 @@ class Optics():
           a = vertices[h][v]
           b = vertices[h+1][v]
           c = vertices[h][v+1]
-          d = vertices[h+1][v+1]
-          if a != None and b != None and c != None:
+          if a != None and b != None and c != None and d != None:
             bm.edges.new( [a, b] )
             bm.edges.new( [a, c] )
             bm.edges.new( [b, c] )
             bm.faces.new( [a, b, c])
-            bm.edges.new( [b, d] )
-            bm.edges.new( [c, d] )
+
+    for h in self.get_pixel_indices("horizontal"):
+      for v in self.get_pixel_indices("vertical"):
+        if h+1 <= horizontal_pixels - 1 and v+1 <= vertical_pixels - 1:
+          #a = vertices[h][v]
+          b = vertices[h+1][v]
+          c = vertices[h][v+1]
+          d = vertices[h+1][v+1]
+          if b != None and c != None and d != None:
             bm.faces.new( [b, c, d])
 
     # left = bm.verts.new((-1, -1, 0))
