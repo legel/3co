@@ -249,16 +249,28 @@ class Optics():
     horizontal_pixels = len(self.get_pixel_indices("horizontal"))
     vertical_pixels = len(self.get_pixel_indices("vertical"))
     vertices = {}
-    for h in self.get_pixel_indices("horizontal"):
-      vertices[h] = {}
-      for v in self.get_pixel_indices("vertical"):
-        if self.pixels[h][v].hitpoint_object == "model":
-          point = self.pixels[h][v].hitpoint
-          print(("HIT: ({},{},{})".format(point.x, point.y, point.z)))
-          vertex = bm.verts.new((point.x, point.y, point.z))
-          vertices[h][v] = vertex
-        else:
-          vertices[h][v] = None
+    
+    with open("{}.csv".format(launch_time), "w") as point_cloud_file:
+      point_cloud_file.write("h,v,x,y,z,r,g,b\n")
+
+      for h in self.get_pixel_indices("horizontal"):
+        vertices[h] = {}
+        for v in self.get_pixel_indices("vertical"):
+          if self.pixels[h][v].hitpoint_object == "model":
+            face_index = self.pixels[h][v].hitpoint_face_index
+            material_index = self.model_object.data.polygons[face_index].material_index
+            diffuse_color = self.model_object.material_slots[material_index].material.diffuse_color
+            r = diffuse_color[0]
+            g = diffuse_color[1]
+            b = diffuse_color[2]
+            point = self.pixels[h][v].hitpoint
+            point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,point.x,point.y,point.z,r,g,b))
+            print(("HIT: ({},{},{})".format(point.x, point.y, point.z)))
+            vertex = bm.verts.new((point.x, point.y, point.z))
+            vertices[h][v] = vertex
+          else:
+            point_cloud_file.write("{},{},None,None,None,None,None,None\n".format(h,v))
+            vertices[h][v] = None
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
@@ -731,6 +743,7 @@ class Optics():
       self.highlighted_hitpoints.append(sphere)
 
   def measure_raycasts_from_pixels(self, environment):
+    self.model_object = environment.model_object
     time_start = time.time()
 
     min_h = 0
