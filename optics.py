@@ -154,9 +154,12 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
         self.hitpoint_object_code = 1
       else:
         self.hitpoint_object_code = 2 # if not hitting the background or none, it's hitting the object 
-
-      metadata.append(round(self.relative_h, 7))
-      metadata.append(round(self.relative_v, 7))
+      if self.relative_h != "OCCLUDED":
+        self.relative_h = round(self.relative_h, 7)
+      if self.relative_v != "OCCLUDED":
+        self.relative_v = round(self.relative_v, 7)
+      metadata.append(self.relative_h)
+      metadata.append(self.relative_v)
       metadata.append(self.hitpoint_object_code)
       metadata.append(self.hitpoint_face_index)
 
