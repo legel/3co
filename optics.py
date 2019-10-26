@@ -266,11 +266,15 @@ class Optics():
           a = vertices[h][v]
           b = vertices[h+1][v]
           c = vertices[h][v+1]
+          d = vertices[h+1][v+1]
           if a != None and b != None and c != None:
             bm.edges.new( [a, b] )
             bm.edges.new( [a, c] )
             bm.edges.new( [b, c] )
             bm.faces.new( [a, b, c])
+            bm.edges.new( [b, d] )
+            bm.edges.new( [c, d] )
+            bm.faces.new( [b, c, d])
 
     # left = bm.verts.new((-1, -1, 0))
     # middle = bm.verts.new((0, 1, 0))
