@@ -1484,6 +1484,7 @@ class Scanner():
     out_of_image = 0
     for h in self.lasers.get_pixel_indices("horizontal"):   
       for v in self.lasers.get_pixel_indices("vertical"): 
+        pixel = img.getpixel((h,v))
         if self.lasers.pixels[h][v].hitpoint_in_sensor_plane_object == "model":
           self.lasers.pixels[h][v].projected_pixel_color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
           self.lasers.pixels[h][v].relative_h = "OCCLUDED"
@@ -1497,7 +1498,6 @@ class Scanner():
           relative_h = numerator_relative_h / normalizing_h_denominator
           relative_projected_h = h / float(self.lasers.horizontal_pixels)
           relative_projected_v = v / float(self.lasers.vertical_pixels)
-          pixel = img.getpixel((h,v))
           self.lasers.pixels[h][v].projected_pixel_color = {"red": pixel[0]/float(255), "green": pixel[1]/float(255), "blue": pixel[2]/float(255)}
           self.lasers.pixels[h][v].relative_h = relative_h
           self.lasers.pixels[h][v].relative_v = relative_v
