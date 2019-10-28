@@ -249,11 +249,13 @@ class Optics():
     horizontal_pixels = len(self.get_pixel_indices("horizontal"))
     vertical_pixels = len(self.get_pixel_indices("vertical"))
     vertices = {}
+    points = {}
     
     with open("{}.csv".format(launch_time), "w") as point_cloud_file:
       point_cloud_file.write("h,v,x,y,z,r,g,b\n")
 
       for h in self.get_pixel_indices("horizontal"):
+        points[h] = {}
         vertices[h] = {}
         for v in self.get_pixel_indices("vertical"):
           if self.pixels[h][v].hitpoint_object == "model":
@@ -271,9 +273,11 @@ class Optics():
             print(("HIT: ({},{},{})".format(x, y, z)))
             vertex = bm.verts.new((point.x, point.y, point.z))
             vertices[h][v] = vertex
+            points[h][v] = point
           else:
             point_cloud_file.write("{},{},N,N,N,N,N,N\n".format(h,v))
             vertices[h][v] = None
+            points[h][v] = None
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
@@ -281,11 +285,15 @@ class Optics():
           a = vertices[h][v]
           b = vertices[h+1][v]
           c = vertices[h][v+1]
+          a_p = points[h][v]
+          b_p = points[h+1][v]
+          c_p = points[h][v+1]
           if a != None and b != None and c != None:
-            bm.edges.new( [a, b] )
-            bm.edges.new( [a, c] )
-            bm.edges.new( [b, c] )
-            bm.faces.new( [a, b, c])
+            if a_p.distance(b_p) < 0.01 and a_p.distance(c_p) < 0.01 and b_p.distance(c_p) < 0.01:
+              bm.edges.new( [a, b] )
+              bm.edges.new( [a, c] )
+              bm.edges.new( [b, c] )
+              bm.faces.new( [a, b, c])
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
@@ -294,8 +302,12 @@ class Optics():
           b = vertices[h+1][v]
           c = vertices[h][v+1]
           d = vertices[h+1][v+1]
+          b_p = points[h+1][v]
+          c_p = points[h][v+1]
+          d_p = points[h+1][v+1]          
           if b != None and c != None and d != None:
-            bm.faces.new( [b, c, d])
+            if b_p.distance(c_p) < 0.01 and c_p.distance(d_p) < 0.01 and b_p.distance(d_p) < 0.01:
+              bm.faces.new( [b, c, d])
 
     # left = bm.verts.new((-1, -1, 0))
     # middle = bm.verts.new((0, 1, 0))
