@@ -260,16 +260,19 @@ class Optics():
             face_index = self.pixels[h][v].hitpoint_face_index
             material_index = self.model_object.data.polygons[face_index].material_index
             diffuse_color = self.model_object.material_slots[material_index].material.diffuse_color
-            r = diffuse_color[0]
-            g = diffuse_color[1]
-            b = diffuse_color[2]
+            r = int(diffuse_color[0]*255)
+            g = int(diffuse_color[1]*255)
+            b = int(diffuse_color[2]*255)
+            x = round(point.x,6)
+            y = round(point.y,6)
+            z = round(point.z,6)
             point = self.pixels[h][v].hitpoint
-            point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,point.x,point.y,point.z,r,g,b))
-            print(("HIT: ({},{},{})".format(point.x, point.y, point.z)))
+            point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,r,g,b))
+            print(("HIT: ({},{},{})".format(x, y, z))
             vertex = bm.verts.new((point.x, point.y, point.z))
             vertices[h][v] = vertex
           else:
-            point_cloud_file.write("{},{},None,None,None,None,None,None\n".format(h,v))
+            point_cloud_file.write("{},{},N,N,N,N,N,N\n".format(h,v))
             vertices[h][v] = None
 
     for h in self.get_pixel_indices("horizontal"):
