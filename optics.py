@@ -268,7 +268,7 @@ class Optics():
             z = round(point.z,6)
             point = self.pixels[h][v].hitpoint
             point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,r,g,b))
-            print(("HIT: ({},{},{})".format(x, y, z))
+            print(("HIT: ({},{},{})".format(x, y, z)))
             vertex = bm.verts.new((point.x, point.y, point.z))
             vertices[h][v] = vertex
           else:
