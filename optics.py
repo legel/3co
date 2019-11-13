@@ -1331,11 +1331,6 @@ class Scanner():
     # raycasts from (h,v) of projector: unknown in sensing plane? therefore, meshing strategy needs revision
     # localization to nearest pixel of sensor via localization: source of error // subpixel considerations
     # how come number of points for DepthScan 3D equals number of sensed pixels, while for us it is # of projected pixels?
-    # anyways - raycasts need to be recomputed for every new orientation; .scan() should suffice
-    ### for angle in angles([0, 15, ... 345]):
-    ###   environment.object.resample_orientation(z_rotation_angle=angle)
-    ###   scanner.scan()
-
 
     self.render("{}/{}.png".format(output_directory, int(launch_time)))
 
@@ -1548,8 +1543,8 @@ if __name__ == "__main__":
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
 
   # scan away
-  for z_rotation_angle in range(0,360,15):
-    environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
+  for y_rotation_angle in range(0,360,15):
+    environment.model.resample_orientation(y_rotation_angle=y_rotation_angle)
     scanner.scan() # note that values for object extrema (e.g. model.min_x, min_y, min) are not be valid in metadata
 
   end_time = time.time()
