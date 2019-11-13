@@ -25,6 +25,7 @@ if output_directory == None:
   output_directory = ""
 
 simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
+compute_localizations = False 
 
 # cleanup, please
 for o in bpy.context.scene.objects:
@@ -154,12 +155,13 @@ class Pixel(): # "... a discrete physically-addressable region of a photosensiti
         self.hitpoint_object_code = 1
       else:
         self.hitpoint_object_code = 2 # if not hitting the background or none, it's hitting the object 
-      if self.relative_h != "OCCLUDED":
+      if self.relative_h != "OCCLUDED" and compute_localizations:
         self.relative_h = round(self.relative_h, 7)
-      if self.relative_v != "OCCLUDED":
+      if self.relative_v != "OCCLUDED" and compute_localizations:
         self.relative_v = round(self.relative_v, 7)
-      metadata.append(self.relative_h)
-      metadata.append(self.relative_v)
+      if compute_localizations:
+        metadata.append(self.relative_h)
+        metadata.append(self.relative_v)
       metadata.append(self.hitpoint_object_code)
       metadata.append(self.hitpoint_face_index)
 
@@ -211,10 +213,10 @@ class Optics():
     print("Launched {} in {} seconds".format(self.photonics, round(self.time_end - self.time_start, 4)))
 
   def extract_optical_metadata(self, launch_time):
-    # if simulation_mode == "TEST":
-    #     pixel_metadata = "" 
-    # elif simulation_mode == "ALL":
-    pixel_metadata = self.extract_pixel_metadata() # structured list for memory optimization, see "get_metadata()" in Pixel class
+    if compute_localizations:
+      pixel_metadata = self.extract_pixel_metadata() # structured list for memory optimization, see "get_metadata()" in Pixel class
+    else:
+      pixel_metadata = None
 
     if self.photonics == "lasers":
       self.export_point_cloud(launch_time)
@@ -252,7 +254,7 @@ class Optics():
     points = {}
     
     with open("{}.csv".format(launch_time), "w") as point_cloud_file:
-      point_cloud_file.write("h,v,x,y,z,r,g,b\n")
+      point_cloud_file.write("h,v,x,y,z,face_index\n")
 
       for h in self.get_pixel_indices("horizontal"):
         points[h] = {}
@@ -260,22 +262,22 @@ class Optics():
         for v in self.get_pixel_indices("vertical"):
           if self.pixels[h][v].hitpoint_object == "model":
             face_index = self.pixels[h][v].hitpoint_face_index
-            material_index = self.model_object.data.polygons[face_index].material_index
-            diffuse_color = self.model_object.material_slots[material_index].material.diffuse_color
-            r = int(diffuse_color[0]*255)
-            g = int(diffuse_color[1]*255)
-            b = int(diffuse_color[2]*255)
+            #material_index = self.model_object.data.polygons[face_index].material_index
+            #diffuse_color = self.model_object.material_slots[material_index].material.diffuse_color
+            #r = int(diffuse_color[0]*255)
+            #g = int(diffuse_color[1]*255)
+            #b = int(diffuse_color[2]*255)
             point = self.pixels[h][v].hitpoint
             x = round(point.x,6)
             y = round(point.y,6)
             z = round(point.z,6)
-            point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,r,g,b))
-            print(("HIT: ({},{},{})".format(x, y, z)))
+            point_cloud_file.write("{},{},{},{},{},{}\n".format(h,v,x,y,z,face_index))
+            #print(("HIT: ({},{},{})".format(x, y, z)))
             vertex = bm.verts.new((point.x, point.y, point.z))
             vertices[h][v] = vertex
             points[h][v] = point
           else:
-            point_cloud_file.write("{},{},N,N,N,N,N,N\n".format(h,v))
+            point_cloud_file.write("{},{},N,N,N,N\n".format(h,v))
             vertices[h][v] = None
             points[h][v] = None
 
@@ -849,11 +851,11 @@ class Model():
 
     return metadata
 
-  def resample_orientation(self):
+  def resample_orientation(self, x_rotation_angle=0.0, y_rotation_angle=0.0, z_rotation_angle=0.0):
     obj = bpy.context.object
-    self.x_rotation_angle = random.uniform(0, 2*math.pi)
-    self.y_rotation_angle = random.uniform(0, 2*math.pi)
-    self.z_rotation_angle = random.uniform(0, 2*math.pi)
+    self.x_rotation_angle = math.radians(x_rotation_angle) # random.uniform(0, 2*math.pi)
+    self.y_rotation_angle = math.radians(y_rotation_angle) # random.uniform(0, 2*math.pi)
+    self.z_rotation_angle = math.radians(z_rotation_angle) # random.uniform(0, 2*math.pi)
     obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
 
@@ -1324,13 +1326,24 @@ class Scanner():
       self.localizations = []
       self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
+    # raycasts from (h,v) of projector: unknown in sensing plane? therefore, meshing strategy needs revision
+    # localization to nearest pixel of sensor via localization: source of error // subpixel considerations
+    # how come number of points for DepthScan 3D equals number of sensed pixels, while for us it is # of projected pixels?
+    # anyways - raycasts need to be recomputed for every new orientation; .scan() should suffice
+    ### for angle in angles([0, 15, ... 345]):
+    ###   environment.object.resample_orientation(z_rotation_angle=angle)
+    ###   scanner.scan()
+
+
     self.render("{}/{}.png".format(output_directory, int(launch_time)))
 
-    if self.lasers: 
+    if self.lasers and compute_localizations: 
       self.localize_projections_in_sensor_plane()
 
     self.save_metadata(int(launch_time))
-    #self.visualize_ground_truth_pixel_overlap(int(launch_time))
+
+    if self.lasers and compute_localizations:
+      self.visualize_ground_truth_pixel_overlap(int(launch_time))
 
 
   def render(self, filename):
@@ -1343,7 +1356,7 @@ class Scanner():
 
 
   def save_metadata(self, launch_time):
-    environment_metadata = self.environment.extract_environment_metadata() # done
+    environment_metadata = self.environment.extract_environment_metadata() 
     sensors_metadata = self.sensors.extract_optical_metadata(launch_time=launch_time)
     lasers_metadata = self.lasers.extract_optical_metadata(launch_time=launch_time)
 
@@ -1526,11 +1539,16 @@ if __name__ == "__main__":
   begin_time = time.time()
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
   
+  # initialize environment and scanner
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
   lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="160x100rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
-  scanner.scan()
-  
+
+  # scan away
+  for z_rotation_angle in range(0,360,15):
+    environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
+    scanner.scan() # note that values for object extrema (e.g. model.min_x, min_y, min) are not be valid in metadata
+
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
