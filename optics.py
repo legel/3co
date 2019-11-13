@@ -1306,8 +1306,9 @@ class Scanner():
     self.sensors = sensors
     self.lasers = lasers
 
-  def scan(self, target_point=None, counter=0, precomputed=False, launch_time=time.time()):
-    print("LAUNCH TIME: {}".format(time.time()))
+  def scan(self, target_point=None, counter=0, precomputed=False):
+    launch_time = time.time()
+    print("LAUNCH TIME: {}".format(launch_time))
     if type(target_point) == type(None): # derive scanning location(s) based on topology of object(s)
       x = 0.0 # np.random.normal(loc=self.environment.x_midpoint, scale=0.10 * self.environment.x_edge_size)
       y = 0.0 # np.random.normal(loc=self.environment.y_midpoint, scale=0.10 * self.environment.y_edge_size)
