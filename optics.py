@@ -1543,8 +1543,8 @@ if __name__ == "__main__":
   scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
 
   # scan away
-  for y_rotation_angle in range(0,360,15):
-    environment.model.resample_orientation(y_rotation_angle=y_rotation_angle)
+  for x_rotation_angle in range(0,360,15):
+    environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
     scanner.scan() # note that values for object extrema (e.g. model.min_x, min_y, min) are not be valid in metadata
 
   end_time = time.time()
