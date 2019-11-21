@@ -772,6 +772,10 @@ class Optics():
     max_h = self.horizontal_pixels - 1
     max_v = self.vertical_pixels - 1
 
+    model_hits = 0
+    background_hits = 0
+    other_hits = 0
+
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
         origin = Vector((self.pixels[h][v].center.x, self.pixels[h][v].center.y, self.pixels[h][v].center.z))
@@ -787,17 +791,21 @@ class Optics():
           self.pixels[h][v].hitpoint_object = "background"
           self.pixels[h][v].hitpoint_face_index = face_index
           self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
+          background_hits += 1
         elif obj == environment.model_object:
           self.pixels[h][v].hitpoint_object = "model"
           self.pixels[h][v].hitpoint_face_index = face_index
           self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
+          model_hits += 1
         else:
           self.pixels[h][v].hitpoint_object = "None"
           self.pixels[h][v].hitpoint_face_index = "None"
-          self.pixels[h][v].hitpoint_normal =  Point("None", "None", "None")         
+          self.pixels[h][v].hitpoint_normal =  Point("None", "None", "None")
+          other_hits += 1         
         
     time_end = time.time()
     print("Raycasts of {} computed in {} seconds".format(self.photonics, round(time_end - time_start, 4)))
+    print("{} hits on the model, {} hits on the background, {} hits elsewhere".format(model_hits, background_hits, other_hits))
 
 class Model():
   def __init__(self, filepath=None):
