@@ -1557,7 +1557,7 @@ if __name__ == "__main__":
   #for x_rotation_angle in range(0,360,15):
   #  print("Rotating object in x-axis by {} degrees".format(x_rotation_angle))
   #environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
-  scanner.scan() # note that values for object extrema (e.g. model.min_x, min_y, min) are not be valid in metadata
+  scanner.scan(sensor_as_scanner=True) 
 
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
