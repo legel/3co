@@ -221,6 +221,10 @@ class Optics():
     if self.photonics == "lasers":
       self.export_point_cloud(launch_time)
 
+    if self.photonics == "sensors":
+      if self.sensor_as_scanner:
+        self.export_point_cloud(launch_time)
+
     optical_metadata = {"photonics": self.photonics,
                         "focal_point": self.focal_point.xyz_dictionary(),
                         "target_point": self.target_point.xyz_dictionary(),
@@ -389,8 +393,8 @@ class Optics():
       horizontal_pixels = vertical_pixels * self.horizontal_to_vertical_pixel_ratio
 
       # hack to speed up testing
-      vertical_pixels = 150
-      horizontal_pixels = 210
+      vertical_pixels = 1824
+      horizontal_pixels = 2280
 
     return [int(vertical_pixels), int(horizontal_pixels)]
 
@@ -402,7 +406,7 @@ class Optics():
         statistical_family_b = np.random.normal(loc=24.0, scale=3.0)
         focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 100.0), 10.0)
         # hack
-        focal_length = 20
+        focal_length = 16
         return focal_length / 1000 # meters
       elif self.photonics == "lasers":
         statistical_family_a = random.uniform(7.0, 13.0)
@@ -424,7 +428,7 @@ class Optics():
       if self.photonics == "sensors":
         pixel_size = np.random.normal(loc=4.29, scale=0.25) 
         # hack
-        pixel_size = 40
+        pixel_size = 6
       elif self.photonics == "lasers":
         pixel_size = np.random.normal(loc=6.0, scale=0.25)    
         # hack 
@@ -1306,7 +1310,8 @@ class Scanner():
     self.sensors = sensors
     self.lasers = lasers
 
-  def scan(self, target_point=None, counter=0, precomputed=False):
+  def scan(self, target_point=None, counter=0, precomputed=False, sensor_as_scanner=False):
+    self.sensors.sensor_as_scanner = sensor_as_scanner 
     launch_time = time.time()
     print("LAUNCH TIME: {}".format(launch_time))
     if type(target_point) == type(None): # derive scanning location(s) based on topology of object(s)
@@ -1317,9 +1322,11 @@ class Scanner():
       print("Scanner targeting point ({}, {}, {})".format(x, y, z))
 
     # if lasers and/or sensors have a new target point, reorient
-    if self.lasers.target_point != target_point:
-      self.lasers.target_point = target_point
-      self.lasers.reorient(orientation_index=counter)
+    if self.lasers:
+      if self.lasers.target_point != target_point:
+        self.lasers.target_point = target_point
+        self.lasers.reorient(orientation_index=counter)
+
     if self.sensors.target_point != target_point:
       self.sensors.target_point = target_point
       self.sensors.reorient(orientation_index=counter)
@@ -1328,9 +1335,10 @@ class Scanner():
       self.localizations = []
       self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
-    # raycasts from (h,v) of projector: unknown in sensing plane? therefore, meshing strategy needs revision
+    if sensor_as_scanner:
+      self.sensors.measure_raycasts_from_pixels(environment=self.environment)
+
     # localization to nearest pixel of sensor via localization: source of error // subpixel considerations
-    # how come number of points for DepthScan 3D equals number of sensed pixels, while for us it is # of projected pixels?
 
     self.render("{}/{}.png".format(output_directory, int(launch_time)))
 
@@ -1355,7 +1363,10 @@ class Scanner():
   def save_metadata(self, launch_time):
     environment_metadata = self.environment.extract_environment_metadata() 
     sensors_metadata = self.sensors.extract_optical_metadata(launch_time=launch_time)
-    lasers_metadata = self.lasers.extract_optical_metadata(launch_time=launch_time)
+    if self.lasers:
+      lasers_metadata = self.lasers.extract_optical_metadata(launch_time=launch_time)
+    else:
+      lasers_metadata = ""
 
     unix_time = int(time.time())
     human_time = time.ctime(unix_time)
@@ -1539,13 +1550,14 @@ if __name__ == "__main__":
   # initialize environment and scanner
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
-  lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="160x100rgb.png", position_anchor=sensors) 
-  scanner = Scanner(sensors=sensors, lasers=lasers, environment=environment)
+  #lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="160x100rgb.png", position_anchor=sensors) 
+  scanner = Scanner(sensors=sensors, lasers=None, environment=environment)
 
   # scan away
-  for x_rotation_angle in range(0,360,15):
-    environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
-    scanner.scan() # note that values for object extrema (e.g. model.min_x, min_y, min) are not be valid in metadata
+  #for x_rotation_angle in range(0,360,15):
+  #  print("Rotating object in x-axis by {} degrees".format(x_rotation_angle))
+  #environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
+  scanner.scan() # note that values for object extrema (e.g. model.min_x, min_y, min) are not be valid in metadata
 
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
