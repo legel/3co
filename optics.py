@@ -1201,7 +1201,7 @@ class Environment():
     light.use_nodes = True  
 
     #light_power = min(max(np.random.normal(loc=0.05, scale=0.05), 0.001), 0.2)
-    light_power = 2.0
+    light_power = 100.0
     light.node_tree.nodes["Emission"].inputs[1].default_value = light_power
     self.ambient_light_strength = light_power
 
