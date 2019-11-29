@@ -1555,6 +1555,12 @@ if __name__ == "__main__":
   begin_time = time.time()
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
   
+  # read files to render
+  with open("reconstructables.txt", "r") as reconstructables:
+    for reconstructable in reconstructables:
+      print(reconstructable.rstrip("\n"))
+      
+  sys.exit(0)
   # initialize environment and scanner
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
