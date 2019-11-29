@@ -1178,9 +1178,10 @@ class Environment():
       elif obj.name == "Ambient Light":
         objects["Ambient Light"] = obj
 
-
-    objects["Environment"].select_set(True)
-    bpy.ops.object.delete()
+    env = objects.get("Environment", None)
+    if env:
+      env.select_set(True)
+      bpy.ops.object.delete()
 
     objects["Model"].select_set(True)
     bpy.ops.object.delete()
