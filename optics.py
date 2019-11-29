@@ -1360,7 +1360,7 @@ class Scanner():
 
 
   def render(self, filename):
-    print("Rendering...")
+    print("Rendering {}.png".format(filename))
     time_start = time.time()
     bpy.data.scenes["Scene"].render.filepath = filename
     bpy.ops.render.render( write_still=True )
@@ -1556,11 +1556,13 @@ if __name__ == "__main__":
   print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
   
   # read files to render
+  models = []
   with open("reconstructables.txt", "r") as reconstructables:
     for reconstructable in reconstructables:
-      print(reconstructable.rstrip("\n"))
-      
-  sys.exit(0)
+      model = reconstructable.rstrip("\n")
+      filepath = "/home/ubuntu/reconstructables/data/{}".format(model)
+      models.append(filepath)
+
   # initialize environment and scanner
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment)
@@ -1571,7 +1573,11 @@ if __name__ == "__main__":
   #for x_rotation_angle in range(0,360,15):
   #  print("Rotating object in x-axis by {} degrees".format(x_rotation_angle))
   #environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
-  scanner.scan(sensor_as_scanner=True) 
+  for i, model in enumerate(models):
+    environment.delete_environment()
+    environment.resample_environment(model=model)
+    scanner.render("{}/{}.png".format(output_directory, i))
+    #scanner.scan(sensor_as_scanner=True) 
 
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
