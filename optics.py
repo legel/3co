@@ -1050,10 +1050,10 @@ class Environment():
   def resample_environment(self, model):
     self.add_model(model_filepath=model)
     self.ambient_lighting()
-    self.create_mesh()
-    self.create_materials()
-    self.index_materials_of_faces()
-    self.analyze_perspective()
+    #self.create_mesh()
+    #self.create_materials()
+    #self.index_materials_of_faces()
+    #self.analyze_perspective()
 
   def extract_environment_metadata(self):
     model_metadata = self.model.extract_model_metadata()
