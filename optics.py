@@ -393,8 +393,8 @@ class Optics():
       horizontal_pixels = vertical_pixels * self.horizontal_to_vertical_pixel_ratio
 
       # hack to speed up testing
-      vertical_pixels = 1824
-      horizontal_pixels = 2280
+      vertical_pixels = 800 #1824
+      horizontal_pixels = 800  #2280
 
     return [int(vertical_pixels), int(horizontal_pixels)]
 
@@ -428,7 +428,7 @@ class Optics():
       if self.photonics == "sensors":
         pixel_size = np.random.normal(loc=4.29, scale=0.25) 
         # hack
-        pixel_size = 6
+        pixel_size = 8
       elif self.photonics == "lasers":
         pixel_size = np.random.normal(loc=6.0, scale=0.25)    
         # hack 
@@ -1200,7 +1200,8 @@ class Environment():
     light = bpy.data.lights.new(name="sun", type='SUN')
     light.use_nodes = True  
 
-    light_power = min(max(np.random.normal(loc=0.05, scale=0.05), 0.001), 0.2)
+    #light_power = min(max(np.random.normal(loc=0.05, scale=0.05), 0.001), 0.2)
+    light_power = 2.0
     light.node_tree.nodes["Emission"].inputs[1].default_value = light_power
     self.ambient_light_strength = light_power
 
@@ -1360,7 +1361,7 @@ class Scanner():
 
 
   def render(self, filename):
-    print("Rendering {}.png".format(filename))
+    print("Rendering {}".format(filename))
     time_start = time.time()
     bpy.data.scenes["Scene"].render.filepath = filename
     bpy.ops.render.render( write_still=True )
