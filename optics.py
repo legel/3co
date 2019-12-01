@@ -365,6 +365,10 @@ class Optics():
         x = np.random.normal(loc=0.0, scale=0.001)
         y = np.random.normal(loc=0.06, scale=0.0033)
         z = np.random.normal(loc=1.50, scale=0.25)
+        # hack
+        x = 0.0
+        y = 0.0
+        z = 2.0
 
       else:  # if we're making a rigid connection to another optical system 
         x = np.random.normal(loc=0.0, scale=0.001) 
@@ -393,8 +397,8 @@ class Optics():
       horizontal_pixels = vertical_pixels * self.horizontal_to_vertical_pixel_ratio
 
       # hack to speed up testing
-      vertical_pixels = 800 #1824
-      horizontal_pixels = 800  #2280
+      vertical_pixels = 500 #1824
+      horizontal_pixels = 500  #2280
 
     return [int(vertical_pixels), int(horizontal_pixels)]
 
@@ -406,7 +410,7 @@ class Optics():
         statistical_family_b = np.random.normal(loc=24.0, scale=3.0)
         focal_length = max(min(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.25, 0.75]), 100.0), 10.0)
         # hack
-        focal_length = 16
+        focal_length = 7.0
         return focal_length / 1000 # meters
       elif self.photonics == "lasers":
         statistical_family_a = random.uniform(7.0, 13.0)
@@ -428,7 +432,7 @@ class Optics():
       if self.photonics == "sensors":
         pixel_size = np.random.normal(loc=4.29, scale=0.25) 
         # hack
-        pixel_size = 8
+        pixel_size = 10
       elif self.photonics == "lasers":
         pixel_size = np.random.normal(loc=6.0, scale=0.25)    
         # hack 
@@ -447,6 +451,7 @@ class Optics():
     bpy.context.scene.camera = self.sensors
     bpy.data.cameras["sensor_data"].lens = self.focal_length * 1000 # millimeters
     bpy.data.cameras["sensor_data"].sensor_width = self.horizontal_size * 1000 # millimeters
+    self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
     bpy.data.scenes["Scene"].render.resolution_x = self.horizontal_pixels
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
     bpy.data.scenes["Scene"].render.tile_x = 512
@@ -454,7 +459,8 @@ class Optics():
 
     statistical_family_a = random.uniform(0.01, 1.0) 
     statistical_family_b = np.random.normal(loc=0.066, scale=0.033)
-    self.shutterspeed = max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.1, 0.9]), 0.01)
+    # hack
+    self.shutterspeed = 0.05 # max(np.random.choice(a=[statistical_family_a, statistical_family_b], p=[0.1, 0.9]), 0.01)
 
     print("Shutterspeed of {} seconds".format(self.shutterspeed))
     bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
@@ -842,7 +848,7 @@ class Model():
       self.resample_orientation()
       self.resample_size()
       self.resample_position()
-      self.resample_materials()    
+      # self.resample_materials()   # no probabilistic materials
 
   def extract_model_metadata(self):
     metadata = {"filepath": self.filepath,
@@ -1202,7 +1208,7 @@ class Environment():
     light.use_nodes = True  
 
     #light_power = min(max(np.random.normal(loc=0.05, scale=0.05), 0.001), 0.2)
-    light_power = 100.0
+    light_power = 75.0
     light.node_tree.nodes["Emission"].inputs[1].default_value = light_power
     self.ambient_light_strength = light_power
 
@@ -1559,10 +1565,10 @@ if __name__ == "__main__":
   
   # read files to render
   models = []
-  with open("reconstructables.txt", "r") as reconstructables:
+  with open("/home/ubuntu/research/reconstructables/reconstructables.txt", "r") as reconstructables:
     for reconstructable in reconstructables:
       model = reconstructable.rstrip("\n")
-      filepath = "/home/ubuntu/reconstructables/data/{}".format(model)
+      filepath = "/home/ubuntu/research/reconstructables/data/{}".format(model)
       models.append(filepath)
 
   # initialize environment and scanner
@@ -1576,9 +1582,12 @@ if __name__ == "__main__":
   #  print("Rotating object in x-axis by {} degrees".format(x_rotation_angle))
   #environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
   for i, model in enumerate(models):
-    environment.delete_environment()
-    environment.resample_environment(model=model)
-    scanner.render("{}/{}.png".format(output_directory, i))
+    for y_rotation_angle in [30, 60, 90]:
+      environment.delete_environment()
+      environment.resample_environment(model=model)
+      environment.model.resample_orientation(y_rotation_angle=y_rotation_angle)
+      scanner.render("{}/{}_original_{}_degrees.png".format(output_directory, i, y_rotation_angle))
+
     #scanner.scan(sensor_as_scanner=True) 
 
   end_time = time.time()
