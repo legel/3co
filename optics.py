@@ -1565,10 +1565,10 @@ if __name__ == "__main__":
   
   # read files to render
   models = []
-  with open("/home/ubuntu/research/reconstructables/reconstructables.txt", "r") as reconstructables:
+  with open("/home/ubuntu/reconstructables/reconstructables.txt", "r") as reconstructables:
     for reconstructable in reconstructables:
       model = reconstructable.rstrip("\n")
-      filepath = "/home/ubuntu/research/reconstructables/data/{}".format(model)
+      filepath = "/home/ubuntu/reconstructables/data/{}".format(model)
       models.append(filepath)
 
   # initialize environment and scanner
@@ -1586,7 +1586,7 @@ if __name__ == "__main__":
       environment.delete_environment()
       environment.resample_environment(model=model)
       environment.model.resample_orientation(y_rotation_angle=y_rotation_angle)
-      scanner.render("{}/{}_{}_degrees.png".format(output_directory, i, y_rotation_angle))
+      scanner.render("{}/object_{}_at_{}_degrees.png".format(output_directory, i, y_rotation_angle))
 
     #scanner.scan(sensor_as_scanner=True) 
 
