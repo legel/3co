@@ -1582,11 +1582,11 @@ if __name__ == "__main__":
   #  print("Rotating object in x-axis by {} degrees".format(x_rotation_angle))
   #environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
   for i, model in enumerate(models):
-    for y_rotation_angle in [30, 60, 90]:
+    for y_rotation_angle in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
       environment.delete_environment()
       environment.resample_environment(model=model)
       environment.model.resample_orientation(y_rotation_angle=y_rotation_angle)
-      scanner.render("{}/{}_original_{}_degrees.png".format(output_directory, i, y_rotation_angle))
+      scanner.render("{}/{}_{}_degrees.png".format(output_directory, i, y_rotation_angle))
 
     #scanner.scan(sensor_as_scanner=True) 
 
