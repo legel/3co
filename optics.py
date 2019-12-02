@@ -658,7 +658,9 @@ class Optics():
         self.rotation_euler_z == math.radians(180.0)
 
     self.rotation_euler_y = 0.0 # definition
-    print("Euler rotations of (x={},y={},z={})".format(self.rotation_euler_x, self.rotation_euler_y, self.rotation_euler_z))
+    # hack
+    self.rotation_euler_x = self.rotation_euler_x + math.radians(30)
+    print("Euler rotations of (x={},y={},z={})".format(math.degrees(self.rotation_euler_x), math.degrees(self.rotation_euler_y), math.degrees(self.rotation_euler_z)))
 
   def compute_xyz_of_boundary_pixels(self):
     pitch = self.rotation_euler_x 
@@ -1217,9 +1219,13 @@ class Environment():
 
     self.light = bpy.data.objects.new(name="Ambient Light", object_data=light)
 
-    x = np.random.normal(loc=0.0, scale=1.0)
-    y = np.random.normal(loc=0.0, scale=1.0)
-    z = np.random.normal(loc=10.0, scale=2.5)
+    #x = np.random.normal(loc=0.0, scale=1.0)
+    #y = np.random.normal(loc=0.0, scale=1.0)
+    #z = np.random.normal(loc=10.0, scale=2.5)
+
+    x = 10.0
+    y = 0.0
+    z = 0.0 
 
     self.ambient_light_position = Point(x,y,z)
 
@@ -1368,6 +1374,8 @@ class Scanner():
 
     if self.lasers and compute_localizations:
       self.visualize_ground_truth_pixel_overlap(int(launch_time))
+
+  def move(x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
 
 
   def render(self, filename):
@@ -1591,9 +1599,14 @@ if __name__ == "__main__":
       environment.resample_environment(model=model)
       environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
       scanner.render("{}/model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
-    
+    break
 
     #scanner.scan(sensor_as_scanner=True) 
 
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
+
+
+# API
+scanner.move(x,y,z,pitch,yaw,turntable)
+scanner.scan()
