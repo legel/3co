@@ -605,8 +605,10 @@ class Optics():
     bm.free()
 
   def reorient(self, orientation_index=0):
+    print("Entering reorient function...")
     time_start = time.time()
     if type(self.focal_point) == type(Point()) and type(self.target_point) == type(Point()):
+      print("Beginning to compute reorienations...")
       self.compute_image_center()
       self.compute_euler_angles()
       self.compute_xyz_of_boundary_pixels()
