@@ -659,7 +659,7 @@ class Optics():
 
     self.rotation_euler_y = 0.0 # definition
     # hack
-    self.rotation_euler_x = self.rotation_euler_x + math.radians(30)
+    self.rotation_euler_x = self.rotation_euler_x + math.radians(15)
     print("Euler rotations of (x={},y={},z={})".format(math.degrees(self.rotation_euler_x), math.degrees(self.rotation_euler_y), math.degrees(self.rotation_euler_z)))
 
   def compute_xyz_of_boundary_pixels(self):
