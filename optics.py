@@ -1375,7 +1375,7 @@ class Scanner():
     if self.lasers and compute_localizations:
       self.visualize_ground_truth_pixel_overlap(int(launch_time))
 
-  def move(x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
+  # def move(x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
 
 
   def render(self, filename):
@@ -1607,6 +1607,6 @@ if __name__ == "__main__":
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
 
 
-# API
-scanner.move(x,y,z,pitch,yaw,turntable)
-scanner.scan()
+# # API
+# scanner.move(x,y,z,pitch,yaw,turntable)
+# scanner.scan()
