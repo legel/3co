@@ -656,6 +656,7 @@ class Optics():
         self.rotation_euler_z == math.radians(180.0)
 
     self.rotation_euler_y = 0.0 # definition
+    print("Euler rotations of (x={},y={},z={})".format(self.rotation_euler_x, self.rotation_euler_y, self.rotation_euler_z))
 
   def compute_xyz_of_boundary_pixels(self):
     pitch = self.rotation_euler_x 
