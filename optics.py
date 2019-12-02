@@ -1590,7 +1590,7 @@ if __name__ == "__main__":
       environment.delete_environment()
       environment.resample_environment(model=model)
       environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
-      scanner.render("{}/model_{}_file_{}_table_{}.png".format(output_directory, i, model, z_rotation_angle))
+      scanner.render("{}/model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae"), z_rotation_angle))
     
 
     #scanner.scan(sensor_as_scanner=True) 
