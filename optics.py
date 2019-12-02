@@ -1576,7 +1576,7 @@ if __name__ == "__main__":
 
   # initialize environment and scanner
   environment = Environment()
-  sensors = Optics(photonics="sensors", environment=environment)
+  sensors = Optics(photonics="sensors", environment=environment, target_point=Point(0.0,0.0,0.0))
   sensors.reorient()
   #lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="160x100rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=None, environment=environment)
