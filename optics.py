@@ -366,9 +366,9 @@ class Optics():
         y = np.random.normal(loc=0.06, scale=0.0033)
         z = np.random.normal(loc=1.50, scale=0.25)
         # hack
-        x = 0.0
+        x = 2.0
         y = 0.0
-        z = 2.0
+        z = 0.0
 
       else:  # if we're making a rigid connection to another optical system 
         x = np.random.normal(loc=0.0, scale=0.001) 
@@ -1582,11 +1582,12 @@ if __name__ == "__main__":
   #  print("Rotating object in x-axis by {} degrees".format(x_rotation_angle))
   #environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
   for i, model in enumerate(models):
-    for y_rotation_angle in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
+    for z_rotation_angle in [0, 30, 60]:  #,90, 120, 150, 180, 210, 240, 270, 300, 330]:
       environment.delete_environment()
       environment.resample_environment(model=model)
-      environment.model.resample_orientation(y_rotation_angle=y_rotation_angle)
-      scanner.render("{}/object_{}_at_{}_degrees.png".format(output_directory, i, y_rotation_angle))
+      environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
+      scanner.render("{}/object_{}_z_at_{}_degrees.png".format(output_directory, i, z_rotation_angle))
+    break
 
     #scanner.scan(sensor_as_scanner=True) 
 
