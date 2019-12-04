@@ -1387,7 +1387,7 @@ class Scanner():
       pitch = math.radians(pitch)
 
     if yaw == None:
-      yaw = 180 + math.degrees(self.sensors.rotation_euler_z) # if using Blender's yaw, we need to convert e.g. -90 degrees to 90 degrees, -180 degrees to 0 degrees, for our calculations
+      yaw = math.radians(180 + math.degrees(self.sensors.rotation_euler_z)) # if using Blender's yaw, we need to convert e.g. -90 degrees to 90 degrees, -180 degrees to 0 degrees, for our calculations
     else:
       yaw = math.radians(yaw) 
 
@@ -1619,7 +1619,7 @@ if __name__ == "__main__":
   for i, model in enumerate(models):
     if i == 1:
       print("Moving pitch up to 110 degrees...")
-      scanner.move(pitch=110, yaw=90)
+      scanner.move(pitch=110)
     if i == 2:
       print("Moving pitch back to 90 degrees, yaw to 110 degrees (facing right of view)...")
       scanner.move(pitch=90, yaw=110)
