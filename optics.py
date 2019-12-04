@@ -1631,11 +1631,11 @@ if __name__ == "__main__":
       environment.delete_environment()
       environment.resample_environment(model=model)
       environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
-      x = environment.sensors.focal_point.x
-      y = environment.sensors.focal_point.y
-      z = environment.sensors.focal_point.z
-      pitch = environment.sensors.rotation_euler_x
-      yaw = environment.sensors.rotation_euler_z
+      x = scanner.sensors.focal_point.x
+      y = scanner.sensors.focal_point.y
+      z = scanner.sensors.focal_point.z
+      pitch = scanner.sensors.rotation_euler_x
+      yaw = scanner.sensors.rotation_euler_z
       print("(x,y,z,pitch,yaw)=({},{},{},{},{})".format(x,y,z,math.degrees(pitch),math.degrees(yaw)))
    
       scanner.render("{}/experimental_model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
