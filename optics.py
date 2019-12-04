@@ -1373,7 +1373,7 @@ class Scanner():
     if self.lasers and compute_localizations:
       self.visualize_ground_truth_pixel_overlap(int(launch_time))
 
-  def move(x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
+  def move(self, x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
     if x != None:
       self.sensors.focal_point.x = x
     if y != None:
