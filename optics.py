@@ -1396,8 +1396,8 @@ class Scanner():
 
     # geometry based on coordinate system with turntable origin at (0,0,0); see https://docs.google.com/document/d/1FsgnzzdmZE0qz_1uw7lePc5e3lh1HGlXNSBlKcXP4hU/edit?usp=sharing
     x_target = self.sensors.focal_point.x - math.sin(yaw) * math.sin(pitch)
-    y_target = self.sensors.focal_point.y - math.cos(yaw)
-    z_target = self.sensors.focal_point.z - math.cos(pitch)
+    y_target = self.sensors.focal_point.y - math.cos(yaw) * math.sin(pitch)
+    z_target = self.sensors.focal_point.z - math.cos(pitch) 
 
     self.sensors.target_point = Point(x_target, y_target, z_target)
 
