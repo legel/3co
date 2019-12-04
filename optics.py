@@ -1627,8 +1627,8 @@ if __name__ == "__main__":
       print("Moving yaw to 70 degrees (facing left of view)...")
       scanner.move(yaw=70)
     if i == 4:
-      print("Moving pitch to 10 degrees...")
-      scanner.move(pitch=10)
+      print("Moving pitch to 1 degree...")
+      scanner.move(pitch=1)
     if i == 5:
       print("Moving yaw to 0 degrees...")
       scanner.move(yaw=0)
