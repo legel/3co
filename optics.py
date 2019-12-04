@@ -1387,13 +1387,12 @@ class Scanner():
       pitch = math.radians(pitch)
 
     if yaw == None:
-      yaw = self.rotation_euler_z
+      yaw = 180 + math.degrees(self.rotation_euler_z) # if using Blender's yaw, we need to convert e.g. -90 degrees to 90 degrees, -180 degrees to 0 degrees, for our calculations
     else:
       yaw = math.radians(yaw) 
 
     if turntable != None:
       self.environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
-
 
     # geometry based on coordinate system with turntable origin at (0,0,0); see https://docs.google.com/document/d/1FsgnzzdmZE0qz_1uw7lePc5e3lh1HGlXNSBlKcXP4hU/edit?usp=sharing
     x_target = self.sensors.focal_point.x - math.sin(yaw) * math.sin(pitch)
@@ -1619,13 +1618,23 @@ if __name__ == "__main__":
 
   for i, model in enumerate(models):
     if i == 1:
-      print("Moving object to the top of view...")
-      sensors.target_point = Point(0.0,0.0,2.0)
-      sensors.reorient()
+      print("Moving pitch up to 110 degrees...")
+      scanner.move(pitch=110)
     if i == 2:
-      print("Moving object to the left of view...")
-      sensors.target_point = Point(0.0,-2.0,0.0)
-      sensors.reorient()
+      print("Moving pitch back to 90 degrees, yaw to 110 degrees (facing right of view)...")
+      scanner.move(pitch=90, yaw=110)
+    if i == 3:
+      print("Moving yaw to 70 degrees (facing left of view)...")
+      scanner.move(yaw=70)
+    if i == 4:
+      print("Moving pitch to 0 degrees...")
+      scanner.move(pitch=0)
+    if i == 5:
+      print("Moving yaw to 0 degrees...")
+      scanner.move(yaw=0)
+    if i == 6:
+      print("Moving pitch and yaw to 90 degrees...")
+      scanner.move(pitch=90, yaw=90)
 
     for z_rotation_angle in [0]:  #,90, 120, 150, 180, 210, 240, 270, 300, 330]:
       environment.delete_environment()
@@ -1637,6 +1646,7 @@ if __name__ == "__main__":
       pitch = scanner.sensors.rotation_euler_x
       yaw = scanner.sensors.rotation_euler_z
       print("(x,y,z,pitch,yaw)=({},{},{},{},{})".format(x,y,z,math.degrees(pitch),math.degrees(yaw)))
+      print("(x,y,z) of target point: ({},{},{})".format(scanner.sensors.target_point.x, scanner.sensors.target_point.y, scanner.sensors.target_point.z))
    
       scanner.render("{}/experimental_model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
 
