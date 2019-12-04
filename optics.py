@@ -605,10 +605,9 @@ class Optics():
     bm.free()
 
   def reorient(self, orientation_index=0):
-    print("Entering reorient function...")
+    print("Beginning to reorient perspective...")
     time_start = time.time()
     if type(self.focal_point) == type(Point()) and type(self.target_point) == type(Point()):
-      print("Beginning to compute reorienations...")
       self.compute_image_center()
       self.compute_euler_angles()
       self.compute_xyz_of_boundary_pixels()
@@ -658,8 +657,7 @@ class Optics():
         self.rotation_euler_z == math.radians(180.0)
 
     self.rotation_euler_y = 0.0 # definition
-    # hack
-    self.rotation_euler_x = self.rotation_euler_x + math.radians(15)
+
     print("Euler rotations of (x={},y={},z={})".format(math.degrees(self.rotation_euler_x), math.degrees(self.rotation_euler_y), math.degrees(self.rotation_euler_z)))
 
   def compute_xyz_of_boundary_pixels(self):
@@ -1375,7 +1373,37 @@ class Scanner():
     if self.lasers and compute_localizations:
       self.visualize_ground_truth_pixel_overlap(int(launch_time))
 
-  # def move(x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
+  def move(x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
+    if x != None:
+      self.sensors.focal_point.x = x
+    if y != None:
+      self.sensors.focal_point.y = y
+    if z != None:
+      self.sensors.focal_point.z = z
+    
+    if pitch == None:
+      pitch = self.rotation_euler_x
+    else:
+      pitch = math.radians(pitch)
+
+    if yaw == None:
+      yaw = self.rotation_euler_z
+    else:
+      yaw = math.radians(yaw) 
+
+    if turntable != None:
+      self.environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
+
+
+    # geometry based on coordinate system with turntable origin at (0,0,0); see https://docs.google.com/document/d/1FsgnzzdmZE0qz_1uw7lePc5e3lh1HGlXNSBlKcXP4hU/edit?usp=sharing
+    x_target = self.sensors.focal_point.x - math.sin(yaw) * math.sin(pitch)
+    y_target = self.sensors.focal_point.y - math.cos(yaw)
+    z_target = self.sensors.focal_point.z - math.cos(pitch)
+
+    self.sensors.target_point = Point(x_target, y_target, z_target)
+
+    if x != None or y != None or z != None or pitch != None or yaw != None:
+      self.reorient()
 
 
   def render(self, filename):
@@ -1589,17 +1617,31 @@ if __name__ == "__main__":
   #lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="160x100rgb.png", position_anchor=sensors) 
   scanner = Scanner(sensors=sensors, lasers=None, environment=environment)
 
-  # scan away
-  #for x_rotation_angle in range(0,360,15):
-  #  print("Rotating object in x-axis by {} degrees".format(x_rotation_angle))
-  #environment.model.resample_orientation(x_rotation_angle=x_rotation_angle)
   for i, model in enumerate(models):
-    for z_rotation_angle in [0, 30, 60, 90]:  #,90, 120, 150, 180, 210, 240, 270, 300, 330]:
+    if i == 1:
+      print("Moving object to the top of view...")
+      sensors.target_point = Point(0.0,0.0,2.0)
+      sensors.reorient()
+    if i == 2:
+      print("Moving object to the left of view...")
+      sensors.target_point = Point(0.0,-2.0,0.0)
+      sensors.reorient()
+
+    for z_rotation_angle in [0]:  #,90, 120, 150, 180, 210, 240, 270, 300, 330]:
       environment.delete_environment()
       environment.resample_environment(model=model)
       environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
-      scanner.render("{}/model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
-    break
+      x = environment.sensors.focal_point.x
+      y = environment.sensors.focal_point.y
+      z = environment.sensors.focal_point.z
+      pitch = environment.sensors.rotation_euler_x
+      yaw = environment.sensors.rotation_euler_z
+      print("(x,y,z,pitch,yaw)=({},{},{},{},{})".format(x,y,z,math.degrees(pitch),math.degrees(yaw)))
+   
+      scanner.render("{}/experimental_model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
+
+    if i == 2:
+      break
 
     #scanner.scan(sensor_as_scanner=True) 
 
