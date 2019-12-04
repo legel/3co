@@ -1619,7 +1619,7 @@ if __name__ == "__main__":
   for i, model in enumerate(models):
     if i == 1:
       print("Moving pitch up to 110 degrees...")
-      scanner.move(pitch=110)
+      scanner.move(pitch=110, yaw=90)
     if i == 2:
       print("Moving pitch back to 90 degrees, yaw to 110 degrees (facing right of view)...")
       scanner.move(pitch=90, yaw=110)
