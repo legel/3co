@@ -1382,12 +1382,12 @@ class Scanner():
       self.sensors.focal_point.z = z
     
     if pitch == None:
-      pitch = self.rotation_euler_x
+      pitch = self.sensors.rotation_euler_x
     else:
       pitch = math.radians(pitch)
 
     if yaw == None:
-      yaw = 180 + math.degrees(self.rotation_euler_z) # if using Blender's yaw, we need to convert e.g. -90 degrees to 90 degrees, -180 degrees to 0 degrees, for our calculations
+      yaw = 180 + math.degrees(self.sensors.rotation_euler_z) # if using Blender's yaw, we need to convert e.g. -90 degrees to 90 degrees, -180 degrees to 0 degrees, for our calculations
     else:
       yaw = math.radians(yaw) 
 
@@ -1402,7 +1402,7 @@ class Scanner():
     self.sensors.target_point = Point(x_target, y_target, z_target)
 
     if x != None or y != None or z != None or pitch != None or yaw != None:
-      self.reorient()
+      self.sensors.reorient()
 
 
   def render(self, filename):
