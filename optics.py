@@ -1650,7 +1650,7 @@ if __name__ == "__main__":
    
       scanner.render("{}/experimental_model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
 
-    if i == 2:
+    if i == 6:
       break
 
     #scanner.scan(sensor_as_scanner=True) 
