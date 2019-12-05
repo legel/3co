@@ -393,7 +393,7 @@ class Optics():
       for loop in face.loops:
         loop[color_layer] = colors_of_faces[face_index][color_index]
         #point_cloud_mesh.vertex_colors.active.data[loop].color = color_of_vertex
-        print("Vertex {} of Face {} gets Color {}, {}, {}".format(color_index, face_index, color_of_vertex.r, color_of_vertex.g, color_of_vertex.b))
+        print("Vertex {} of Face {} gets Color {}, {}, {}".format(color_index, face_index,  colors_of_faces[face_index][color_index][0], colors_of_faces[face_index][color_index][1], colors_of_faces[face_index][color_index][2]))
         color_index += 1
       face_index += 1
 
