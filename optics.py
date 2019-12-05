@@ -243,6 +243,7 @@ class Optics():
     return optical_metadata
 
   def export_point_cloud(self, launch_time):
+    print("Beginning to export point cloud...")
     # get color data from render and project those onto point cloud
     render_filename = "{}/{}_render.png".format(output_directory, launch_time)
     render_image = Image.open(render_filename).convert('RGB')
@@ -1346,7 +1347,7 @@ class Scanner():
     self.sensors = sensors
     self.lasers = lasers
 
-  def scan(self, target_point=None, counter=0, precomputed=False, sensor_as_scanner=False, target_derived_from_euler_angles=True, launch_time = int(time.time()), metadata=False):
+  def scan(self, target_point=None, counter=0, precomputed=False, sensor_as_scanner=True, target_derived_from_euler_angles=True, launch_time = int(time.time()), metadata=False):
     self.sensors.sensor_as_scanner = sensor_as_scanner 
     print("LAUNCH TIME: {}".format(launch_time))
     if type(target_point) == type(None) and not target_derived_from_euler_angles: 
