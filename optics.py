@@ -1130,13 +1130,14 @@ class Environment():
       models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
       #sampled_model_index = int(random.uniform(0, len(models) - 1))
       #model = models[sampled_model_index]
-      model = random.sample(population=models, k=1)[0]
-      print("Randomly sampled {}".format(model))
+      model = models[0] # random.sample(population=models, k=1)[0]
+      ##print("Randomly sampled {}".format(model))
+      #model = "{}/research/nothing.dae".format(home_directory)
       filepath = path.join(model_directory, model)
       self.model_name = model
       self.resample_environment(filepath)
     else:
-      self.resample_environment("/Users/3co/research/phone.dae") # check for the almighty smartphone in your pocket
+      self.resample_environment("{}/research/phone.dae".format(home_directory)) # check for the almighty smartphone in your pocket
 
   def resample_environment(self, model):
     self.delete_environment()
