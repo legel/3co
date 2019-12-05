@@ -342,8 +342,6 @@ class Optics():
 
               colors_of_faces.append([color_a, color_b, color_c])
 
-              print("face {}, ({},{}) getting color ({},{},{})".format(len(colors_of_faces), h,v,red,green,blue))
-
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
@@ -380,14 +378,11 @@ class Optics():
               color_d = Color((vertex_d_red, vertex_d_green, vertex_d_blue))
                           
               colors_of_faces.append([color_b, color_c, color_d])
-              print("face {}, ({},{}) getting color ({},{},{})".format(len(colors_of_faces), h,v,red,green,blue))
 
 
     for face_index, face in enumerate(point_cloud_mesh.polygons):
       for color_index, loop in enumerate(face.loop_indices):
         point_cloud_mesh.vertex_colors.active.data[loop].color = colors_of_faces[face_index][color_index]
-
-        print("face {}, color {} getting color ({},{},{})".format(face_index, color_index, red,green,blue))
 
 
     # left = bm.verts.new((-1, -1, 0))
