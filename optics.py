@@ -384,12 +384,15 @@ class Optics():
 
     point_cloud_mesh.update()
 
-    for face_index, face in enumerate(point_cloud_mesh.polygons):
-      for color_index, loop in enumerate(face.loop_indices):
+    face_index = 0
+    for face in point_cloud_mesh.polygons:
+      print("Polygon {}...".format(face))
+      color_index = 0
+      for loop in face.loop_indices:
         color_of_vertex = colors_of_faces[face_index][color_index]
         point_cloud_mesh.vertex_colors.active.data[loop].color = color_of_vertex
         print("Vertex {} of Face {} gets Color {}, {}, {}".format(color_index, face_index, color_of_vertex.r, color_of_vertex.g, color_of_vertex.b))
-
+        color_index += 1
 
     # left = bm.verts.new((-1, -1, 0))
     # middle = bm.verts.new((0, 1, 0))
