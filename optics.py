@@ -1710,11 +1710,11 @@ if __name__ == "__main__":
       environment.resample_environment(model=model)
 
       scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
-      for turntable in [0, 90, 180, 270]:
+      for turntable in [0, 90]:
         scanner.scan()
 
       scanner.move(z=1.0, pitch=60, turntable=turntable)
-      for turntable in [0, 90, 180, 270]:
+      for turntable in [0, 90]:
         scanner.scan()
 
 
