@@ -249,7 +249,7 @@ class Optics():
     render_image = Image.open(render_filename).convert('RGB')
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
-        r, g, b = render_image.get_pixel((h,v))
+        r, g, b = render_image.getpixel((h,v))
         self.pixels[h][v].rendered_red = r
         self.pixels[h][v].rendered_green = g
         self.pixels[h][v].rendered_blue = b
