@@ -268,7 +268,7 @@ class Optics():
     vertices = {}
     points = {}
     
-    with open("{}.csv".format(launch_time), "w") as point_cloud_file:
+    with open("{}/{}.csv".format(output_directory,launch_time), "w") as point_cloud_file:
       point_cloud_file.write("h,v,x,y,z,r,g,b\n")
 
       for h in self.get_pixel_indices("horizontal"):
