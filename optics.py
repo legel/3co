@@ -385,7 +385,7 @@ class Optics():
     point_cloud_mesh.update()
 
     face_index = 0
-    for face in point_cloud_mesh.polygons:
+    for face in point_cloud_mesh.faces:
       print("Polygon {}...".format(face))
       color_index = 0
       for loop in face.loop_indices:
