@@ -336,7 +336,7 @@ class Optics():
               vertex_c_blue = self.pixels[h][v+1].rendered_blue
               blue = ((vertex_a_blue + vertex_b_blue + vertex_c_blue) / 3.0) / 255.0
                           
-              colors_of_faces.append(Color(red,green,blue))
+              colors_of_faces.append(Color((red,green,blue)))
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
@@ -368,7 +368,7 @@ class Optics():
               vertex_d_blue = self.pixels[h+1][v+1].rendered_blue
               blue = ((vertex_b_blue + vertex_c_blue + vertex_d_blue) / 3.0) / 255.0
                           
-              colors_of_faces.append(Color(red,green,blue))
+              colors_of_faces.append(Color((red,green,blue)))
 
 
     for face in point_cloud_mesh.polygons:
