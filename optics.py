@@ -1152,7 +1152,7 @@ class Environment():
     objects = {}
     for i, obj in enumerate(bpy.data.objects):
       obj.select_set( state = False, view_layer = None)
-      elif obj.name == "Model":
+      if obj.name == "Model":
         objects["Model"] = obj 
 
     model = objects.get("Model", None)
