@@ -1726,7 +1726,7 @@ def turn_on():
 if __name__ == "__main__":  
   environment, scanner = turn_on()
   for model in scanner.get_models():
-    environment.new_model(model=model)
+    environment.new_model(model)
     scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
     scanner.scan()
     scanner.move(z=1.0, pitch=60, turntable=90)
