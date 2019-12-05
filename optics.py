@@ -1160,7 +1160,7 @@ class Environment():
       model.select_set(True)
       bpy.ops.object.delete()
 
-    self.add_model(model_filepath):
+    self.add_model(model_filepath)
 
 
   def extract_environment_metadata(self):
