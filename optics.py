@@ -243,6 +243,16 @@ class Optics():
     return optical_metadata
 
   def export_point_cloud(self, launch_time):
+   # get color data from render and project those onto point cloud
+   render_filename = "{}/{}_render.png".format(output_directory, launch_time)
+   render_image = Image.open(render_filename).convert('RGB')
+   for h in self.get_pixel_indices("horizontal"):
+     for v in self.get_pixel_indices("vertical"):
+        r, g, b = render_image.get_pixel((h,v))
+        self.pixels[h][v].rendered_red = r
+        self.pixels[h][v].rendered_green = g
+        self.pixels[h][v].rendered_blue = b
+
     point_cloud_mesh = bpy.data.meshes.new("point_cloud_mesh")
     point_cloud_object = bpy.data.objects.new("point_cloud_object", point_cloud_mesh)
     bpy.context.collection.objects.link(point_cloud_object)
@@ -258,24 +268,27 @@ class Optics():
     points = {}
     
     with open("{}.csv".format(launch_time), "w") as point_cloud_file:
-      point_cloud_file.write("h,v,x,y,z,face_index\n")
+      point_cloud_file.write("h,v,x,y,z,r,g,b\n")
 
       for h in self.get_pixel_indices("horizontal"):
         points[h] = {}
         vertices[h] = {}
         for v in self.get_pixel_indices("vertical"):
           if self.pixels[h][v].hitpoint_object == "model":
-            face_index = self.pixels[h][v].hitpoint_face_index
+            #face_index = self.pixels[h][v].hitpoint_face_index
             #material_index = self.model_object.data.polygons[face_index].material_index
             #diffuse_color = self.model_object.material_slots[material_index].material.diffuse_color
             #r = int(diffuse_color[0]*255)
             #g = int(diffuse_color[1]*255)
             #b = int(diffuse_color[2]*255)
+            r = self.pixels[h][v].rendered_red
+            g = self.pixels[h][v].rendered_green
+            b = self.pixels[h][v].rendered_blue
             point = self.pixels[h][v].hitpoint
             x = round(point.x,6)
             y = round(point.y,6)
             z = round(point.z,6)
-            point_cloud_file.write("{},{},{},{},{},{}\n".format(h,v,x,y,z,face_index))
+            point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,r,g,b))
             #print(("HIT: ({},{},{})".format(x, y, z)))
             vertex = bm.verts.new((point.x, point.y, point.z))
             vertices[h][v] = vertex
@@ -1333,11 +1346,10 @@ class Scanner():
     self.sensors = sensors
     self.lasers = lasers
 
-  def scan(self, target_point=None, counter=0, precomputed=False, sensor_as_scanner=False):
+  def scan(self, target_point=None, counter=0, precomputed=False, sensor_as_scanner=False, target_derived_from_euler_angles=True, launch_time = int(time.time()), metadata=False):
     self.sensors.sensor_as_scanner = sensor_as_scanner 
-    launch_time = time.time()
     print("LAUNCH TIME: {}".format(launch_time))
-    if type(target_point) == type(None): # derive scanning location(s) based on topology of object(s)
+    if type(target_point) == type(None) and not target_derived_from_euler_angles: 
       x = 0.0 # np.random.normal(loc=self.environment.x_midpoint, scale=0.10 * self.environment.x_edge_size)
       y = 0.0 # np.random.normal(loc=self.environment.y_midpoint, scale=0.10 * self.environment.y_edge_size)
       z = 0.0 # np.random.normal(loc=self.environment.z_midpoint, scale=0.10 * self.environment.z_edge_size)
@@ -1346,11 +1358,11 @@ class Scanner():
 
     # if lasers and/or sensors have a new target point, reorient
     if self.lasers:
-      if self.lasers.target_point != target_point:
+      if self.lasers.target_point != target_point and not target_derived_from_euler_angles:
         self.lasers.target_point = target_point
         self.lasers.reorient(orientation_index=counter)
 
-    if self.sensors.target_point != target_point:
+    if self.sensors.target_point != target_point and not target_derived_from_euler_angles:
       self.sensors.target_point = target_point
       self.sensors.reorient(orientation_index=counter)
 
@@ -1361,17 +1373,19 @@ class Scanner():
     if sensor_as_scanner:
       self.sensors.measure_raycasts_from_pixels(environment=self.environment)
 
-    # localization to nearest pixel of sensor via localization: source of error // subpixel considerations
+    self.render("{}/{}_render.png".format(output_directory, launch_time))
 
-    self.render("{}/{}.png".format(output_directory, int(launch_time)))
+    if sensor_as_scanner:
+      self.sensors.export_point_cloud(launch_time)
 
     if self.lasers and compute_localizations: 
       self.localize_projections_in_sensor_plane()
 
-    self.save_metadata(int(launch_time))
+    if metadata:
+      self.save_metadata(launch_time)
 
     if self.lasers and compute_localizations:
-      self.visualize_ground_truth_pixel_overlap(int(launch_time))
+      self.visualize_ground_truth_pixel_overlap(launch_time)
 
   def move(self, x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
     if x != None:
@@ -1384,11 +1398,15 @@ class Scanner():
     if pitch == None:
       pitch = self.sensors.rotation_euler_x
     else:
+      if pitch == 0 or pitch == 0.0:
+        pitch = 0.000001 # epsilon non-zero value to prevent degeneracy
       pitch = math.radians(pitch)
 
     if yaw == None:
       yaw = math.radians(180 + math.degrees(self.sensors.rotation_euler_z)) # if using Blender's yaw, we need to convert e.g. -90 degrees to 90 degrees, -180 degrees to 0 degrees, for our calculations
     else:
+      if yaw == 0 or yaw == 0.0:
+        yaw = 0.000001 # epsilon non-zero value to prevent degeneracy
       yaw = math.radians(yaw) 
 
     if turntable != None:
@@ -1617,26 +1635,9 @@ if __name__ == "__main__":
   scanner = Scanner(sensors=sensors, lasers=None, environment=environment)
 
   for i, model in enumerate(models):
-    if i == 1:
-      print("Moving pitch up to 110 degrees...")
-      scanner.move(pitch=110)
-    if i == 2:
-      print("Moving pitch back to 90 degrees, yaw to 110 degrees (facing right of view)...")
-      scanner.move(pitch=90, yaw=110)
-    if i == 3:
-      print("Moving yaw to 70 degrees (facing left of view)...")
-      scanner.move(yaw=70)
-    if i == 4:
-      print("Moving pitch to 1 degree...")
-      scanner.move(pitch=1)
-    if i == 5:
-      print("Moving yaw to 0 degrees...")
-      scanner.move(yaw=0)
-    if i == 6:
-      print("Moving pitch and yaw to 90 degrees...")
-      scanner.move(pitch=90, yaw=90)
-
     for z_rotation_angle in [0]:  #,90, 120, 150, 180, 210, 240, 270, 300, 330]:
+      model = "/home/ubuntu/research/balls.dae"
+
       environment.delete_environment()
       environment.resample_environment(model=model)
       environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
@@ -1645,12 +1646,14 @@ if __name__ == "__main__":
       z = scanner.sensors.focal_point.z
       pitch = scanner.sensors.rotation_euler_x
       yaw = scanner.sensors.rotation_euler_z
+
       print("(x,y,z,pitch,yaw)=({},{},{},{},{})".format(x,y,z,math.degrees(pitch),math.degrees(yaw)))
       print("(x,y,z) of target point: ({},{},{})".format(scanner.sensors.target_point.x, scanner.sensors.target_point.y, scanner.sensors.target_point.z))
    
-      scanner.render("{}/experimental_model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
+      #scanner.render("{}/experimental_model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
+      scanner.scan()
 
-    if i == 6:
+    if i == 0:
       break
 
     #scanner.scan(sensor_as_scanner=True) 
