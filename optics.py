@@ -243,11 +243,11 @@ class Optics():
     return optical_metadata
 
   def export_point_cloud(self, launch_time):
-   # get color data from render and project those onto point cloud
-   render_filename = "{}/{}_render.png".format(output_directory, launch_time)
-   render_image = Image.open(render_filename).convert('RGB')
-   for h in self.get_pixel_indices("horizontal"):
-     for v in self.get_pixel_indices("vertical"):
+    # get color data from render and project those onto point cloud
+    render_filename = "{}/{}_render.png".format(output_directory, launch_time)
+    render_image = Image.open(render_filename).convert('RGB')
+    for h in self.get_pixel_indices("horizontal"):
+      for v in self.get_pixel_indices("vertical"):
         r, g, b = render_image.get_pixel((h,v))
         self.pixels[h][v].rendered_red = r
         self.pixels[h][v].rendered_green = g
