@@ -810,12 +810,12 @@ class Optics():
         else:
           self.pixels[h][v].hitpoint = Point(location[0], location[1], location[2])
 
-        if obj == environment.mesh:
-          self.pixels[h][v].hitpoint_object = "background"
-          self.pixels[h][v].hitpoint_face_index = face_index
-          self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
-          background_hits += 1
-        elif obj == environment.model_object:
+        # if obj == environment.mesh:
+        #   self.pixels[h][v].hitpoint_object = "background"
+        #   self.pixels[h][v].hitpoint_face_index = face_index
+        #   self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
+        #   background_hits += 1
+        if obj == environment.model_object:
           self.pixels[h][v].hitpoint_object = "model"
           self.pixels[h][v].hitpoint_face_index = face_index
           self.pixels[h][v].hitpoint_normal = Point(normal[0], normal[1], normal[2])
