@@ -338,9 +338,9 @@ class Optics():
               vertex_c_blue = self.pixels[h][v+1].rendered_blue / 255.0
               #blue = ((vertex_a_blue + vertex_b_blue + vertex_c_blue) / 3.0) / 255.0
           
-              color_a = [vertex_a_red, vertex_a_green, vertex_a_blue]
-              color_b = [vertex_b_red, vertex_b_green, vertex_b_blue]
-              color_c = [vertex_c_red, vertex_c_green, vertex_c_blue]
+              color_a = [vertex_a_red, vertex_a_green, vertex_a_blue, 1.0]
+              color_b = [vertex_b_red, vertex_b_green, vertex_b_blue, 1.0]
+              color_c = [vertex_c_red, vertex_c_green, vertex_c_blue, 1.0]
 
               print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_c_red, vertex_c_green, vertex_c_blue))
 
@@ -377,9 +377,9 @@ class Optics():
               vertex_d_blue = self.pixels[h+1][v+1].rendered_blue / 255.0
               #blue = ((vertex_b_blue + vertex_c_blue + vertex_d_blue) / 3.0) / 255.0
 
-              color_b = [vertex_b_red, vertex_b_green, vertex_b_blue]
-              color_c = [vertex_c_red, vertex_c_green, vertex_c_blue]
-              color_d = [vertex_d_red, vertex_d_green, vertex_d_blue]
+              color_b = [vertex_b_red, vertex_b_green, vertex_b_blue, 1.0]
+              color_c = [vertex_c_red, vertex_c_green, vertex_c_blue, 1.0]
+              color_d = [vertex_d_red, vertex_d_green, vertex_d_blue, 1.0]
 
               print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_d_red, vertex_d_green, vertex_d_blue))
               colors_of_faces.append([color_b, color_c, color_d])
