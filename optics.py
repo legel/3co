@@ -12,6 +12,8 @@ from os import listdir, path
 from pprint import pprint
 import sys
 
+home_directory = "/home/ubuntu" # change this for wherever all the files are
+
 # idiosyncratic handling of arguments for Python Blender
 argv = sys.argv
 argv = argv[argv.index("--") + 1:]
@@ -210,6 +212,8 @@ class Optics():
     elif photonics == "sensors":
       self.initialize_sensors()
     self.time_end = time.time()
+    if type(target_point) == type(Point()):
+      self.reorient()
     print("Launched {} in {} seconds".format(self.photonics, round(self.time_end - self.time_start, 4)))
 
   def extract_optical_metadata(self, launch_time):
@@ -1122,7 +1126,7 @@ class Model():
 class Environment():
   def __init__(self, cloud_compute=True):
     if cloud_compute:
-      model_directory="/home/ubuntu/COLLADA"
+      model_directory="{}/COLLADA".format(home_directory)
       models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
       #sampled_model_index = int(random.uniform(0, len(models) - 1))
       #model = models[sampled_model_index]
@@ -1142,6 +1146,22 @@ class Environment():
     #self.create_materials()
     #self.index_materials_of_faces()
     #self.analyze_perspective()
+
+  def new_model(self, model_filepath):
+    # delete existing model if it exsits
+    objects = {}
+    for i, obj in enumerate(bpy.data.objects):
+      obj.select_set( state = False, view_layer = None)
+      elif obj.name == "Model":
+        objects["Model"] = obj 
+
+    model = objects.get("Model", None)
+    if model:
+      model.select_set(True)
+      bpy.ops.object.delete()
+
+    self.add_model(model_filepath):
+
 
   def extract_environment_metadata(self):
     model_metadata = self.model.extract_model_metadata()
@@ -1688,35 +1708,25 @@ class Scanner():
     print("{} of {} laser pixels are outside of image field of view".format(out_of_image, total_pixels))
     print("{} of {} laser pixels have been localized in image".format(total_pixels - occlusions - out_of_image, total_pixels))
 
-if __name__ == "__main__":
-  begin_time = time.time()
-  print("\n\nSimulation beginning at UNIX TIME {}".format(int(begin_time)))
-  
-  # read files to render
-  models = []
-  with open("/home/ubuntu/reconstructables/reconstructables.txt", "r") as reconstructables:
-    for reconstructable in reconstructables:
-      model = reconstructable.rstrip("\n")
-      filepath = "/home/ubuntu/reconstructables/data/{}".format(model)
+  def get_models(self, list_of_model_files="{}/reconstructables/reconstructables.txt".format(home_directory)):
+    models = []
+    with open(list_of_model_files, "r") as reconstructables:
+      for reconstructable in reconstructables:
+        model = reconstructable.rstrip("\n")
+        filepath = "{}/reconstructables/data/{}".format(home_directory, model)
       models.append(filepath)
 
+def turn_on():
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment, target_point=Point(0.0,0.0,0.0))
-  sensors.reorient()
-  #lasers = Optics(photonics="lasers", environment=environment, vertical_pixels=100, horizontal_pixels=160, image="160x100rgb.png", position_anchor=sensors) 
-  scanner = Scanner(sensors=sensors, lasers=None, environment=environment)
+  scanner = Scanner(sensors=sensors, environment=environment)
+  return environment, scanner
 
-  for i, model in enumerate(models):
-      environment.resample_environment(model=model)
-
-      scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
-      for turntable in [0, 90]:
-        scanner.scan()
-
-      scanner.move(z=1.0, pitch=60, turntable=turntable)
-      for turntable in [0, 90]:
-        scanner.scan()
-
-
-  end_time = time.time()
-  print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
+if __name__ == "__main__":  
+  environment, scanner = turn_on()
+  for model in scanner.get_models():
+    environment.new_model(model=model)
+    scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
+    scanner.scan()
+    scanner.move(z=1.0, pitch=60, turntable=90)
+    scanner.scan()
