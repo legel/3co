@@ -244,12 +244,13 @@ class Optics():
 
   def export_point_cloud(self, launch_time):
     print("Beginning to export point cloud...")
+    vertical_pixels = len(self.get_pixel_indices("vertical"))
     # get color data from render and project those onto point cloud
     render_filename = "{}/{}_render.png".format(output_directory, launch_time)
     render_image = Image.open(render_filename).convert('RGB')
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
-        r, g, b = render_image.getpixel((h,v))
+        r, g, b = render_image.getpixel((h,vertical_pixels-v-1))
         self.pixels[h][v].rendered_red = r
         self.pixels[h][v].rendered_green = g
         self.pixels[h][v].rendered_blue = b
