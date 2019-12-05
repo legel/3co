@@ -1715,6 +1715,7 @@ class Scanner():
         model = reconstructable.rstrip("\n")
         filepath = "{}/reconstructables/data/{}".format(home_directory, model)
       models.append(filepath)
+    return models
 
 def turn_on():
   environment = Environment()
