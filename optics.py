@@ -1721,7 +1721,7 @@ def get_models(list_of_model_files="{}/reconstructables/reconstructables.txt".fo
 
 def turn_on():
   environment = Environment()
-  sensors = Optics(photonics="sensors", environment=environment, focal_length=7.0, vertical_pixels=500, horizontal_pixels=500, pixel_size=10.0, target_point=Point(0.0,0.0,0.0))
+  sensors = Optics(photonics="sensors", environment=environment, focal_length=0.007, vertical_pixels=500, horizontal_pixels=500, pixel_size=0.00001, target_point=Point(0.0,0.0,0.0))
   scanner = Scanner(sensors=sensors, environment=environment)
   return environment, scanner
 
