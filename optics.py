@@ -439,23 +439,24 @@ class Optics():
         return  range(self.vertical_pixels)      
 
   def sample_focal_point(self, focal_point, position_anchor):
-    if type(self.environment) != type(None):
-      if type(position_anchor) == type(None):
-        # z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
-        # mean_z = self.environment.model.max_z #+ z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
+    if type(focal_point) == type(None):
+      if type(self.environment) != type(None):
+        if type(position_anchor) == type(None):
+          # z_enclosure_visible_distance = 0.5 * self.environment.limiting_edge / math.tan(0.5 * math.radians(self.limiting_fov))
+          # mean_z = self.environment.model.max_z #+ z_enclosure_visible_distance * 0.15 # +15% of distance needed to see entire object
 
-        x = np.random.normal(loc=0.0, scale=0.001)
-        y = np.random.normal(loc=0.06, scale=0.0033)
-        z = np.random.normal(loc=1.50, scale=0.25)
-        # hack
-        x = 2.0
-        y = 0.0
-        z = 0.0
+          x = np.random.normal(loc=0.0, scale=0.001)
+          y = np.random.normal(loc=0.06, scale=0.0033)
+          z = np.random.normal(loc=1.50, scale=0.25)
+          # hack
+          x = 2.0
+          y = 0.0
+          z = 0.0
 
-      else:  # if we're making a rigid connection to another optical system 
-        x = np.random.normal(loc=0.0, scale=0.001) 
-        y = np.random.normal(loc=-0.06, scale=0.0033)
-        z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.001)    
+        else:  # if we're making a rigid connection to another optical system 
+          x = np.random.normal(loc=0.0, scale=0.001) 
+          y = np.random.normal(loc=-0.06, scale=0.0033)
+          z = position_anchor.focal_point.z + np.random.normal(loc=0.0, scale=0.001)    
 
       print("{} focal point of ({},{},{}) sampled".format(self.photonics, x, y, z))
       return Point(x, y, z)
@@ -1722,10 +1723,9 @@ def get_models(list_of_model_files="{}/reconstructables/reconstructables.txt".fo
 
 def turn_on():
   environment = Environment()
-  sensors = Optics(photonics="sensors", environment=environment, focal_length=0.007, vertical_pixels=500, horizontal_pixels=500, pixel_size=0.00001, target_point=Point(0.0,0.0,0.0))
+  sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.007, vertical_pixels=500, horizontal_pixels=500, pixel_size=0.00001, target_point=Point(0.0,0.0,0.0))
   scanner = Scanner(sensors=sensors, environment=environment)
   return environment, scanner
-
 
 if __name__ == "__main__":  
   environment, scanner = turn_on()
@@ -1734,6 +1734,6 @@ if __name__ == "__main__":
     environment.new_model(model)
     scanner.move(z=1.0, pitch=60, turntable=90)
     scanner.scan()
-    scanner.move(z=0.0, pitch=90, yaw=90, turntable=0)
+    scanner.move(z=1.0, pitch=60, turntable=90)
     scanner.scan()
     break
