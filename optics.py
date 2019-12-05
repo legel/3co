@@ -410,7 +410,7 @@ class Optics():
 
     bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
 
-    print("Exported scanned mesh as to {} with colored (x,y,z) vertices".format("{}/{}.ply".format(output_directory, launch_time)))
+    print("Exported scanned mesh to {} with colored (x,y,z) vertices".format("{}/{}.ply".format(output_directory, launch_time)))
 
     # clean up by deleting point cloud to prevent future scans from seeing it
     objects = {}
@@ -1745,20 +1745,18 @@ def get_models(list_of_model_files="{}/reconstructables/reconstructables.txt".fo
       models.append(filepath)
   return models
 
-def turn_on():
+def activate():
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.007, vertical_pixels=500, horizontal_pixels=500, pixel_size=0.00001, target_point=Point(0.0,0.0,0.0))
   scanner = Scanner(sensors=sensors, environment=environment)
   return environment, scanner
 
 if __name__ == "__main__":  
-  environment, scanner = turn_on()
-
-  for i, model in enumerate(get_models()):
-    if i == 42:
-      environment.new_model(model)
-      scanner.scan(x=1.0, y=0.0, z=1.0, pitch=45, yaw=90, turntable=0)
-      scanner.scan(x=1.5, y=0.0, z=1.0, pitch=55, yaw=90, turntable=90)
-      scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, yaw=90, turntable=180)
-      scanner.scan(x=2.0, y=1.0, z=0.0, pitch=90, yaw=75, turntable=270)
-      break
+  environment, scanner = activate()
+  for model in get_models():
+    environment.new_model(model)
+    scanner.scan(x=1.0, y=0.0, z=1.0, pitch=45, yaw=90, turntable=0) 
+    scanner.scan(x=1.5, y=0.0, z=1.0, pitch=55, yaw=90, turntable=90)
+    scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, yaw=90, turntable=180)
+    scanner.scan(x=2.0, y=1.0, z=0.0, pitch=90, yaw=75, turntable=270)
+      
