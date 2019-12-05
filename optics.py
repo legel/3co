@@ -321,24 +321,26 @@ class Optics():
               bm.edges.new( [b, c] )
               bm.faces.new( [a, b, c])
               # get colors of each vertex and average them for the face
-              vertex_a_red = self.pixels[h][v].rendered_red
-              vertex_b_red = self.pixels[h+1][v].rendered_red
-              vertex_c_red = self.pixels[h][v+1].rendered_red
+              vertex_a_red = self.pixels[h][v].rendered_red / 255.0
+              vertex_b_red = self.pixels[h+1][v].rendered_red / 255.0
+              vertex_c_red = self.pixels[h][v+1].rendered_red / 255.0
               #red = ((vertex_a_red + vertex_b_red + vertex_c_red) / 3.0) / 255.0
 
-              vertex_a_green = self.pixels[h][v].rendered_green
-              vertex_b_green = self.pixels[h+1][v].rendered_green
-              vertex_c_green = self.pixels[h][v+1].rendered_green
+              vertex_a_green = self.pixels[h][v].rendered_green / 255.0
+              vertex_b_green = self.pixels[h+1][v].rendered_green / 255.0
+              vertex_c_green = self.pixels[h][v+1].rendered_green / 255.0
               #green = ((vertex_a_green + vertex_b_green + vertex_c_green) / 3.0) / 255.0
 
-              vertex_a_blue = self.pixels[h][v].rendered_blue
-              vertex_b_blue = self.pixels[h+1][v].rendered_blue
-              vertex_c_blue = self.pixels[h][v+1].rendered_blue
+              vertex_a_blue = self.pixels[h][v].rendered_blue / 255.0
+              vertex_b_blue = self.pixels[h+1][v].rendered_blue / 255.0
+              vertex_c_blue = self.pixels[h][v+1].rendered_blue / 255.0
               #blue = ((vertex_a_blue + vertex_b_blue + vertex_c_blue) / 3.0) / 255.0
           
               color_a = Color((vertex_a_red, vertex_a_green, vertex_a_blue))
               color_b = Color((vertex_b_red, vertex_b_green, vertex_b_blue))
               color_c = Color((vertex_c_red, vertex_c_green, vertex_c_blue))
+
+              print("XX Vertex 3 of Face {} gets Color {}".format(len(colors_of_faces), vertex_c_red, vertex_c_green, vertex_c_blue))
 
               colors_of_faces.append([color_a, color_b, color_c])
 
@@ -358,31 +360,34 @@ class Optics():
               bm.faces.new( [b, c, d])
 
               # get colors of each vertex and average them for the face
-              vertex_b_red = self.pixels[h+1][v].rendered_red
-              vertex_c_red = self.pixels[h][v+1].rendered_red
-              vertex_d_red = self.pixels[h+1][v+1].rendered_red
+              vertex_b_red = self.pixels[h+1][v].rendered_red / 255.0
+              vertex_c_red = self.pixels[h][v+1].rendered_red / 255.0
+              vertex_d_red = self.pixels[h+1][v+1].rendered_red / 255.0
               #red = ((vertex_b_red + vertex_c_red + vertex_d_red) / 3.0) / 255.0
 
-              vertex_b_green = self.pixels[h+1][v].rendered_green
-              vertex_c_green = self.pixels[h][v+1].rendered_green
-              vertex_d_green = self.pixels[h+1][v+1].rendered_green
+              vertex_b_green = self.pixels[h+1][v].rendered_green / 255.0
+              vertex_c_green = self.pixels[h][v+1].rendered_green / 255.0
+              vertex_d_green = self.pixels[h+1][v+1].rendered_green / 255.0
               #green = ((vertex_b_green + vertex_c_green + vertex_d_green) / 3.0) / 255.0
 
-              vertex_b_blue = self.pixels[h+1][v].rendered_blue
-              vertex_c_blue = self.pixels[h][v+1].rendered_blue
-              vertex_d_blue = self.pixels[h+1][v+1].rendered_blue
+              vertex_b_blue = self.pixels[h+1][v].rendered_blue / 255.0
+              vertex_c_blue = self.pixels[h][v+1].rendered_blue / 255.0
+              vertex_d_blue = self.pixels[h+1][v+1].rendered_blue / 255.0
               #blue = ((vertex_b_blue + vertex_c_blue + vertex_d_blue) / 3.0) / 255.0
 
               color_b = Color((vertex_b_red, vertex_b_green, vertex_b_blue))
               color_c = Color((vertex_c_red, vertex_c_green, vertex_c_blue))
               color_d = Color((vertex_d_red, vertex_d_green, vertex_d_blue))
-                          
+
+              print("XX Vertex 3 of Face {} gets Color {}".format(len(colors_of_faces), vertex_d_red, vertex_d_green, vertex_d_blue))
               colors_of_faces.append([color_b, color_c, color_d])
 
 
     for face_index, face in enumerate(point_cloud_mesh.polygons):
       for color_index, loop in enumerate(face.loop_indices):
-        point_cloud_mesh.vertex_colors.active.data[loop].color = colors_of_faces[face_index][color_index]
+        color_of_vertex = colors_of_faces[face_index][color_index]
+        point_cloud_mesh.vertex_colors.active.data[loop].color = color_of_vertex
+        print("Vertex {} of Face {} gets Color {}".format(color_index, face_index, color_of_vertex.r, color_of_vertex.g, color_of_vertex.b))
 
 
     # left = bm.verts.new((-1, -1, 0))
