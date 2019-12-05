@@ -29,7 +29,7 @@ if output_directory == None:
 simulation_mode = "ALL" # "TEST" (raycasts for only 4 pixels) or "ALL" (all raycasts, default)
 compute_localizations = False 
 
-# cleanup, please
+# cleanup
 for o in bpy.context.scene.objects:
     if o.type == 'MESH':
         o.select_set(True)
@@ -1148,19 +1148,21 @@ class Environment():
     #self.analyze_perspective()
 
   def new_model(self, model_filepath):
+    self.resample_environment(model_filepath)
     # delete existing model if it exsits
-    objects = {}
-    for i, obj in enumerate(bpy.data.objects):
-      obj.select_set( state = False, view_layer = None)
-      if obj.name == "Model":
-        objects["Model"] = obj 
+    # objects = {}
+    # for i, obj in enumerate(bpy.data.objects):
+    #   obj.select_set( state = False, view_layer = None)
+    #   if obj.name == "Model":
+    #     objects["Model"] = obj 
 
-    model = objects.get("Model", None)
-    if model:
-      model.select_set(True)
-      bpy.ops.object.delete()
+    # model = objects.get("Model", None)
+    # if model:
+    #   model.select_set(True)
+    #   bpy.ops.object.delete()
 
-    self.add_model(model_filepath)
+    # self.add_model(model_filepath)
+
 
 
   def extract_environment_metadata(self):
@@ -1708,26 +1710,29 @@ class Scanner():
     print("{} of {} laser pixels are outside of image field of view".format(out_of_image, total_pixels))
     print("{} of {} laser pixels have been localized in image".format(total_pixels - occlusions - out_of_image, total_pixels))
 
-  def get_models(self, list_of_model_files="{}/reconstructables/reconstructables.txt".format(home_directory)):
-    models = []
-    with open(list_of_model_files, "r") as reconstructables:
-      for reconstructable in reconstructables:
-        model = reconstructable.rstrip("\n")
-        filepath = "{}/reconstructables/data/{}".format(home_directory, model)
-        models.append(filepath)
-    return models
+def get_models(self, list_of_model_files="{}/reconstructables/reconstructables.txt".format(home_directory)):
+  models = []
+  with open(list_of_model_files, "r") as reconstructables:
+    for reconstructable in reconstructables:
+      model = reconstructable.rstrip("\n")
+      filepath = "{}/reconstructables/data/{}".format(home_directory, model)
+      models.append(filepath)
+  return models
 
 def turn_on():
   environment = Environment()
-  sensors = Optics(photonics="sensors", environment=environment, target_point=Point(0.0,0.0,0.0))
+  sensors = Optics(photonics="sensors", environment=environment, focal_length=7.0, vertical_pixels=500, horizontal_pixels=500, pixel_size=10.0, target_point=Point(0.0,0.0,0.0))
   scanner = Scanner(sensors=sensors, environment=environment)
   return environment, scanner
 
+
 if __name__ == "__main__":  
   environment, scanner = turn_on()
-  for model in scanner.get_models():
+
+  for model in get_models():
     environment.new_model(model)
-    scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
-    scanner.scan()
     scanner.move(z=1.0, pitch=60, turntable=90)
     scanner.scan()
+    scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
+    scanner.scan()
+    break
