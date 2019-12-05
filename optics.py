@@ -342,8 +342,6 @@ class Optics():
               color_b = [vertex_b_red, vertex_b_green, vertex_b_blue, 1.0]
               color_c = [vertex_c_red, vertex_c_green, vertex_c_blue, 1.0]
 
-              print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_c_red, vertex_c_green, vertex_c_blue))
-
               colors_of_faces.append([color_a, color_b, color_c])
 
 
@@ -381,19 +379,16 @@ class Optics():
               color_c = [vertex_c_red, vertex_c_green, vertex_c_blue, 1.0]
               color_d = [vertex_d_red, vertex_d_green, vertex_d_blue, 1.0]
 
-              print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_d_red, vertex_d_green, vertex_d_blue))
               colors_of_faces.append([color_b, color_c, color_d])
 
     point_cloud_mesh.update()
 
-
+    # assign colors of faces to mesh object
     face_index = 0
     for face in bm.faces:
       color_index = 0
       for loop in face.loops:
         loop[color_layer] = colors_of_faces[face_index][color_index]
-        #point_cloud_mesh.vertex_colors.active.data[loop].color = color_of_vertex
-        print("Vertex {} of Face {} gets Color {}, {}, {}".format(color_index, face_index,  colors_of_faces[face_index][color_index][0], colors_of_faces[face_index][color_index][1], colors_of_faces[face_index][color_index][2]))
         color_index += 1
       face_index += 1
 
@@ -407,7 +402,6 @@ class Optics():
 
     bm.to_mesh(point_cloud_mesh)  
     bm.free()
-    # bm.verts.index_update()
 
     bpy.context.scene.update() 
     bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
@@ -1141,6 +1135,7 @@ class Environment():
       self.resample_environment("/Users/3co/research/phone.dae") # check for the almighty smartphone in your pocket
 
   def resample_environment(self, model):
+    self.delete_environment()
     self.add_model(model_filepath=model)
     self.ambient_lighting()
     #self.create_mesh()
@@ -1276,11 +1271,15 @@ class Environment():
       env.select_set(True)
       bpy.ops.object.delete()
 
-    objects["Model"].select_set(True)
-    bpy.ops.object.delete()
+    model = objects.get("Model", None)
+    if model:
+      model.select_set(True)
+      bpy.ops.object.delete()
 
-    objects["Ambient Light"].select_set(True)
-    bpy.ops.object.delete() 
+    light = objects.get("Ambient Light", None)
+    if light:
+      light.select_set(True)
+      bpy.ops.object.delete() 
 
   def setup_preferences(self):
     bpy.ops.wm.read_factory_settings(use_empty=True) # initialize empty world, removing default objects
@@ -1489,6 +1488,7 @@ class Scanner():
     z_target = self.sensors.focal_point.z - math.cos(pitch) 
 
     self.sensors.target_point = Point(x_target, y_target, z_target)
+    # self.sensors.status = "x_{}_y_{}_z_{}_pitch_{}_yaw_{}_turntable_{}".format(round(x,4), round(y,4), round(z,4), round(math.degrees(pitch),2), round(math.degrees(yaw),2), round(math.degrees(turntable),2))
 
     if x != None or y != None or z != None or pitch != None or yaw != None:
       self.sensors.reorient()
@@ -1698,7 +1698,6 @@ if __name__ == "__main__":
       filepath = "/home/ubuntu/reconstructables/data/{}".format(model)
       models.append(filepath)
 
-  # initialize environment and scanner
   environment = Environment()
   sensors = Optics(photonics="sensors", environment=environment, target_point=Point(0.0,0.0,0.0))
   sensors.reorient()
@@ -1706,33 +1705,14 @@ if __name__ == "__main__":
   scanner = Scanner(sensors=sensors, lasers=None, environment=environment)
 
   for i, model in enumerate(models):
-    for z_rotation_angle in [0]:  #,90, 120, 150, 180, 210, 240, 270, 300, 330]:
-      model = "/home/ubuntu/research/balls.dae"
-
-      environment.delete_environment()
       environment.resample_environment(model=model)
-      environment.model.resample_orientation(z_rotation_angle=z_rotation_angle)
-      x = scanner.sensors.focal_point.x
-      y = scanner.sensors.focal_point.y
-      z = scanner.sensors.focal_point.z
-      pitch = scanner.sensors.rotation_euler_x
-      yaw = scanner.sensors.rotation_euler_z
+      scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
+      for turntable in [0, 90, 180, 270]:
+        scanner.move(z=1.0, pitch=45, turntable=turntable)
+        scanner.scan()
+        scanner.move(z=2.0, pitch=90)
+        scanner.scan()
 
-      print("(x,y,z,pitch,yaw)=({},{},{},{},{})".format(x,y,z,math.degrees(pitch),math.degrees(yaw)))
-      print("(x,y,z) of target point: ({},{},{})".format(scanner.sensors.target_point.x, scanner.sensors.target_point.y, scanner.sensors.target_point.z))
-   
-      #scanner.render("{}/experimental_model_{}_file_{}_table_{}.png".format(output_directory, i, model.rstrip(".dae").split("/")[-1], z_rotation_angle))
-      scanner.scan()
-
-    if i == 0:
-      break
-
-    #scanner.scan(sensor_as_scanner=True) 
 
   end_time = time.time()
   print("\n\nSimulation finished in {} seconds".format(end_time - begin_time))
-
-
-# # API
-# scanner.move(x,y,z,pitch,yaw,turntable)
-# scanner.scan()
