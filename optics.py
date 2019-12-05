@@ -1734,6 +1734,6 @@ if __name__ == "__main__":
 
   for model in get_models():
     environment.new_model(model)
-    scanner.scan(z=1.0, pitch=60, turntable=90)
-    scanner.scan(x=1.0, y=0.0, z=1.0, pitch=45, turntable=90)
+    scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, turntable=90)
+    scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, turntable=90)
     break
