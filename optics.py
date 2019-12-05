@@ -262,6 +262,8 @@ class Optics():
     point_cloud_object.select_set( state = True, view_layer = None)
     point_cloud_mesh = bpy.context.object.data
     bm = bmesh.new()
+    bm.from_mesh(point_cloud_mesh)
+    color_layer = bm.loops.layers.color.new("color")
 
     if point_cloud_mesh.vertex_colors.active is None:
       point_cloud_mesh.vertex_colors.new()
@@ -336,9 +338,9 @@ class Optics():
               vertex_c_blue = self.pixels[h][v+1].rendered_blue / 255.0
               #blue = ((vertex_a_blue + vertex_b_blue + vertex_c_blue) / 3.0) / 255.0
           
-              color_a = Color((vertex_a_red, vertex_a_green, vertex_a_blue))
-              color_b = Color((vertex_b_red, vertex_b_green, vertex_b_blue))
-              color_c = Color((vertex_c_red, vertex_c_green, vertex_c_blue))
+              color_a = [vertex_a_red, vertex_a_green, vertex_a_blue]
+              color_b = [vertex_b_red, vertex_b_green, vertex_b_blue]
+              color_c = [vertex_c_red, vertex_c_green, vertex_c_blue]
 
               print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_c_red, vertex_c_green, vertex_c_blue))
 
@@ -375,9 +377,9 @@ class Optics():
               vertex_d_blue = self.pixels[h+1][v+1].rendered_blue / 255.0
               #blue = ((vertex_b_blue + vertex_c_blue + vertex_d_blue) / 3.0) / 255.0
 
-              color_b = Color((vertex_b_red, vertex_b_green, vertex_b_blue))
-              color_c = Color((vertex_c_red, vertex_c_green, vertex_c_blue))
-              color_d = Color((vertex_d_red, vertex_d_green, vertex_d_blue))
+              color_b = [vertex_b_red, vertex_b_green, vertex_b_blue]
+              color_c = [vertex_c_red, vertex_c_green, vertex_c_blue]
+              color_d = [vertex_d_red, vertex_d_green, vertex_d_blue]
 
               print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_d_red, vertex_d_green, vertex_d_blue))
               colors_of_faces.append([color_b, color_c, color_d])
@@ -385,14 +387,15 @@ class Optics():
     point_cloud_mesh.update()
 
     face_index = 0
-    for face in point_cloud_mesh.faces:
+    for face in bm.faces:
       print("Polygon {}...".format(face))
       color_index = 0
-      for loop in face.loop_indices:
-        color_of_vertex = colors_of_faces[face_index][color_index]
-        point_cloud_mesh.vertex_colors.active.data[loop].color = color_of_vertex
+      for loop in face.loops:
+        loop[color_layer] = colors_of_faces[face_index][color_index]
+        #point_cloud_mesh.vertex_colors.active.data[loop].color = color_of_vertex
         print("Vertex {} of Face {} gets Color {}, {}, {}".format(color_index, face_index, color_of_vertex.r, color_of_vertex.g, color_of_vertex.b))
         color_index += 1
+      face_index += 1
 
     # left = bm.verts.new((-1, -1, 0))
     # middle = bm.verts.new((0, 1, 0))
@@ -404,6 +407,8 @@ class Optics():
 
     bm.to_mesh(point_cloud_mesh)  
     bm.free()
+    bm.verts.index_update()
+
     bpy.context.scene.update() 
     bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
 
