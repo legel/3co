@@ -6,7 +6,7 @@ import numpy as np
 from math import cos, sin
 import bmesh
 from PIL import Image
-from mathutils import Vector
+from mathutils import Vector, Color
 import json
 from os import listdir, path
 from pprint import pprint
@@ -263,11 +263,16 @@ class Optics():
     point_cloud_mesh = bpy.context.object.data
     bm = bmesh.new()
 
+    if point_cloud_mesh.vertex_colors.active is None:
+      point_cloud_mesh.vertex_colors.new()
+
     # make x,y,z points
     horizontal_pixels = len(self.get_pixel_indices("horizontal"))
     vertical_pixels = len(self.get_pixel_indices("vertical"))
     vertices = {}
     points = {}
+
+    colors_of_faces = []
     
     with open("{}/{}.csv".format(output_directory,launch_time), "w") as point_cloud_file:
       point_cloud_file.write("h,v,x,y,z,r,g,b\n")
@@ -296,7 +301,7 @@ class Optics():
             vertices[h][v] = vertex
             points[h][v] = point
           else:
-            point_cloud_file.write("{},{},N,N,N,N\n".format(h,v))
+            #point_cloud_file.write("{},{},N,N,N,N\n".format(h,v))
             vertices[h][v] = None
             points[h][v] = None
 
@@ -315,6 +320,23 @@ class Optics():
               bm.edges.new( [a, c] )
               bm.edges.new( [b, c] )
               bm.faces.new( [a, b, c])
+              # get colors of each vertex and average them for the face
+              vertex_a_red = self.pixels[h][v].rendered_red
+              vertex_b_red = self.pixels[h+1][v].rendered_red
+              vertex_c_red = self.pixels[h][v+1].rendered_red
+              red = ((vertex_a_red + vertex_b_red + vertex_c_red) / 3.0) / 255.0
+
+              vertex_a_green = self.pixels[h][v].rendered_green
+              vertex_b_green = self.pixels[h+1][v].rendered_green
+              vertex_c_green = self.pixels[h][v+1].rendered_green
+              green = ((vertex_a_green + vertex_b_green + vertex_c_green) / 3.0) / 255.0
+
+              vertex_a_blue = self.pixels[h][v].rendered_blue
+              vertex_b_blue = self.pixels[h+1][v].rendered_blue
+              vertex_c_blue = self.pixels[h][v+1].rendered_blue
+              blue = ((vertex_a_blue + vertex_b_blue + vertex_c_blue) / 3.0) / 255.0
+                          
+              colors_of_faces.append(Color(red,green,blue))
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
@@ -329,6 +351,29 @@ class Optics():
           if b != None and c != None and d != None:
             if b_p.distance(c_p) < 0.01 and c_p.distance(d_p) < 0.01 and b_p.distance(d_p) < 0.01:
               bm.faces.new( [b, c, d])
+
+              # get colors of each vertex and average them for the face
+              vertex_b_red = self.pixels[h+1][v].rendered_red
+              vertex_c_red = self.pixels[h][v+1].rendered_red
+              vertex_d_red = self.pixels[h+1][v+1].rendered_red
+              red = ((vertex_b_red + vertex_c_red + vertex_d_red) / 3.0) / 255.0
+
+              vertex_b_green = self.pixels[h+1][v].rendered_green
+              vertex_c_green = self.pixels[h][v+1].rendered_green
+              vertex_d_green = self.pixels[h+1][v+1].rendered_green
+              green = ((vertex_b_green + vertex_c_green + vertex_d_green) / 3.0) / 255.0
+
+              vertex_b_blue = self.pixels[h+1][v].rendered_blue
+              vertex_c_blue = self.pixels[h][v+1].rendered_blue
+              vertex_d_blue = self.pixels[h+1][v+1].rendered_blue
+              blue = ((vertex_b_blue + vertex_c_blue + vertex_d_blue) / 3.0) / 255.0
+                          
+              colors_of_faces.append(Color(red,green,blue))
+
+
+    for face in point_cloud_mesh.polygons:
+      for i, loop in enumerate(face.loop_indices):
+        point_cloud_mesh.vertex_colors.active.data[loop].color = colors_of_faces[i]
 
     # left = bm.verts.new((-1, -1, 0))
     # middle = bm.verts.new((0, 1, 0))
