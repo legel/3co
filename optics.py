@@ -1734,6 +1734,6 @@ if __name__ == "__main__":
     environment.new_model(model)
     scanner.move(z=1.0, pitch=60, turntable=90)
     scanner.scan()
-    scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
+    scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
     scanner.scan()
     break
