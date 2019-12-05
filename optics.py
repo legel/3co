@@ -340,7 +340,7 @@ class Optics():
               color_b = Color((vertex_b_red, vertex_b_green, vertex_b_blue))
               color_c = Color((vertex_c_red, vertex_c_green, vertex_c_blue))
 
-              print("XX Vertex 3 of Face {} gets Color {}".format(len(colors_of_faces), vertex_c_red, vertex_c_green, vertex_c_blue))
+              print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_c_red, vertex_c_green, vertex_c_blue))
 
               colors_of_faces.append([color_a, color_b, color_c])
 
@@ -379,15 +379,16 @@ class Optics():
               color_c = Color((vertex_c_red, vertex_c_green, vertex_c_blue))
               color_d = Color((vertex_d_red, vertex_d_green, vertex_d_blue))
 
-              print("XX Vertex 3 of Face {} gets Color {}".format(len(colors_of_faces), vertex_d_red, vertex_d_green, vertex_d_blue))
+              print("XX Vertex 3 of Face {} gets Color {}, {}, {}".format(len(colors_of_faces), vertex_d_red, vertex_d_green, vertex_d_blue))
               colors_of_faces.append([color_b, color_c, color_d])
 
+    point_cloud_mesh.update()
 
     for face_index, face in enumerate(point_cloud_mesh.polygons):
       for color_index, loop in enumerate(face.loop_indices):
         color_of_vertex = colors_of_faces[face_index][color_index]
         point_cloud_mesh.vertex_colors.active.data[loop].color = color_of_vertex
-        print("Vertex {} of Face {} gets Color {}".format(color_index, face_index, color_of_vertex.r, color_of_vertex.g, color_of_vertex.b))
+        print("Vertex {} of Face {} gets Color {}, {}, {}".format(color_index, face_index, color_of_vertex.r, color_of_vertex.g, color_of_vertex.b))
 
 
     # left = bm.verts.new((-1, -1, 0))
