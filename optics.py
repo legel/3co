@@ -386,9 +386,9 @@ class Optics():
 
     point_cloud_mesh.update()
 
+
     face_index = 0
     for face in bm.faces:
-      print("Polygon {}...".format(face))
       color_index = 0
       for loop in face.loops:
         loop[color_layer] = colors_of_faces[face_index][color_index]
@@ -407,7 +407,7 @@ class Optics():
 
     bm.to_mesh(point_cloud_mesh)  
     bm.free()
-    bm.verts.index_update()
+    # bm.verts.index_update()
 
     bpy.context.scene.update() 
     bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
