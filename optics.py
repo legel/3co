@@ -8,11 +8,12 @@ import bmesh
 from PIL import Image
 from mathutils import Vector, Color
 import json
-from os import listdir, path
+from os import listdir, path, getcwd
 from pprint import pprint
 import sys
 
-home_directory = "/home/ubuntu" # change this for wherever all the files are, e.g. on a Mac, "/Users/YourUserName" 
+cwd = getcwd()
+home_directory = cwd.split("/research")[0]
 
 # idiosyncratic handling of arguments for Python Blender
 argv = sys.argv
