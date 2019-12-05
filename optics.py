@@ -1708,11 +1708,13 @@ if __name__ == "__main__":
 
   for i, model in enumerate(models):
       environment.resample_environment(model=model)
+
       scanner.move(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90)
       for turntable in [0, 90, 180, 270]:
-        scanner.move(z=1.0, pitch=60, turntable=turntable)
         scanner.scan()
-        scanner.move(z=0.0, pitch=90)
+
+      scanner.move(z=1.0, pitch=60, turntable=turntable)
+      for turntable in [0, 90, 180, 270]:
         scanner.scan()
 
 
