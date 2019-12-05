@@ -1492,8 +1492,8 @@ class Scanner():
     self.sensors.target_point = Point(x_target, y_target, z_target)
     # self.sensors.status = "x_{}_y_{}_z_{}_pitch_{}_yaw_{}_turntable_{}".format(round(x,4), round(y,4), round(z,4), round(math.degrees(pitch),2), round(math.degrees(yaw),2), round(math.degrees(turntable),2))
 
-    if x != None or y != None or z != None or pitch != None or yaw != None:
-      self.sensors.reorient()
+    #if x != None or y != None or z != None or pitch != None or yaw != None:
+    self.sensors.reorient()
 
 
   def render(self, filename):
