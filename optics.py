@@ -12,7 +12,7 @@ from os import listdir, path
 from pprint import pprint
 import sys
 
-home_directory = "/home/ubuntu" # change this for wherever all the files are
+home_directory = "/home/ubuntu" # change this for wherever all the files are, e.g. on a Mac, "/Users/YourUserName" 
 
 # idiosyncratic handling of arguments for Python Blender
 argv = sys.argv
@@ -247,7 +247,6 @@ class Optics():
     return optical_metadata
 
   def export_point_cloud(self, launch_time):
-    print("Beginning to export point cloud...")
     vertical_pixels = len(self.get_pixel_indices("vertical"))
     # get color data from render and project those onto point cloud
     render_filename = "{}/{}_render.png".format(output_directory, launch_time)
@@ -408,7 +407,23 @@ class Optics():
     bm.free()
 
     bpy.context.scene.update() 
+
     bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
+
+    print("Exported scanned mesh as to {} with colored (x,y,z) vertices".format("{}/{}.ply".format(output_directory, launch_time)))
+
+    # clean up by deleting point cloud to prevent future scans from seeing it
+    objects = {}
+    for i, obj in enumerate(bpy.data.objects):
+      obj.select_set( state = False, view_layer = None)
+      #print("({}) {}".format(i,obj.name))
+      if obj.name == "point_cloud_object":
+        objects["point_cloud_object"] = obj
+
+    point_cloud = objects.get("point_cloud_object", None)
+    if point_cloud:
+      point_cloud.select_set(True)
+      bpy.ops.object.delete() 
 
 
 
@@ -641,11 +656,6 @@ class Optics():
     min_h_max_v_corner = self.pixels[min_h][max_v].center
     max_h_min_v_corner = self.pixels[max_h][min_v].center
     max_h_max_v_corner = self.pixels[max_h][max_v].center
-    print("4 corners as computed from raw calculations:")
-    print(min_h_min_v_corner.xyz())
-    print(min_h_max_v_corner.xyz())
-    print(max_h_min_v_corner.xyz())
-    print(max_h_max_v_corner.xyz())
     # self.highlight_hitpoint(min_h_min_v_corner.xyz(), (1,0,0,1))
     # self.highlight_hitpoint(min_h_max_v_corner.xyz(), (0,1,0,1))
     # self.highlight_hitpoint(max_h_min_v_corner.xyz(), (0,0,1,1))
@@ -688,7 +698,6 @@ class Optics():
     bm.free()
 
   def reorient(self, orientation_index=0):
-    print("Beginning to reorient perspective...")
     time_start = time.time()
     if type(self.focal_point) == type(Point()) and type(self.target_point) == type(Point()):
       self.compute_image_center()
@@ -703,7 +712,8 @@ class Optics():
       elif self.photonics == "sensors":
         self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
         self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
-        self.expand_plane_of_sensor()
+        if compute_localizations:
+          self.expand_plane_of_sensor()
     time_end = time.time()
     print("Orientations of {} computed in {} seconds".format(self.photonics, round(time_end - time_start, 4)))
 
@@ -741,7 +751,7 @@ class Optics():
 
     self.rotation_euler_y = 0.0 # definition
 
-    print("Euler rotations of (x={},y={},z={})".format(math.degrees(self.rotation_euler_x), math.degrees(self.rotation_euler_y), math.degrees(self.rotation_euler_z)))
+    #print("Euler rotations of (x={},y={},z={})".format(math.degrees(self.rotation_euler_x), math.degrees(self.rotation_euler_y), math.degrees(self.rotation_euler_z)))
 
   def compute_xyz_of_boundary_pixels(self):
     pitch = self.rotation_euler_x 
@@ -956,11 +966,17 @@ class Model():
     return metadata
 
   def resample_orientation(self, x_rotation_angle=0.0, y_rotation_angle=0.0, z_rotation_angle=0.0):
-    obj = bpy.context.object
+    #obj = bpy.context.object 
+    for i, obj in enumerate(bpy.data.objects):
+      obj.select_set(state = False, view_layer = None)
+      if obj.name == "Model":
+        obj.select_set(True)
+        model_object = obj
+
     self.x_rotation_angle = math.radians(x_rotation_angle) # random.uniform(0, 2*math.pi)
     self.y_rotation_angle = math.radians(y_rotation_angle) # random.uniform(0, 2*math.pi)
     self.z_rotation_angle = math.radians(z_rotation_angle) # random.uniform(0, 2*math.pi)
-    obj.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
+    model_object.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
     bpy.context.scene.update() 
 
   def get_global_vertices(self, local_vertices, world_matrix):
@@ -972,7 +988,7 @@ class Model():
   def resample_size(self):
     #self.scale_factor = max(np.random.normal(loc=3.0, scale=2.0), 0.75)
     start = time.time()
-    print("Starting to measure size of object at {}".format(start))
+    #print("Starting to measure size of object at {}".format(start))
     min_x = 0.0
     max_x = 0.0
     min_y = 0.0
@@ -997,7 +1013,7 @@ class Model():
     largest_axis_edge = max(self.max_x-self.min_x, self.max_y-self.min_y)
     naive_estimation_for_field_of_view = 40.0
     self.scale_factor = 1.0 # naive_estimation_for_field_of_view / largest_axis_edge
-    print("Scale factor is {}".format(self.scale_factor))
+    #print("Scale factor is {}".format(self.scale_factor))
 
     self.min_x = self.min_x * self.scale_factor
     self.max_x = self.max_x * self.scale_factor
@@ -1125,7 +1141,7 @@ class Model():
     bpy.context.scene.update() 
 
 class Environment():
-  def __init__(self, cloud_compute=True):
+  def __init__(self, cloud_compute=False):
     if cloud_compute:
       model_directory="{}/COLLADA".format(home_directory)
       models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
@@ -1282,13 +1298,15 @@ class Environment():
     objects = {}
     for i, obj in enumerate(bpy.data.objects):
       obj.select_set( state = False, view_layer = None)
-      print("({}) {}".format(i,obj.name))
+      #print("({}) {}".format(i,obj.name))
       if obj.name == "Environment":
         objects["Environment"] = obj
       elif obj.name == "Model":
         objects["Model"] = obj 
       elif obj.name == "Ambient Light":
         objects["Ambient Light"] = obj
+      elif obj.name == "point_cloud_object":
+        objects["point_cloud_object"] = obj
 
     env = objects.get("Environment", None)
     if env:
@@ -1303,6 +1321,11 @@ class Environment():
     light = objects.get("Ambient Light", None)
     if light:
       light.select_set(True)
+      bpy.ops.object.delete() 
+
+    point_cloud = objects.get("point_cloud_object", None)
+    if point_cloud:
+      point_cloud.select_set(True)
       bpy.ops.object.delete() 
 
   def setup_preferences(self):
@@ -1446,7 +1469,6 @@ class Scanner():
     if launch_time == None:
       launch_time = int(time.time())
     self.sensors.sensor_as_scanner = sensor_as_scanner 
-    print("LAUNCH TIME: {}".format(launch_time))
     if type(target_point) == type(None) and not target_derived_from_euler_angles: 
       x = 0.0 # np.random.normal(loc=self.environment.x_midpoint, scale=0.10 * self.environment.x_edge_size)
       y = 0.0 # np.random.normal(loc=self.environment.y_midpoint, scale=0.10 * self.environment.y_edge_size)
@@ -1733,8 +1755,10 @@ if __name__ == "__main__":
   environment, scanner = turn_on()
 
   for i, model in enumerate(get_models()):
-    if i == 6:
+    if i == 42:
       environment.new_model(model)
-      scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, turntable=90)
-      scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, turntable=90)
+      scanner.scan(x=1.0, y=0.0, z=1.0, pitch=45, yaw=90, turntable=0)
+      scanner.scan(x=1.5, y=0.0, z=1.0, pitch=55, yaw=90, turntable=90)
+      scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, yaw=90, turntable=180)
+      scanner.scan(x=2.0, y=1.0, z=0.0, pitch=90, yaw=75, turntable=270)
       break
