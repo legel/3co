@@ -1440,7 +1440,9 @@ class Scanner():
     self.sensors = sensors
     self.lasers = lasers
 
-  def scan(self, target_point=None, counter=0, precomputed=False, sensor_as_scanner=True, target_derived_from_euler_angles=True, launch_time = None, metadata=False):
+  def scan(self, x=None, y=None, z=None, pitch=None, yaw=None, turntable=None, target_point=None, counter=0, precomputed=False, sensor_as_scanner=True, target_derived_from_euler_angles=True, launch_time = None, metadata=False):
+    self.move(x=x, y=y, z=z, pitch=pitch, yaw=yaw, turntable=turntable)
+
     if launch_time == None:
       launch_time = int(time.time())
     self.sensors.sensor_as_scanner = sensor_as_scanner 
@@ -1732,8 +1734,6 @@ if __name__ == "__main__":
 
   for model in get_models():
     environment.new_model(model)
-    scanner.move(z=1.0, pitch=60, turntable=90)
-    scanner.scan()
-    scanner.move(x=2.0, y=0.0, z=1.0, pitch=60, turntable=90)
-    scanner.scan()
+    scanner.scan(z=1.0, pitch=60, turntable=90)
+    scanner.scan(x=1.0, y=0.0, z=1.0, pitch=45, turntable=90)
     break
