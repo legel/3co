@@ -1710,7 +1710,7 @@ class Scanner():
     print("{} of {} laser pixels are outside of image field of view".format(out_of_image, total_pixels))
     print("{} of {} laser pixels have been localized in image".format(total_pixels - occlusions - out_of_image, total_pixels))
 
-def get_models(self, list_of_model_files="{}/reconstructables/reconstructables.txt".format(home_directory)):
+def get_models(list_of_model_files="{}/reconstructables/reconstructables.txt".format(home_directory)):
   models = []
   with open(list_of_model_files, "r") as reconstructables:
     for reconstructable in reconstructables:
