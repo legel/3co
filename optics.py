@@ -12,6 +12,9 @@ from os import listdir, path, getcwd
 from pprint import pprint
 import sys
 
+# for import errors, install new libraries like so:
+# /Applications/Blender.app/Contents/Resources/2.81/python/bin/python3.7m pip install Pillow
+
 cwd = getcwd()
 home_directory = cwd.split("/research")[0]
 
@@ -310,7 +313,8 @@ class Optics():
             #point_cloud_file.write("{},{},N,N,N,N\n".format(h,v))
             vertices[h][v] = None
             points[h][v] = None
-
+    
+    max_edge_distance = 0.02
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
         if h+1 <= horizontal_pixels - 1 and v+1 <= vertical_pixels - 1:
@@ -321,68 +325,49 @@ class Optics():
           b_p = points[h+1][v]
           c_p = points[h][v+1]
           if a != None and b != None and c != None:
-            if a_p.distance(b_p) < 0.01 and a_p.distance(c_p) < 0.01 and b_p.distance(c_p) < 0.01:
+            if a_p.distance(b_p) < max_edge_distance and a_p.distance(c_p) < max_edge_distance and b_p.distance(c_p) < max_edge_distance:
               bm.edges.new( [a, b] )
               bm.edges.new( [a, c] )
               bm.edges.new( [b, c] )
-              bm.faces.new( [a, b, c])
-              # get colors of each vertex and average them for the face
-              vertex_a_red = self.pixels[h][v].rendered_red / 255.0
-              vertex_b_red = self.pixels[h+1][v].rendered_red / 255.0
-              vertex_c_red = self.pixels[h][v+1].rendered_red / 255.0
-              #red = ((vertex_a_red + vertex_b_red + vertex_c_red) / 3.0) / 255.0
-
-              vertex_a_green = self.pixels[h][v].rendered_green / 255.0
-              vertex_b_green = self.pixels[h+1][v].rendered_green / 255.0
-              vertex_c_green = self.pixels[h][v+1].rendered_green / 255.0
-              #green = ((vertex_a_green + vertex_b_green + vertex_c_green) / 3.0) / 255.0
-
-              vertex_a_blue = self.pixels[h][v].rendered_blue / 255.0
-              vertex_b_blue = self.pixels[h+1][v].rendered_blue / 255.0
-              vertex_c_blue = self.pixels[h][v+1].rendered_blue / 255.0
-              #blue = ((vertex_a_blue + vertex_b_blue + vertex_c_blue) / 3.0) / 255.0
-          
-              color_a = [vertex_a_red, vertex_a_green, vertex_a_blue, 1.0]
-              color_b = [vertex_b_red, vertex_b_green, vertex_b_blue, 1.0]
-              color_c = [vertex_c_red, vertex_c_green, vertex_c_blue, 1.0]
-
-              colors_of_faces.append([color_a, color_b, color_c])
-
 
     for h in self.get_pixel_indices("horizontal"):
       for v in self.get_pixel_indices("vertical"):
         if h+1 <= horizontal_pixels - 1 and v+1 <= vertical_pixels - 1:
-          #a = vertices[h][v]
+          a = vertices[h][v]
           b = vertices[h+1][v]
           c = vertices[h][v+1]
           d = vertices[h+1][v+1]
+          a_p = points[h][v]
           b_p = points[h+1][v]
           c_p = points[h][v+1]
           d_p = points[h+1][v+1]          
-          if b != None and c != None and d != None:
-            if b_p.distance(c_p) < 0.01 and c_p.distance(d_p) < 0.01 and b_p.distance(d_p) < 0.01:
+          if a != None and b != None and c != None and d != None:
+            if a_p.distance(b_p) < max_edge_distance and a_p.distance(c_p) < max_edge_distance and b_p.distance(c_p) < max_edge_distance and c_p.distance(d_p) < max_edge_distance and b_p.distance(d_p) < max_edge_distance:
+              bm.faces.new( [a, b, c])
               bm.faces.new( [b, c, d])
 
               # get colors of each vertex and average them for the face
+              vertex_a_red = self.pixels[h][v].rendered_red / 255.0
               vertex_b_red = self.pixels[h+1][v].rendered_red / 255.0
               vertex_c_red = self.pixels[h][v+1].rendered_red / 255.0
               vertex_d_red = self.pixels[h+1][v+1].rendered_red / 255.0
-              #red = ((vertex_b_red + vertex_c_red + vertex_d_red) / 3.0) / 255.0
 
+              vertex_a_green = self.pixels[h][v].rendered_green / 255.0
               vertex_b_green = self.pixels[h+1][v].rendered_green / 255.0
               vertex_c_green = self.pixels[h][v+1].rendered_green / 255.0
               vertex_d_green = self.pixels[h+1][v+1].rendered_green / 255.0
-              #green = ((vertex_b_green + vertex_c_green + vertex_d_green) / 3.0) / 255.0
 
+              vertex_a_blue = self.pixels[h][v].rendered_blue / 255.0
               vertex_b_blue = self.pixels[h+1][v].rendered_blue / 255.0
               vertex_c_blue = self.pixels[h][v+1].rendered_blue / 255.0
               vertex_d_blue = self.pixels[h+1][v+1].rendered_blue / 255.0
-              #blue = ((vertex_b_blue + vertex_c_blue + vertex_d_blue) / 3.0) / 255.0
 
+              color_a = [vertex_a_red, vertex_a_green, vertex_a_blue, 1.0]
               color_b = [vertex_b_red, vertex_b_green, vertex_b_blue, 1.0]
               color_c = [vertex_c_red, vertex_c_green, vertex_c_blue, 1.0]
               color_d = [vertex_d_red, vertex_d_green, vertex_d_blue, 1.0]
 
+              colors_of_faces.append([color_a, color_b, color_c])
               colors_of_faces.append([color_b, color_c, color_d])
 
     point_cloud_mesh.update()
@@ -407,7 +392,10 @@ class Optics():
     bm.to_mesh(point_cloud_mesh)  
     bm.free()
 
-    bpy.context.scene.update() 
+    try:
+      bpy.context.scene.update() 
+    except:
+      bpy.context.view_layer.update()
 
     bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(output_directory, launch_time), check_existing=False)
 
@@ -978,7 +966,10 @@ class Model():
     self.y_rotation_angle = math.radians(y_rotation_angle) # random.uniform(0, 2*math.pi)
     self.z_rotation_angle = math.radians(z_rotation_angle) # random.uniform(0, 2*math.pi)
     model_object.rotation_euler = [self.x_rotation_angle, self.y_rotation_angle, self.z_rotation_angle] # random angular rotations about x,y,z axis
-    bpy.context.scene.update() 
+    try:
+      bpy.context.scene.update() 
+    except:
+      bpy.context.view_layer.update()
 
   def get_global_vertices(self, local_vertices, world_matrix):
     local_vertices.shape = (-1, 3)
@@ -1041,7 +1032,10 @@ class Model():
       #   max_z = vertex.co.z
 
     bpy.context.object.dimensions = (self.dimensions * self.scale_factor / max(self.dimensions))
-    bpy.context.scene.update() 
+    try:
+      bpy.context.scene.update() 
+    except:
+      bpy.context.view_layer.update()
     end = time.time()
     print("Resized object in {} seconds".format(end-start))
 
@@ -1053,7 +1047,10 @@ class Model():
     obj.location.x = self.x
     obj.location.y = self.y
     obj.location.z = self.z
-    bpy.context.scene.update() 
+    try:
+      bpy.context.scene.update() 
+    except:
+      bpy.context.view_layer.update()
 
   def resample_materials(self):
     obj = bpy.context.object
@@ -1139,7 +1136,10 @@ class Model():
 
       material_slot_index += 1
 
-    bpy.context.scene.update() 
+    try:
+      bpy.context.scene.update() 
+    except:
+      bpy.context.view_layer.update()
 
 class Environment():
   def __init__(self, cloud_compute=False):
@@ -1352,7 +1352,7 @@ class Environment():
     #y = np.random.normal(loc=0.0, scale=1.0)
     #z = np.random.normal(loc=10.0, scale=2.5)
 
-    x = 10.0
+    x = 3.0
     y = 0.0
     z = 0.0 
 
@@ -1395,7 +1395,10 @@ class Environment():
     bm.to_mesh(mesh)  
     bm.free()
 
-    bpy.context.scene.update() 
+    try:
+      bpy.context.scene.update() 
+    except:
+      bpy.context.view_layer.update()
 
   def create_materials(self):
     self.background_material_metadata = {}
@@ -1737,12 +1740,12 @@ class Scanner():
     print("{} of {} laser pixels are outside of image field of view".format(out_of_image, total_pixels))
     print("{} of {} laser pixels have been localized in image".format(total_pixels - occlusions - out_of_image, total_pixels))
 
-def get_models(list_of_model_files="{}/reconstructables/reconstructables.txt".format(home_directory)):
+def get_models(list_of_model_files="{}/research/reconstructables/reconstructables.txt".format(home_directory)):
   models = []
   with open(list_of_model_files, "r") as reconstructables:
     for reconstructable in reconstructables:
       model = reconstructable.rstrip("\n")
-      filepath = "{}/reconstructables/data/{}".format(home_directory, model)
+      filepath = "{}/research/reconstructables/data/{}".format(home_directory, model)
       models.append(filepath)
   return models
 
@@ -1754,10 +1757,7 @@ def activate():
 
 if __name__ == "__main__":  
   environment, scanner = activate()
-  for model in get_models():
+  for i, model in enumerate(get_models()):
     environment.new_model(model)
-    scanner.scan(x=1.0, y=0.0, z=1.0, pitch=45, yaw=90, turntable=0) 
-    scanner.scan(x=1.5, y=0.0, z=1.0, pitch=55, yaw=90, turntable=90)
-    scanner.scan(x=2.0, y=0.0, z=1.0, pitch=60, yaw=90, turntable=180)
-    scanner.scan(x=2.0, y=1.0, z=0.0, pitch=90, yaw=75, turntable=270)
+    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
       
