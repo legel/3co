@@ -1469,6 +1469,7 @@ class Scanner():
 
   def scan(self, x=None, y=None, z=None, pitch=None, yaw=None, turntable=None, target_point=None, counter=0, precomputed=False, sensor_as_scanner=True, target_derived_from_euler_angles=True, launch_time = None, metadata=False):
     self.move(x=x, y=y, z=z, pitch=pitch, yaw=yaw, turntable=turntable)
+    self.environment.light.location(x,y,z) # set light to position of scanner (currently light is just an isotropic "sun")
 
     if launch_time == None:
       launch_time = int(time.time())
@@ -1751,7 +1752,7 @@ def get_models(list_of_model_files="{}/research/reconstructables/reconstructable
 
 def activate():
   environment = Environment()
-  sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.007, vertical_pixels=500, horizontal_pixels=500, pixel_size=0.00001, target_point=Point(0.0,0.0,0.0))
+  sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280, horizontal_pixels=1824, pixel_size=0.00000587, target_point=Point(0.0,0.0,0.0))
   scanner = Scanner(sensors=sensors, environment=environment)
   return environment, scanner
 
