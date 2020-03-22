@@ -1762,23 +1762,28 @@ def get_3D_models(list_of_model_files="{}/research/reconstructables/reconstructa
 
 if __name__ == "__main__":  
   environment = Environment()
+
   sensor_resolution = 0.25 # set to 1.0 for full resolution equivalent to our scanner
   sensors = Optics( photonics="sensors", 
                     environment=environment, 
-                    focal_point=Point(2.0, 0.0, 0.0), 
+                    focal_point=Point(x=2.0, y=0.0, z=0.0), 
                     focal_length=0.012, 
                     vertical_pixels=2280 * sensor_resolution, 
                     horizontal_pixels=1824 * sensor_resolution, 
                     pixel_size=0.00000587 / sensor_resolution,
                     target_point=Point(0.0,0.0,0.0))
+
   scanner = Scanner(sensors=sensors, environment=environment)
   models = get_3D_models()
+
   for i, model in enumerate(models):
     environment.new_model(model)
     outputs = scanner.scan(x=1.25, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
+
     print("render: {}".format(outputs["render_file"]))
     print("(x,y,z,r,g,b) + pixel position (h,v): {}".format(outputs["point_cloud_file"]))
     print("3D model w/ mesh: {}".format(outputs["3D_model_file"]))
+  
     # e.g. load outputs above, process, continue scanning and processing below... 
+
     outputs = scanner.scan(x=1.1, y=0.0, z=0.25, pitch=75, yaw=90, turntable=30) 
-    # ...
