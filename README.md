@@ -12,11 +12,12 @@ Instructions for installing and developing on 3co's raycast+render-powered RGB p
 	`git clone https://github.com/stev3/research.git`  
 	`cd research`
 1. Download Blender [here](https://www.blender.org/download/ "here")
-2. Add Blender to command line path ([instructions for Linux, Mac, Windows](https://docs.blender.org/manual/en/2.79/render/workflows/command_line.html "instructions"))  
-	*e.g.* 	`echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile`
+2. Add Blender to command line path ([instructions for Linux, Mac, Windows](https://docs.blender.org/manual/en/2.79/render/workflows/command_line.html "instructions")), *e.g.*  
+	`echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile`  
+	`source ~/.bash_profile`
 3. Run Blender command to get path of its Python installation:  
 	`blender -b -P check_python_executable_path.py`
-4. Copy and paste into terminal the output line that includes "blender_py", e.g.  
+4. Copy and paste into terminal the output line that includes "blender_py", *e.g.*  
 	`blender_py=/Applications/Blender.app/Contents/Resources/2.81/python/bin/python3.7m`
 5. Prepare to install new modules into this Python:  
 `$blender_py -m ensurepip`
