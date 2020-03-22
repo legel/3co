@@ -45,7 +45,8 @@ if __name__ == "__main__":
 					vertical_pixels=2280 * sensor_resolution, 
 					horizontal_pixels=1824 * sensor_resolution, 
 					pixel_size=0.00000587 / sensor_resolution,
-					target_point=Point(0.0,0.0,0.0))
+					target_point=Point(0.0,0.0,0.0)
+					)
 							
   scanner = Scanner(sensors=sensors, environment=environment)
   models = get_3D_models()
