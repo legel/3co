@@ -68,7 +68,7 @@ You can just run the above in optics.py by running the following:
   `blender -b --python optics.py -noaudio -- 0 simulated_scanner_outputs`
 
 
-#####Notes:
+####Notes:
 * Colors of (x,y,z) points in .csv and .ply output file are based on real renders (i.e. shadows, effects of lighting).  We will need to be able to build a model that accounts for the perspective that a color was seen.
 * Position of (x,y,z) points are based on original global values in the 3D model.  Therefore for the purpose of aligning point clouds and for measuring error, these values are valid.
 * Scanner is based on our robotic coordinate system, i.e. (x,y,z,pitch,yaw,turntable). A bit of further documentation/thinking [here](https://docs.google.com/document/d/1FsgnzzdmZE0qz_1uw7lePc5e3lh1HGlXNSBlKcXP4hU/edit "here").
