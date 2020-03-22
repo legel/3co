@@ -31,8 +31,10 @@ Instructions for installing and developing on 3co's raycast+render-powered RGB p
 (Incidentally rendered images of the entire dataset can be downloaded and viewed [here](https://3co.s3.amazonaws.com/renders_360.zip "here"))
 
 #### Let there be raycasts
-The simulator is currently entirely in optics.py.  To start with:  
+The simulator is currently entirely in optics.py, with an example implemented in the main function:  
+
 ```python
+if __name__ == "__main__":  
   environment = Environment()
 
   sensor_resolution = 0.25 # set to 1.0 for full resolution equivalent to our scanner
