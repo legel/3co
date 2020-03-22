@@ -1357,7 +1357,6 @@ class Environment():
     z = 0.0 
 
     self.ambient_light_position = Point(x,y,z)
-
     self.light.location = (x, y, z)
     bpy.context.scene.collection.objects.link(self.light)
 
@@ -1469,7 +1468,7 @@ class Scanner():
 
   def scan(self, x=None, y=None, z=None, pitch=None, yaw=None, turntable=None, target_point=None, counter=0, precomputed=False, sensor_as_scanner=True, target_derived_from_euler_angles=True, launch_time = None, metadata=False):
     self.move(x=x, y=y, z=z, pitch=pitch, yaw=yaw, turntable=turntable)
-    self.environment.light.location(x,y,z) # set light to position of scanner (currently light is just an isotropic "sun")
+    self.environment.light.location = (x,y,z) # set light to position of scanner (currently light is just an isotropic "sun")
 
     if launch_time == None:
       launch_time = int(time.time())
@@ -1741,24 +1740,37 @@ class Scanner():
     print("{} of {} laser pixels are outside of image field of view".format(out_of_image, total_pixels))
     print("{} of {} laser pixels have been localized in image".format(total_pixels - occlusions - out_of_image, total_pixels))
 
-def get_models(list_of_model_files="{}/research/reconstructables/reconstructables.txt".format(home_directory)):
+def get_3D_models(list_of_model_files="{}/research/reconstructables/reconstructables.txt".format(home_directory), shuffle=True):
   models = []
   with open(list_of_model_files, "r") as reconstructables:
     for reconstructable in reconstructables:
       model = reconstructable.rstrip("\n")
       filepath = "{}/research/reconstructables/data/{}".format(home_directory, model)
       models.append(filepath)
+  if shuffle:
+    random.shuffle(models)
   return models
 
-def activate():
+def activate(point_cloud_resolution = "full"):
   environment = Environment()
-  sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280, horizontal_pixels=1824, pixel_size=0.00000587, target_point=Point(0.0,0.0,0.0))
+
+  if point_cloud_resolution == "full":
+    sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280, horizontal_pixels=1824, pixel_size=0.00000587, target_point=Point(0.0,0.0,0.0))
+  elif point_cloud_resolution == "medium":
+    sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280 / 5.0, horizontal_pixels=1824 / 5.0, pixel_size=0.00000587 * 5, target_point=Point(0.0,0.0,0.0))
+  elif point_cloud_resolution == "minimal":
+    sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280 / 50.0, horizontal_pixels=1824 / 50.0, pixel_size=0.00000587 * 50, target_point=Point(0.0,0.0,0.0))
+
   scanner = Scanner(sensors=sensors, environment=environment)
   return environment, scanner
 
 if __name__ == "__main__":  
-  environment, scanner = activate()
-  for i, model in enumerate(get_models()):
+  environment, scanner = activate(point_cloud_resolution = "medium")
+  models = get_3D_models()
+
+  for i, model in enumerate(models):
     environment.new_model(model)
-    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
-      
+    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0) 
+    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=30) 
+    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=60)
+    
