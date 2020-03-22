@@ -1511,6 +1511,15 @@ class Scanner():
     if self.lasers and compute_localizations:
       self.visualize_ground_truth_pixel_overlap(launch_time)
 
+    cwd = getcwd()
+    scan_outputs = {  "launch_time": "{}".format(launch_time),
+                      "render_file": "{}/{}/{}_render.png".format(cwd, output_directory, launch_time), 
+                      "point_cloud_file": "{}/{}/{}.csv".format(cwd, output_directory, launch_time),
+                      "3D_model_file": "{}/{}/{}.ply".format(cwd, output_directory, launch_time)
+                    }
+
+    return scan_outputs
+
   def move(self, x=None, y=None, z=None, pitch=None, yaw=None, turntable=None):
     if x != None:
       self.sensors.focal_point.x = x
@@ -1751,26 +1760,25 @@ def get_3D_models(list_of_model_files="{}/research/reconstructables/reconstructa
     random.shuffle(models)
   return models
 
-def activate(point_cloud_resolution = "full"):
-  environment = Environment()
-
-  if point_cloud_resolution == "full":
-    sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280, horizontal_pixels=1824, pixel_size=0.00000587, target_point=Point(0.0,0.0,0.0))
-  elif point_cloud_resolution == "medium":
-    sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280 / 5.0, horizontal_pixels=1824 / 5.0, pixel_size=0.00000587 * 5, target_point=Point(0.0,0.0,0.0))
-  elif point_cloud_resolution == "minimal":
-    sensors = Optics(photonics="sensors", environment=environment, focal_point=Point(2.0, 0.0, 0.0), focal_length=0.012, vertical_pixels=2280 / 50.0, horizontal_pixels=1824 / 50.0, pixel_size=0.00000587 * 50, target_point=Point(0.0,0.0,0.0))
-
-  scanner = Scanner(sensors=sensors, environment=environment)
-  return environment, scanner
-
 if __name__ == "__main__":  
-  environment, scanner = activate(point_cloud_resolution = "medium")
+  environment = Environment()
+  sensor_resolution = 0.25 # set to 1.0 for full resolution equivalent to our scanner
+  sensors = Optics( photonics="sensors", 
+                    environment=environment, 
+                    focal_point=Point(2.0, 0.0, 0.0), 
+                    focal_length=0.012, 
+                    vertical_pixels=2280 * sensor_resolution, 
+                    horizontal_pixels=1824 * sensor_resolution, 
+                    pixel_size=0.00000587 / sensor_resolution,
+                    target_point=Point(0.0,0.0,0.0))
+  scanner = Scanner(sensors=sensors, environment=environment)
   models = get_3D_models()
-
   for i, model in enumerate(models):
     environment.new_model(model)
-    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0) 
-    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=30) 
-    scanner.scan(x=2.0, y=0.0, z=0.0, pitch=90, yaw=90, turntable=60)
-    
+    outputs = scanner.scan(x=1.25, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
+    print("render: {}".format(outputs["render_file"]))
+    print("(x,y,z,r,g,b) + pixel position (h,v): {}".format(outputs["point_cloud_file"]))
+    print("3D model w/ mesh: {}".format(outputs["3D_model_file"]))
+    # e.g. load outputs above, process, continue scanning and processing below... 
+    outputs = scanner.scan(x=1.1, y=0.0, z=0.25, pitch=75, yaw=90, turntable=30) 
+    # ...
