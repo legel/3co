@@ -40,7 +40,7 @@ if __name__ == "__main__":
   sensor_resolution = 0.25 # set to 1.0 for full resolution equivalent to our scanner
   sensors = Optics( photonics="sensors", 
                     environment=environment, 
-                    focal_point=Point(2.0, 0.0, 0.0), 
+                    focal_point=Point(x=2.0, y=0.0, z=0.0), 
                     focal_length=0.012, 
                     vertical_pixels=2280 * sensor_resolution, 
                     horizontal_pixels=1824 * sensor_resolution, 
