@@ -179,6 +179,6 @@ except:
 	bpy.context.view_layer.update()
 
 bpy.ops.export_mesh.ply(filepath="{}/{}.ply".format(current_directory, launch_time), check_existing=False)
-print("Exported mesh to {} with colored (x,y,z) vertices".format("{}/{}.ply".format(current_directory, launch_time)))
+print("Exported {} with mesh and colored faces based on average of vertex colors".format("{}/{}.ply".format(current_directory, launch_time)))
 
 # sys.exit(0)
