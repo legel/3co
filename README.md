@@ -68,7 +68,7 @@ You can just run the above in optics.py by running the following:
   `blender -b --python optics.py -noaudio -- 0 simulated_scanner_outputs`
 
 To convert a raw point cloud (.ply) from the scanner into a mesh with faces:  
-  `blender -b --python add_mesh_to_point_cloud.py -noaudio -- some.ply`
+  `blender --python add_mesh_to_point_cloud.py -- some.ply`
 
 ##### Notes:
 * Colors of (x,y,z) points in .csv and .ply output file are based on real renders (i.e. shadows, effects of lighting).  We will need to be able to build a model that accounts for the perspective that a color was seen.
