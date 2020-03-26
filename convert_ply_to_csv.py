@@ -2,15 +2,17 @@ import numpy as np
 import bpy, bmesh
 from bpy import context
 import sys
+import os
 argv = sys.argv
 try:
 	argv = argv[argv.index("--") + 1:] 
 except:
 	print("No arguments provided, run like so:")
-	print("python3 convert_ply_to_csv.py -- some.ply")
+	print("blender -P convert_ply_to_csv.py -- some.ply")
 	raise
 
-# python3 convert_ply_to_csv.py -- some.ply
+current_directory = os.getcwd()
+print("Current directory: {}".format(current_directory))
 folder_directory = argv[0].split("/")[0]
 ply_filename_to_convert_to_csv = argv[0]
 filename_minus_type = ply_filename_to_convert_to_csv.replace(".ply", "").split("/")[-1]
@@ -26,7 +28,7 @@ columns = 1824
 invalid = 0
 valid = 0
 
-with open("{}/{}_hvxyz.csv".format(folder_directory, filename_minus_type), "w") as output_file:
+with open("{}/{}_hvxyz.csv".format(current_directory, filename_minus_type), "w") as output_file:
 	for row in range(rows):
 		for column in range(columns):
 			vertex_index = row * columns + column
