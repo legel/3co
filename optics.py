@@ -16,7 +16,7 @@ import sys
 # /Applications/Blender.app/Contents/Resources/2.81/python/bin/python3.7m pip install Pillow
 
 cwd = getcwd()
-home_directory = cwd.split("/research")[0]
+home_directory = cwd[:-9]
 
 # idiosyncratic handling of arguments for Python Blender
 argv = sys.argv
