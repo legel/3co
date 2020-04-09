@@ -9,7 +9,7 @@ try:
 	argv = argv[argv.index("--") + 1:] 
 except:
 	print("No arguments provided, run like so:")
-	print("blender -P add_mesh_to_point_cloud.py -- some.ply")
+	print("blender -P export_csv_to_ply.py -- simulated_scanner_outputs/1586467526.csv")
 	raise
 
 current_directory = os.getcwd()
