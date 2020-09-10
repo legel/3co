@@ -559,18 +559,34 @@ class Optics():
     self.laser_data.cycles.max_bounces = 0
     self.laser_data.use_nodes = True  
 
-    lighting_strength = min(max(np.random.normal(loc=4525, scale=500), 4000), 5000)
+    ##### old values ##### lighting_strength = min(max(np.random.normal(loc=4525, scale=500), 4000), 5000)
+    lighting_strength = 802.2 #* (46.66 / 7.77) 
+    # 802.2 derived from 700 lumens per LED light in real scanner
+    # For details on how Blender models physical parameters of light, see:
+    # https://devtalk.blender.org/t/why-watt-as-light-value/5658/14   
+    # (46.66 / 7.77) derived as ratio between Tungsten incandescent lamp and LED lamp
+    # https://www.rapidtables.com/calc/light/lumen-to-watt-calculator.html
+
+
     self.laser_data.node_tree.nodes["Emission"].inputs[1].default_value = lighting_strength # W/m^2
     self.lasers_watts_per_meters_squared = lighting_strength
 
     # warp mapping of light
     mapping = self.laser_data.node_tree.nodes.new(type='ShaderNodeMapping')
     mapping.location = 300,0
-    mapping.rotation[2] = 3.14159
+    mapping.inputs['Rotation'].default_value = (0,0,3.14159)
 
-    mapping.scale[1] = self.horizontal_pixels / float(self.vertical_pixels) # e.g. 1.779 for Laser Beam Pro
-    mapping.scale[2] = self.horizontal_size / self.focal_length # e.g. 0.7272404614 for Laser Beam Pro
-  
+
+    # for < Blender 2.81
+    # mapping.rotation[2] = 3.14159 # broken in Blender 2.82
+    #mapping.scale[1] = self.horizontal_pixels / float(self.vertical_pixels) # e.g. 1.779 for Laser Beam Pro
+    #mapping.scale[2] = self.horizontal_size / self.focal_length # e.g. 0.7272404614 for Laser Beam Pro
+      
+    scale_x = 1.0
+    scale_y = self.horizontal_pixels / float(self.vertical_pixels)
+    scale_z = self.horizontal_size / self.focal_length
+    mapping.inputs['Scale'].default_value = (scale_x, scale_y, scale_z)
+
     # separate xyz
     separate_xyz = self.laser_data.node_tree.nodes.new(type='ShaderNodeSeparateXYZ')
     separate_xyz.location = 900,0
@@ -686,19 +702,25 @@ class Optics():
     self.photonic_plane = obj
     bm.free()
 
-  def reorient(self, orientation_index=0):
+  def reorient(self, orientation_index=0, compute_global_coordinates_of_all_pixels=True):
     time_start = time.time()
     if type(self.focal_point) == type(Point()) and type(self.target_point) == type(Point()):
       self.compute_image_center()
       self.compute_euler_angles()
       self.compute_xyz_of_boundary_pixels()
-      self.orient_xyz_and_unit_vectors_for_all_pixels()
+      if compute_global_coordinates_of_all_pixels: # this is an expensive operation, so only do this if you're actually raycasting from each pixel
+        self.orient_xyz_and_unit_vectors_for_all_pixels()
       adjusted_euler_z = self.rotation_euler_z * -1.0 # to correct for a notational difference between rendering engine and notes
       if self.photonics == "lasers":
+        print("Lasers to be set with location ({:.3f},{:.3f},{:.3f}) and rotation ({:.3f},{:.3f},{:.3f})".format(self.focal_point.x, self.focal_point.y, self.focal_point.z, self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z))
+        #self.lasers.inputs['Location'].default_value = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
+        #self.lasers.inputs['Rotation'].default_value = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
+        # pre-Blender 2.81
         self.lasers.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
         self.lasers.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
         self.lasers.delta_scale = (-1.0, 1.0, 1.0) # flips image that is projected horizontally, to match inverted raycasting
       elif self.photonics == "sensors":
+        print("Sensors to be set with location ({:.3f},{:.3f},{:.3f}) and rotation ({:.3f},{:.3f},{:.3f})".format(self.focal_point.x, self.focal_point.y, self.focal_point.z, self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z))
         self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
         self.sensors.rotation_euler = (self.rotation_euler_x, self.rotation_euler_y, adjusted_euler_z)
         if compute_localizations:
@@ -1142,7 +1164,8 @@ class Model():
       bpy.context.view_layer.update()
 
 class Environment():
-  def __init__(self, cloud_compute=False):
+  def __init__(self, add_ambient_lighting=False, cloud_compute=False):
+    self.add_ambient_lighting = add_ambient_lighting
     if cloud_compute:
       model_directory="{}/COLLADA".format(home_directory)
       models = [f for f in listdir(model_directory) if path.isfile(path.join(model_directory, f)) and ".dae" in f]
@@ -1160,7 +1183,8 @@ class Environment():
   def resample_environment(self, model):
     self.delete_environment()
     self.add_model(model_filepath=model)
-    self.ambient_lighting()
+    if self.add_ambient_lighting:
+      self.ambient_lighting()
     #self.create_mesh()
     #self.create_materials()
     #self.index_materials_of_faces()
@@ -1182,23 +1206,25 @@ class Environment():
 
     # self.add_model(model_filepath)
 
-
-
   def extract_environment_metadata(self):
     model_metadata = self.model.extract_model_metadata()
     model_materials_to_faces = self.invert_faces_to_materials(self.model_face_index_to_material_index)
     environment_materials_to_faces = self.invert_faces_to_materials(self.environment_face_index_to_material_index)
     model_metadata["material_index_to_face_indices"] = model_materials_to_faces 
     
-    metadata = {"model": model_metadata,
-                "ambient_lighting": 
-                    { "watts_per_meters_squared": self.ambient_light_strength,
+    if self.add_ambient_lighting:
+      ambient_lighting_data = { "watts_per_meters_squared": self.ambient_light_strength,
                       "position":
                       { "x": self.ambient_light_position.x,
                         "y": self.ambient_light_position.y,
                         "z": self.ambient_light_position.z
                       } 
-                    },
+                    }
+    else:
+      ambient_lighting_data = "None"
+
+    metadata = {"model": model_metadata,
+                "ambient_lighting": ambient_lighting_data,
                 "background": 
                     { "position": 
                       { "x": 0.0,
@@ -1461,14 +1487,14 @@ class Environment():
 
 
 class Scanner():
-  def __init__(self, sensors, lasers=None, environment=None):
+  def __init__(self, sensors, lasers=None, environment=None, laser_as_light=True):
     self.environment = environment
     self.sensors = sensors
     self.lasers = lasers
+    self.laser_as_light = laser_as_light # hack to use all of the laser projection code as a more proper simulation of projector lighting
 
   def scan(self, x=None, y=None, z=None, pitch=None, yaw=None, turntable=None, target_point=None, counter=0, precomputed=False, sensor_as_scanner=True, target_derived_from_euler_angles=True, launch_time = None, metadata=False):
     self.move(x=x, y=y, z=z, pitch=pitch, yaw=yaw, turntable=turntable)
-    self.environment.light.location = (x,y,z) # set light to position of scanner (currently light is just an isotropic "sun")
 
     if launch_time == None:
       launch_time = int(time.time())
@@ -1484,7 +1510,7 @@ class Scanner():
     if self.lasers:
       if self.lasers.target_point != target_point and not target_derived_from_euler_angles:
         self.lasers.target_point = target_point
-        self.lasers.reorient(orientation_index=counter)
+        self.lasers.reorient(orientation_index=counter, compute_global_coordinates_of_all_pixels=False) # no need to compute pixel global coordinates, because no raycasting
 
     if self.sensors.target_point != target_point and not target_derived_from_euler_angles:
       self.sensors.target_point = target_point
@@ -1492,7 +1518,8 @@ class Scanner():
 
     if self.lasers:
       self.localizations = []
-      self.lasers.measure_raycasts_from_pixels(environment=self.environment)
+      if not self.laser_as_light:
+        self.lasers.measure_raycasts_from_pixels(environment=self.environment)
 
     if sensor_as_scanner:
       self.sensors.measure_raycasts_from_pixels(environment=self.environment)
@@ -1502,13 +1529,13 @@ class Scanner():
     if sensor_as_scanner:
       self.sensors.export_point_cloud(launch_time)
 
-    if self.lasers and compute_localizations: 
+    if self.lasers and compute_localizations and not self.laser_as_light: 
       self.localize_projections_in_sensor_plane()
 
     if metadata:
       self.save_metadata(launch_time)
 
-    if self.lasers and compute_localizations:
+    if self.lasers and compute_localizations and not self.laser_as_light:
       self.visualize_ground_truth_pixel_overlap(launch_time)
 
     cwd = getcwd()
@@ -1555,6 +1582,17 @@ class Scanner():
 
     #if x != None or y != None or z != None or pitch != None or yaw != None:
     self.sensors.reorient()
+
+    # now, do the same for lasers (i.e. lights) if they exist
+    if type(self.lasers) != type(None):
+      self.lasers.focal_point.x = self.sensors.focal_point.x
+      self.lasers.focal_point.y = self.sensors.focal_point.y
+      self.lasers.focal_point.z = self.sensors.focal_point.z 
+      self.lasers.rotation_euler_x = self.sensors.rotation_euler_x
+      self.lasers.rotation_euler_y = self.sensors.rotation_euler_y
+      self.lasers.rotation_euler_z = self.sensors.rotation_euler_z
+      self.lasers.target_point = Point(x_target, y_target, z_target)
+      self.lasers.reorient()
 
 
   def render(self, filename):
@@ -1763,7 +1801,7 @@ def get_3D_models(list_of_model_files="{}/research/reconstructables/reconstructa
 if __name__ == "__main__":  
   environment = Environment()
 
-  sensor_resolution = 0.25 # set to 1.0 for full resolution equivalent to our scanner
+  sensor_resolution = 0.1 # set to 1.0 for full resolution equivalent to our scanner
   sensors = Optics( photonics="sensors", 
                     environment=environment, 
                     focal_point=Point(x=2.0, y=0.0, z=0.0), 
@@ -1773,17 +1811,25 @@ if __name__ == "__main__":
                     pixel_size=0.00000587 / sensor_resolution,
                     target_point=Point(0.0,0.0,0.0))
 
-  scanner = Scanner(sensors=sensors, environment=environment)
-  models = get_3D_models()
+  lasers =  Optics( photonics="lasers", # here, a "laser" is technically a pixel of projected light 
+                    image="white.png", # white.png is just an image of all white pixels
+                    environment=environment, 
+                    focal_point=Point(x=2.0, y=0.0, z=0.0), 
+                    focal_length=0.012, # technically for real scanner, projector and camera have different optics
+                    vertical_pixels=2048 * sensor_resolution,  
+                    horizontal_pixels=2048 * sensor_resolution, 
+                    pixel_size=0.00000587 / sensor_resolution,  
+                    target_point=Point(0.0,0.0,0.0))
 
-  for i, model in enumerate(models):
-    environment.new_model(model)
-    outputs = scanner.scan(x=1.25, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
+  scanner = Scanner(sensors=sensors, environment=environment, lasers=lasers)
+  models = get_3D_models(shuffle=False)
 
-    print("render: {}".format(outputs["render_file"]))
-    print("(x,y,z,r,g,b) + pixel position (h,v): {}".format(outputs["point_cloud_file"]))
-    print("3D model w/ mesh: {}".format(outputs["3D_model_file"]))
-  
-    # e.g. load outputs above, process, continue scanning and processing below... 
+  model = models[42] # sexy red chair
 
-    outputs = scanner.scan(x=1.1, y=0.0, z=0.25, pitch=75, yaw=90, turntable=30) 
+  environment.new_model(model)
+  print("Location: {}".format(environment.model_object.location))
+  outputs = scanner.scan(x=1.25, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
+
+  print("render: {}".format(outputs["render_file"]))
+  print("(x,y,z,r,g,b) + pixel position (h,v): {}".format(outputs["point_cloud_file"]))
+  print("3D model w/ mesh: {}".format(outputs["3D_model_file"]))
