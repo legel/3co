@@ -1,9 +1,10 @@
 ### 3D scanning simulator in Blender + Python
 
 *One of 100 cleaned 3D models we have for testing, rendered from 3 perspectives:*
-![](https://raw.githubusercontent.com/stev3/research/master/assets/reconstructable_1.png?token=AAOTUSS7CHNRK46PM4FNW3K6P7UWI)
-![](https://raw.githubusercontent.com/stev3/research/master/assets/reconstructable_2.png?token=AAOTUSRRNBPCZH5G7BCJPHK6P7U6A)
-![](https://raw.githubusercontent.com/stev3/research/master/assets/reconstructable_3.png?token=AAOTUSVD2PBE4GYCA7ZVV4C6P7VAC)
+![](https://github.com/stev3/research/blob/master/assets/reconstructable_1.png)
+![](https://github.com/stev3/research/blob/master/assets/reconstructable_2.png)
+![](https://github.com/stev3/research/blob/master/assets/reconstructable_3.png)
+
 
 Instructions for installing and developing on 3co's raycast+render-powered RGB point cloud simulator, which uses the same optics as our scanner and motion coordinate system as our robot.
 
