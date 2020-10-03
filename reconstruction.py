@@ -667,18 +667,14 @@ def mergeRawMeshes(files, fdir, dataset, resolution, thresh):
 
 def reconstruction(files, resolution, thresh, voxel_size, use_im_remesh):
 
-  gcs = []
   meshes = []
 
   print("Performing local reconstruction for each point cloud...")
   for f in files:
     f_in_name = "{}.csv".format(f)
     gc = getGridCloud(f_in_name, resolution)
-    gcs.append(gc)
-
     mesh = localSurfaceReconstruction(gc, thresh)
     mesh.writeAsPLY("{}_mesh.ply".format(f))
-
 
 
   print("Reconstructing without overlapping faces with MeshLab VCG algorithm...")
@@ -755,6 +751,7 @@ def doReconstruction(fname, n_files, resolution, max_edge_len, voxel_size, use_i
 def main():
 
   resolution = 0.1
+  #fname = "simulated_scanner_outputs/brownchair_{}/brownchair_{}".format(resolution, resolution)
   fname = "simulated_scanner_outputs/chalice_{}/chalice_{}".format(resolution, resolution)
   outfname = "{}_reconstructed.ply".format(fname)
   n_files = 12
