@@ -33,7 +33,13 @@ blues = []
 with open(csv_filename, "r") as lines:
 	lines.readline()
 	for line in lines:
-		h,v,x,y,z,red,green,blue = line.rstrip("\n").split(",")
+		split_line = line.rstrip("\n").split(",")
+		x = split_line[2]
+		y = split_line[3]
+		z = split_line[4]
+		red = split_line[5]
+		green = split_line[6]
+		blue = split_line[7]
 		xs.append(float(x))
 		ys.append(float(y))
 		zs.append(float(z))

@@ -10,24 +10,31 @@ Instructions for installing and developing on 3co's raycast+render-powered RGB p
 
 #### Install via Command Line Terminal
 0. Get this directory on your computer  
-  `git clone https://github.com/stev3/research.git`  
-  `cd research`
+   `git clone https://github.com/stev3/research.git`  
+   `cd research`
 1. Download Blender [here](https://www.blender.org/download/ "here")
-2. Add Blender to command line path ([instructions for Linux, Mac, Windows](https://docs.blender.org/manual/en/2.79/render/workflows/command_line.html "instructions")), *e.g.*  
-  `echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile`  
-  `source ~/.bash_profile`
-3. Run Blender command to get path of its Python installation:  
-  `blender -b -P check_python_executable_path.py`
-4. Copy and paste into terminal the output line that includes "blender_py", *e.g.*  
-  `blender_py=/Applications/Blender.app/Contents/Resources/2.81/python/bin/python3.7m`
+2. Add Blender to command line path ([instructions for Linux, Mac, Windows](https://docs.blender.org/manual/en/2.79/render/workflows/command_line.html "instructions")).
+   For Mac: 
+   `echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile`  
+   For Ubuntu (depending on where you downloaded and unzipped the Blender executable):
+   `alias blender=/path/to/blender-2.82a-linux64/blender`
+3. `source ~/.bash_profile`
+4. Run Blender command to get path of its Python installation:  
+   `blender -b -P check_python_executable_path.py`
+5. Copy and paste into terminal the output line that includes "blender_py".
+   For Mac:
+   `blender_py=/Applications/Blender.app/Contents/Resources/2.81/python/bin/python3.7m`
+   For Uubuntu:
+   `echo "alias blender_py=/path/to/blender-2.82a-linux64/2.82/python/bin/python3.7m" >> ~/.bash_profile`
+6. `source ~/.bash_profile`
 5. Prepare to install new modules into this Python:  
-`$blender_py -m ensurepip`
+   `blender_py -m ensurepip`
 6. Here's how to install any missing modules, including this one for reading render images:  
-`$blender_py -m pip install Pillow`
+   `blender_py -m pip install Pillow`
 7. Download 100 cleaned 3D models for testing  
-  `curl -O https://3co.s3.amazonaws.com/reconstructables.zip`
+   `curl -O https://3co.s3.amazonaws.com/reconstructables.zip`
 8. Unzip that directory  
-  `unzip reconstructables.zip`
+   `unzip reconstructables.zip`
 
 (Incidentally rendered images of the entire dataset can be downloaded and viewed [here](https://3co.s3.amazonaws.com/renders_360.zip "here"))
 
