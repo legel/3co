@@ -663,9 +663,44 @@ def mergeRawMeshes(files, fdir, dataset, resolution, thresh):
   merged.writeAsPLY("{}/{}_raw_meshes_merged.ply".format(fdir, dataset))
 
 
+def mergeRawPointClouds(files, outfname):
+  V = []
+  v_off = 0
+  for f in files:
+    f_in = open("{}.ply".format(f,"r"))
+    vertices = 0
+    for i in range(0, 13):
+      line = f_in.readline()
+      if i==2:
+        vertices = int(line.split(" ")[-1])
+    # read vertices
+    for i in range(0, vertices):
+      line = f_in.readline()
+      V.append(line)
+    v_off = v_off + vertices
+
+  # write merged ply
+  f_out = open(outfname, "w")
+  f_out.write("ply\n")
+  f_out.write("format ascii 1.0\n")
+  f_out.write("element vertex {}\n".format(v_off))
+  f_out.write("property float x\n")
+  f_out.write("property float y\n")
+  f_out.write("property float z\n")
+  f_out.write("property float nx\n")
+  f_out.write("property float ny\n")
+  f_out.write("property float nz\n")
+  f_out.write("property uchar red\n")
+  f_out.write("property uchar green\n")
+  f_out.write("property uchar blue\n")
+
+  f_out.write("end_header\n")
+  for v in V:
+    f_out.write("{}".format(v))
 
 
-def reconstruction(files, resolution, thresh, voxel_size, use_im_remesh):
+
+def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_remesh):
 
   meshes = []
 
@@ -689,7 +724,7 @@ def reconstruction(files, resolution, thresh, voxel_size, use_im_remesh):
   command = "../meshlab/distrib/meshlabserver -s meshlab_script.mlx -i"
   for f in files:
     command = command + " {}_mesh.ply".format(f)
-  command = command + " -o reconstructed.ply"
+  command = command + " -o {}/{}_{}_reconstructed_vcg.ply".format(fdir,dataset,resolution)
   os.system(command)
 
 
@@ -697,36 +732,52 @@ def reconstruction(files, resolution, thresh, voxel_size, use_im_remesh):
   os.system("rm meshlab_script.mlx")
 
 
-  mesh = readMesh("reconstructed.ply")
+  mesh = readMesh("{}/{}_{}_reconstructed_vcg.ply".format(fdir,dataset,resolution))
 
   if use_im_remesh == True:
-    mesh.writeAsPLY("reconstructed.ply")
     print("Remeshing with Instant Meshes...")
     target_face_count = int(len(mesh.faces)/10)
-    command = "../instant-meshes/InstantMeshes reconstructed.ply -f {} -d -S 0 -r 6 -p 6 -o remesh.ply".format(target_face_count)
+    command = "../instant-meshes/InstantMeshes {}/{}_{}_reconstructed_vcg.ply -f {} -d -S 0 -r 6 -p 6 -o {}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution , target_face_count, fdir,dataset,resolution)
     os.system(command)
-    mesh = readMesh("remesh.ply")
 
-    # clean up 
-    os.system("rm reconstructed.ply")
-    os.system("rm remesh.ply")
+  mesh = readMesh("{}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution))
+
+  print("Remapping colors from original points to mesh...")
+  print("--> merging original point clouds...")
+  for f in files:
+    f_in_name = "{}.csv".format(f)
+    csv2ply.csv2ply(f_in_name, "{}.ply".format(f))
+
+  mergeRawPointClouds(files, "{}/{}_merged.ply".format(fdir,dataset))
+  print("--> loading merged point cloud into o3d...")
+  pc = o3d.io.read_point_cloud("{}/{}_merged.ply".format(fdir,dataset))
+  pc_tree = o3d.geometry.KDTreeFlann(pc)
+
+  print("--> mapping and coloring mesh vertices...")
+  for v in mesh.V:
+    p = np.asarray([v[0], v[1], v[2]])
+    [k, idx, _] = pc_tree.search_knn_vector_3d(p, 1)
+    colors = np.asarray(pc.colors)[idx[0], :]
+    v[6] = int( float(colors[0])*255.0 )
+    v[7] = int( float(colors[1])*255.0 )
+    v[8] = int( float(colors[2])*255.0 )
 
 
   return mesh
 
 
 
-def doReconstruction(fname, n_files, resolution, max_edge_len, voxel_size, use_im_remesh):
+def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, voxel_size, use_im_remesh):
 
   files = []
   for i in range(n_files):
     files.append("{}_{}".format(fname, i))
-  return reconstruction(files=files, resolution=resolution, thresh=max_edge_len, voxel_size=voxel_size, use_im_remesh=use_im_remesh)
+  return reconstruction(files=files, fdir=fdir, dataset=dataset, resolution=resolution, thresh=max_edge_len, voxel_size=voxel_size, use_im_remesh=use_im_remesh)
 
 
 
 
-
+#
 # Usage:
 # This script makes use of MeshLab and, optionally, Instant Meshes. The following directory
 # structure must be used to make them accessible:
@@ -748,19 +799,26 @@ def doReconstruction(fname, n_files, resolution, max_edge_len, voxel_size, use_i
 # --use_im_remesh: whether or not Instant Meshes will be used as a final step to remesh
 #                  the mesh produced by VCG. Smooths the result and reduces the number of
 #                  faces by 90%.
+#
+#
+# expected .csv data format: h,v,x,y,z,nx,ny,nz,r,g,b
+#
+
 def main():
 
   resolution = 0.1
-  #fname = "simulated_scanner_outputs/brownchair_{}/brownchair_{}".format(resolution, resolution)
-  fname = "simulated_scanner_outputs/chalice_{}/chalice_{}".format(resolution, resolution)
-  outfname = "{}_reconstructed.ply".format(fname)
+  dataset = "chalice"
+  fdir = "simulated_scanner_outputs/{}_{}".format(dataset, resolution)
+  fname = "simulated_scanner_outputs/{}_{}/{}_{}".format(dataset, resolution, dataset, resolution)
   n_files = 12
   max_edge_len = 0.03
   voxel_size = 0.001
   use_im_remesh = True 
 
   print("Reconstruction initiated.")
-  mesh = doReconstruction(fname, n_files, resolution, max_edge_len, voxel_size, use_im_remesh)
+  mesh = doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, voxel_size, use_im_remesh)
+
+  outfname = "{}_reconstructed_final.ply".format(fname)
   print("Reconstruction complete. Writing result to {}".format(outfname))
   mesh.writeAsPLY(outfname)
 
