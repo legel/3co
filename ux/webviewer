@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<title> Webviewer </title>
+		<style>
+			body { margin: 0; }
+			canvas { display: block; }
+		</style>
+	</head>
+	<body>
+
+        <script type="module">
+            import * as THREE from 'https://unpkg.com/three@0.120.1/build/three.module.js';
+            import { OrbitControls } from 'https://unpkg.com/three@0.120.1/examples/jsm/controls/OrbitControls.js';
+            import { GLTFLoader } from 'https://unpkg.com/three@0.120.1/examples/jsm/loaders/GLTFLoader.js';
+            // import { PLYLoader } from 'https://unpkg.com/three@0.120.1/examples/jsm/loaders/PLYLoader.js';
+
+
+            var camera, scene, renderer, dirLight, hemiLight, model, container;
+            var width = window.innerWidth;
+            var height = window.innerHeight;
+            var x = 0;
+            var y = 0;
+            var z = 0;
+            init();
+            animate();
+
+            function init() {
+
+              container = document.createElement( 'div' );
+              document.body.appendChild( container );
+
+              camera = new THREE.PerspectiveCamera( 30, width / height, 1, 5000 );
+              camera.position.set( x - 5, y - 0.1, z);
+
+              scene = new THREE.Scene();
+              scene.background = new THREE.Color(0xa6a6a6);
+              scene.fog = new THREE.Fog( scene.background, 1, 5000 );
+
+              // LIGHTS //
+
+              hemiLight = new THREE.HemisphereLight( 0xffffff, 0xffffff, 0.6 );
+              hemiLight.color.setHSL( 0.6, 1, 0.6 );
+              hemiLight.groundColor.setHSL( 0.095, 1, 0.75 );
+              hemiLight.position.set( 0, 50, 0 );
+              scene.add( hemiLight );
+
+              dirLight = new THREE.DirectionalLight( 0xffffff, 1 );
+              dirLight.color.setHSL( 0.1, 1, 0.95 );
+              dirLight.position.set( - 1, 1.75, 1 );
+              dirLight.position.multiplyScalar( 30 );
+              scene.add( dirLight );
+
+              dirLight.castShadow = true;
+              dirLight.shadow.mapSize.width = 2048;
+              dirLight.shadow.mapSize.height = 2048;
+
+              var d = 50;
+
+              dirLight.shadow.camera.left = - d;
+              dirLight.shadow.camera.right = d;
+              dirLight.shadow.camera.top = d;
+              dirLight.shadow.camera.bottom = - d;
+
+              dirLight.shadow.camera.far = 3500;
+              dirLight.shadow.bias = - 0.0001;
+
+              // LIGHTS //
+
+              // MODEL // 
+                      var loader = new GLTFLoader();
+                      loader.load(
+                          'Flamingo.glb',								// file path to gltf/glb model here
+                          function ( gltf ) {
+                            model = gltf.scene;
+                            model.position.set(x, y, z);
+
+                            model.scale.set(0.01, 0.01, 0.01);
+                            scene.add(model);
+
+                          },
+                          // called when loading has errors
+                          function ( error ) {
+
+                              console.log( 'An error happened' );
+
+                          }
+                      );
+
+              // MODEL // 
+
+              // RENDERER // 
+
+              renderer = new THREE.WebGLRenderer( { antialias: true } );
+              renderer.setPixelRatio( window.devicePixelRatio );
+              renderer.setSize( width, height );
+              container.appendChild( renderer.domElement );
+              renderer.outputEncoding = THREE.LinearEncoding;
+              // renderer.shadowMap.enabled = true;
+
+              // RENDERER //
+
+              // CONTROLS // 
+              var controls = new OrbitControls( camera, renderer.domElement );
+
+              controls.addEventListener( 'change', render ); 
+
+              controls.screenSpacePanning = false;
+              controls.enablePan = false;
+              controls.minDistance = 0.1;     // a method to calculate the allowed distance (not go inside object) to the displayed object is yet to be made 
+              controls.maxDistance = 10;
+              controls.target.set = (x, y, z);
+
+              controls.maxPolarAngle = Math.PI / 2 ;
+              controls.minPolarAngle = - (Math.PI / 2 );
+
+              controls.zoomSpeed = 1;
+              
+              window.addEventListener( 'resize', onWindowResize, false );
+
+            }
+            // CONTROLS // 
+
+            function onWindowResize() {
+
+              camera.aspect = width / height;
+              camera.updateProjectionMatrix();
+
+              renderer.setSize( width, height );
+
+            }
+
+            function animate() {
+
+              requestAnimationFrame( animate );
+
+              render();
+
+            }
+
+            function render() {
+
+              renderer.render( scene, camera );
+
+            }
+		</script>
+	</body>
+</html>
