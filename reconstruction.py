@@ -8,15 +8,12 @@ import open3d as o3d
 import os
 
 class Point3D:
-  def __init__(self, x, y, z, nx=0.0, ny=0.0, nz=0.0, r=0, g=0, b=0, valid=True):
+  def __init__(self, x, y, z, r=0, g=0, b=0, valid=True):
     self.valid = valid
     self.orphan = True
     self.x = x
     self.y = y 
     self.z = z
-    self.nx = nx
-    self.ny = ny
-    self.nz = nz
     self.r = r
     self.g = g
     self.b = b
@@ -32,11 +29,9 @@ class Point3D:
     return Point3D(self.x/other, self.y/other, self.z/other)
 
 
-# horizantal_pixels: 1824 * sensor_resolution
-# vertical_pixels: 2280 * sensor_resolution
 class GridCloud:
-  vertical_pixels = 2280
-  horizantal_pixels = 1824
+  vertical_pixels = 2048
+  horizantal_pixels = 2048
 
   def __init__(self, sensor_resolution):
     self.sensor_resolution = sensor_resolution
@@ -49,9 +44,10 @@ class GridCloud:
     for i in range(0, self.v_max):
       self.gc.append([])
       for i in range(0, self.h_max):
-        self.gc[-1].append(Point3D(0,0,0,0,0,0,0,0,0,False))
+        self.gc[-1].append(Point3D(0,0,0,0,0,0,False))
 
 
+  # return the Point3D located at row v, column h
   def get(self, v, h):
     return self.gc[v][h]
 
@@ -62,14 +58,14 @@ class GridCloud:
     self.gc[v_i][h_i].x = p.x
     self.gc[v_i][h_i].y = p.y
     self.gc[v_i][h_i].z = p.z
-    self.gc[v_i][h_i].nx = p.nx
-    self.gc[v_i][h_i].ny = p.ny
-    self.gc[v_i][h_i].nz = p.nz
     self.gc[v_i][h_i].r = p.r
     self.gc[v_i][h_i].g = p.g
     self.gc[v_i][h_i].b = p.b
     self.gc[v_i][h_i].valid = p.valid
 
+  # our scans often contain few points near outer boundaries of resolution, so
+  # a simple optimization is to keep track of where the first points exist and only
+  # iterate in that range
   def computeValidBounds(self):
     self.mm = []
     for i in range(0, self.v_max):
@@ -101,7 +97,7 @@ class GridCloud:
       if self.mm[i][0] > -1:
         max_row = i
     return max_row
-
+  
   def resetOrphanState(self):
     for i in range(0, self.v_max):
       for j in range(0, self.h_max):
@@ -110,14 +106,13 @@ class GridCloud:
   # write grid cloud as .csv
   def writeAsCSV(self, outfilename):
     f_out = open(outfilename, "w")
-    f_out.write("h,v,x,y,z,r,g,b,nx,ny,nz\n")
     for i in range(0, self.v_max):
       for j in range(0, self.h_max):
         h = j
         v = i
         p = self.gc[i][j]
         if p.valid == True:
-          f_out.write("{},{},{},{},{},{},{},{},{},{},{}\n".format(h,v,p.x,p.y,p.z,p.nx,p.ny,p.nz,p.r,p.g,p.b))
+          f_out.write("{},{},{},{},{},{},{},{}\n".format(h,v,p.x,p.y,p.z,p.r,p.g,p.b))
 
 
 class Mesh:
@@ -126,19 +121,6 @@ class Mesh:
     self.V = V
     self.faces = faces
     self.T = []
-
-  # collect the triangle indices each vertex is a part of 
-  def computeT(self):
-    self.T = []
-    for f in self.faces:
-      self.T.append([])
-    i = 0
-    for f in self.faces:
-      self.T[f[0]].append(i)
-      self.T[f[1]].append(i)
-      self.T[f[2]].append(i)
-      i = i + 1
-
 
   def writeAsPLY(self, f_out_name, vertices_only=False):
 
@@ -152,65 +134,47 @@ class Mesh:
     fout.write("property float x\n")
     fout.write("property float y\n")
     fout.write("property float z\n")
-    fout.write("property float nx\n")
-    fout.write("property float ny\n")
-    fout.write("property float nz\n")
     fout.write("property uchar red\n")
     fout.write("property uchar green\n")
     fout.write("property uchar blue\n")
     if vertices_only == False:
       fout.write("element face {}\n".format(str(len(faces))))
       fout.write("property list uchar int vertex_indices\n")
-    #fout.write("element edge {}\n".format(str(len(faces)*3)))
-    #fout.write("property int vertex1\n")
-    #fout.write("property int vertex2\n")
-    #fout.write("property uchar red\n")
-    #fout.write("property uchar green\n")
-    #fout.write("property uchar blue\n")
     fout.write("end_header\n")
     offsets = []
     for v in V:
-      fout.write("{} {} {} {} {} {} {} {} {}\n".format(v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8]))
+      fout.write("{} {} {} {} {} {}\n".format(v[0],v[1],v[2],v[3],v[4],v[5]))
     if vertices_only == False:  
       for face in faces:
         fout.write("3 {} {} {}\n".format(face[0],face[1],face[2]))
-
-      #for face in faces:
-      #  fout.write("{} {} {} {} {}\n".format(face[0], face[1], 255, 255, 255))
-      #  fout.write("{} {} {} {} {}\n".format(face[0], face[2], 255, 255, 255))
-      #  fout.write("{} {} {} {} {}\n".format(face[1], face[2], 255, 255, 255))
-
 
   # only writes vertices (ignores faces)
   def writeAsCSV(self, f_out_name):
 
     fout = open(f_out_name, "w")
-    fout.write("h,v,x,y,z,nx,ny,nz,r,g,b\n")
+    fout.write("h,v,x,y,z,r,g,b\n")
     for p in self.V:
       x = p[0]
       y = p[1]
       z = p[2]
-      nx = p[3]
-      ny = p[4]
-      nz = p[5]
-      r = p[6]
-      g = p[7]
-      b = p[8]
-      h = p[9]
-      v = p[10]
-      fout.write("{},{},{},{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,nx,ny,nz,r,g,b))
+      r = p[3]
+      g = p[4]
+      b = p[5]
+      h = p[6]
+      v = p[7]
+      fout.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,r,g,b))
 
   def copy(self):
     cpy_V = []
     cpy_faces = []
     for v in self.V:
-      #cpy_V.append([v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10]])
-      cpy_V.append([v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8]])
+      cpy_V.append([v[0],v[1],v[2],v[3],v[4],v[5]])
     for face in self.faces:
       cpy_faces.append([face[0],face[1],face[2]])
 
     return Mesh(cpy_V, cpy_faces)
 
+# this is a hack to create a mesh from .ply using Open3D instead of writing .ply parser
 def readMesh(fname):
   V = []
   faces = []
@@ -222,21 +186,17 @@ def readMesh(fname):
 
   for i in range(0, len(oV)):
     xyz = oV[i,:]
-    nxnynz = [0.0, 0.0, 0.0]
     rgb = [128,128,128]
     v = []
     v.append(xyz[0])
     v.append(xyz[1])
     v.append(xyz[2])
-    v = v + nxnynz
     v = v + rgb
     V.append(v)
   for i in range(0, len(ofaces)):
     faces.append( ofaces[i,:] )
 
   return Mesh(V, faces)
-
-
 
 
 def mergeMeshes(mesh1, mesh2):
@@ -255,28 +215,25 @@ def mergeMeshes(mesh1, mesh2):
 def getGridCloud(fname, sensor_resolution):
 
   gc = GridCloud(sensor_resolution)
-  fin = open(fname, "r")
-  fin.readline()
+  with open(fname, "r") as fin:
 
-  for line in fin:
-    l = line.split(",")
-    h = int(l[0])
-    v = int(l[1])
-    x = float(l[2])
-    y = float(l[3])
-    z = float(l[4])
-    nx = float(l[5])
-    ny = float(l[6])
-    nz = float(l[7])
-    r = int(l[8])
-    g = int(l[9])
-    b = int(l[10])
-    gc.set(v, h, Point3D(x,y,z,nx,ny,nz,r,g,b))
+    for line in fin:
+      l = line.split(",")
+      h = int(l[0])
+      v = int(l[1])
+      x = float(l[2])
+      y = float(l[3])
+      z = float(l[4])
+      r = int(l[5])
+      g = int(l[6])
+      b = int(l[7])
+      gc.set(v, h, Point3D(x,y,z,r,g,b))
 
-  gc.computeValidBounds()
+    gc.computeValidBounds()
+
   return gc
 
-
+# compute the angle between two vectors, in radians
 def vectorsAngle(a, b):
   n = norm([a.x,a.y,a.z]) * norm([b.x,b.y,b.z])
   if n==0:
@@ -291,6 +248,8 @@ def vectorsAngle(a, b):
     ratio = -0.9999999
   return math.acos(ratio)
 
+# determine whether two triangles in 3D space overlap, with overlap being in a
+# soft sense, determined by threshold parameter
 def overlapping(tri1, tri2, thresh):
   p1 = Point3D(tri1[0][0], tri1[0][1], tri1[0][2])
   p2 = Point3D(tri1[1][0], tri1[1][1], tri1[1][2])
@@ -311,6 +270,8 @@ def overlapping(tri1, tri2, thresh):
   
   return False
 
+# determine whether point p is inside triangle tri. This function assumes that
+# p lies in the same plane as tri
 def isInTriangle(p, tri):
 
   # not considered in triangle if p is one of the points of tri
@@ -322,9 +283,8 @@ def isInTriangle(p, tri):
   theta3 = (vectorsAngle(p - tri[1], p - tri[2]))
   return abs(theta1 + theta2 + theta3 - 2.0*math.pi) < 0.001
 
+# compute the point lying on the plane of tri with smallest euclidean distance to p
 def projectPointToTriangle(p, tri):
-
-  #print("warning: projectPointToTriangle may not properly handle color or normals")
 
   # compute unit normal of triangle plane  
   qr = tri[1] - tri[0]
@@ -370,6 +330,7 @@ def d(p1,p2):
   dz = (p1[2]-p2[2])*(p1[2]-p2[2])
   return math.sqrt(dx + dy + dz)
 
+# vertex indexing used by localSurfaceReconstruction
 def pindex(v,h,cols):
   return v*cols + h
 
@@ -392,6 +353,8 @@ def localSurfaceReconstruction(gc, d_thresh):
   cols = gc.maxValidCol() + 1
   rows = gc.maxValidRow() + 1
 
+  # TODO: improve variable names and add comments for operations below
+
   M = gc.gc
   P = {}
   V = []
@@ -404,8 +367,7 @@ def localSurfaceReconstruction(gc, d_thresh):
   for i in range(0, rows):
     for j in range(0, cols):   
       p = M[i][j]
-      #V.append([p.x,p.y,p.z,p.r,p.g,p.b,p.nx,p.ny,p.nz,j,i])
-      V.append([p.x,p.y,p.z,p.nx,p.ny,p.nz,p.r,p.g,p.b,j,i])
+      V.append([p.x,p.y,p.z,p.r,p.g,p.b,j,i])
       P[pindex(i,j,cols)] = k
       orphaned.append(False)
       invalids.append(not p.valid)
@@ -514,7 +476,7 @@ def localSurfaceReconstruction(gc, d_thresh):
           ij_points[1].orphan = False
           ij_points[2].orphan = False
 
-      # if p1 hasn't found a family by this point, he or she never will
+      # if p1 hasn't found a family by this point, he or she never will :(
       if p1.orphan == True:
         p1.valid = False
         #print(V[P[pindex(i,j,max_col)]][0])
@@ -550,100 +512,7 @@ def localSurfaceReconstruction(gc, d_thresh):
   return Mesh(V_pruned, faces)
 
 
-
-def localRemeshing(mesh, thresh):
-  
-
-  #mesh.computeT()
-
-  tri_centers = []
-  for face in mesh.faces:
-    center_x = (mesh.V[face[0]][0] + mesh.V[face[1]][0] + mesh.V[face[2]][0])/3.0
-    center_y = (mesh.V[face[0]][1] + mesh.V[face[1]][1] + mesh.V[face[2]][1])/3.0
-    center_z = (mesh.V[face[0]][2] + mesh.V[face[1]][2] + mesh.V[face[2]][2])/3.0
-    tri_centers.append([center_x, center_y, center_z])
-
-  center_pc = o3d.geometry.PointCloud()
-  center_pc.points = o3d.utility.Vector3dVector(np.array(tri_centers))
-  center_pc_tree = o3d.geometry.KDTreeFlann(center_pc)
-
-
-  # color all vertices grey
-  #for idx in range(0, len(mesh.V)):
-    #mesh.V[idx][3:6] = [0.5,0.5,0.5]
-    #mesh.V[idx][6:9] = [128,128,128]
-
-  for i in range(0, len(mesh.faces)):
-    if i%100 == 0:
-      print("{} of {}".format(i, len(mesh.faces)))
-
-    face_i = mesh.faces[i]
-    tri_i = [mesh.V[face_i[0]][:3], mesh.V[face_i[1]][:3], mesh.V[face_i[2]][:3]]
-    #mesh.V[face_i[0]][6:9] = [0,0,255]
-    #mesh.V[face_i[1]][6:9] = [0,0,255]
-    #mesh.V[face_i[2]][6:9] = [0,0,255]
-
-    # examine all triangle centers within radius thresh of v 
-    [k, idx, _] = center_pc_tree.search_radius_vector_3d(center_pc.points[i], thresh)
-    idx = idx[1:]
-
-
-    for j in idx:
-      face_j = mesh.faces[j]
-      tri_j = [mesh.V[face_j[0]][:3], mesh.V[face_j[1]][:3], mesh.V[face_j[2]][:3]]
-
-      if overlapping(tri_i, tri_j, thresh) == True:
-
-        # lookup vertex indices of the two triangles
-        v_i = [mesh.faces[i][0], mesh.faces[i][1], mesh.faces[i][2]]
-        v_j = [mesh.faces[j][0], mesh.faces[j][1], mesh.faces[j][2]]
-
-        # remove triangle from second mesh
-        mesh.faces.pop(j)
-        
-        # color vertices of intersecting triangles red
-        #for idx in v_i + v_j:
-        #  mesh.V[idx][6:9] = [255,0,0]
-
-  return mesh
-
-
-def mergeRawPointClouds(files, fdir, dataset):
-  V = []
-  v_off = 0
-  for f in files:
-    f_in = open("{}/{}_{}.ply".format(fdir, dataset, f),"r")
-    vertices = 0
-    for i in range(0, 13):
-      line = f_in.readline()
-      if i==2:
-        vertices = int(line.split(" ")[-1])
-    # read vertices
-    for i in range(0, vertices):
-      line = f_in.readline()
-      V.append(line)
-    v_off = v_off + vertices
-
-  # write merged ply
-  f_out = open("{}/{}_merged.ply".format(fdir, dataset), "w")
-  f_out.write("ply\n")
-  f_out.write("format ascii 1.0\n")
-  f_out.write("element vertex {}\n".format(v_off))
-  f_out.write("property float x\n")
-  f_out.write("property float y\n")
-  f_out.write("property float z\n")
-  f_out.write("property float nx\n")
-  f_out.write("property float ny\n")
-  f_out.write("property float nz\n")
-  f_out.write("property uchar red\n")
-  f_out.write("property uchar green\n")
-  f_out.write("property uchar blue\n")
-
-  f_out.write("end_header\n")
-  for v in V:
-    f_out.write("{}".format(v))
-
-
+# create a single mesh from a set of meshes, specified as .csv files, and write as .ply
 def mergeRawMeshes(files, fdir, dataset, resolution, thresh):
   meshes = []
 
@@ -662,44 +531,42 @@ def mergeRawMeshes(files, fdir, dataset, resolution, thresh):
 
   merged.writeAsPLY("{}/{}_raw_meshes_merged.ply".format(fdir, dataset))
 
-
+# create a single point cloud from a set of point clouds, specified as .ply files,
+# and write as .ply
 def mergeRawPointClouds(files, outfname):
   V = []
   v_off = 0
   for f in files:
-    f_in = open("{}.ply".format(f,"r"))
-    vertices = 0
-    for i in range(0, 13):
-      line = f_in.readline()
-      if i==2:
-        vertices = int(line.split(" ")[-1])
-    # read vertices
-    for i in range(0, vertices):
-      line = f_in.readline()
-      V.append(line)
+    with open("{}.ply".format(f,"r")) as f_in:
+      vertices = 0
+      for i in range(0, 10):
+        line = f_in.readline()
+        if i==2:
+          vertices = int(line.split(" ")[-1])
+      # read vertices
+      for i in range(0, vertices):
+        line = f_in.readline()
+        V.append(line)
     v_off = v_off + vertices
 
   # write merged ply
-  f_out = open(outfname, "w")
-  f_out.write("ply\n")
-  f_out.write("format ascii 1.0\n")
-  f_out.write("element vertex {}\n".format(v_off))
-  f_out.write("property float x\n")
-  f_out.write("property float y\n")
-  f_out.write("property float z\n")
-  f_out.write("property float nx\n")
-  f_out.write("property float ny\n")
-  f_out.write("property float nz\n")
-  f_out.write("property uchar red\n")
-  f_out.write("property uchar green\n")
-  f_out.write("property uchar blue\n")
+  with open(outfname, "w") as f_out:
+    f_out.write("ply\n")
+    f_out.write("format ascii 1.0\n")
+    f_out.write("element vertex {}\n".format(v_off))
+    f_out.write("property float x\n")
+    f_out.write("property float y\n")
+    f_out.write("property float z\n")
+    f_out.write("property uchar red\n")
+    f_out.write("property uchar green\n")
+    f_out.write("property uchar blue\n")
+    f_out.write("end_header\n")
 
-  f_out.write("end_header\n")
-  for v in V:
-    f_out.write("{}".format(v))
+    for v in V:
+      f_out.write("{}\n".format(v))
 
 
-
+# main surface reconstruction algorithm
 def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_remesh):
 
   meshes = []
@@ -720,6 +587,7 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
     f_out.write(line.replace("voxel_size", str(voxel_size)))
 
   f_out.close()
+  f_in.close()
 
   command = "../meshlab/distrib/meshlabserver -s meshlab_script.mlx -i"
   for f in files:
@@ -748,9 +616,9 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
     f_in_name = "{}.csv".format(f)
     csv2ply.csv2ply(f_in_name, "{}.ply".format(f))
 
-  mergeRawPointClouds(files, "{}/{}_merged.ply".format(fdir,dataset))
+  mergeRawPointClouds(files, "{}/{}_{}_merged.ply".format(fdir,resolution,dataset))
   print("--> loading merged point cloud into o3d...")
-  pc = o3d.io.read_point_cloud("{}/{}_merged.ply".format(fdir,dataset))
+  pc = o3d.io.read_point_cloud("{}/{}_{}_merged.ply".format(fdir,resolution,dataset))
   pc_tree = o3d.geometry.KDTreeFlann(pc)
 
   print("--> mapping and coloring mesh vertices...")
@@ -758,13 +626,12 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
     p = np.asarray([v[0], v[1], v[2]])
     [k, idx, _] = pc_tree.search_knn_vector_3d(p, 1)
     colors = np.asarray(pc.colors)[idx[0], :]
-    v[6] = int( float(colors[0])*255.0 )
-    v[7] = int( float(colors[1])*255.0 )
-    v[8] = int( float(colors[2])*255.0 )
+    v[3] = int( float(colors[0])*255.0 )
+    v[4] = int( float(colors[1])*255.0 )
+    v[5] = int( float(colors[2])*255.0 )
 
 
   return mesh
-
 
 
 def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, voxel_size, use_im_remesh):
@@ -801,18 +668,18 @@ def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, vo
 #                  faces by 90%.
 #
 #
-# expected .csv data format: h,v,x,y,z,nx,ny,nz,r,g,b
+# expected .csv data format: h,v,x,y,z,r,g,b
 #
 
 def main():
 
-  resolution = 0.1
-  dataset = "chalice"
+  resolution = 1.0
+  dataset = "cry"
   fdir = "simulated_scanner_outputs/{}_{}".format(dataset, resolution)
   fname = "simulated_scanner_outputs/{}_{}/{}_{}".format(dataset, resolution, dataset, resolution)
-  n_files = 12
-  max_edge_len = 0.03
-  voxel_size = 0.001
+  n_files = 5
+  max_edge_len = 1.0
+  voxel_size = 0.2
   use_im_remesh = True 
 
   print("Reconstruction initiated.")
