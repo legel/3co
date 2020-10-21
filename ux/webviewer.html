@@ -11,10 +11,12 @@
 	<body>
 
         <script type="module">
-            import * as THREE from 'https://unpkg.com/three@0.120.1/build/three.module.js';
-            import { OrbitControls } from 'https://unpkg.com/three@0.120.1/examples/jsm/controls/OrbitControls.js';
-            import { GLTFLoader } from 'https://unpkg.com/three@0.120.1/examples/jsm/loaders/GLTFLoader.js';
+            import * as THREE from '/build/three.module.js';
+            import { OrbitControls } from './OrbitControls.js';
+            import { GLTFLoader } from './GLTFLoader.js';
+            import { DRACOLoader } from './DRACOLoader.js';
             // import { PLYLoader } from 'https://unpkg.com/three@0.120.1/examples/jsm/loaders/PLYLoader.js';
+            // import { DracoLoader } from 'https://unpkg.com/three@0.120.1/examples/jsm/loaders/DracoLoader.js';
 
 
             var camera, scene, renderer, dirLight, hemiLight, model, container;
@@ -33,13 +35,13 @@
 
               camera = new THREE.PerspectiveCamera( 30, width / height, 1, 5000 );
               // camera.position.set( x - 5, y - 0.1, 0);
-              camera.position.set( x , y + 4, 0);
+              camera.position.set( x + 7, y + 7, 2);
 
               // var point = new THREE.Vector3( 0, 0,  );
               // camera.lookAt( point );
 
               scene = new THREE.Scene();
-              scene.background = new THREE.Color(0xa6a6a6);
+              scene.background = new THREE.Color(0x151719);
               scene.fog = new THREE.Fog( scene.background, 1, 5000 );
 
               // LIGHTS //
@@ -73,12 +75,21 @@
               // LIGHTS //
 
               // MODEL // 
+                      //var loader = new DRACOLoader();
                       var loader = new GLTFLoader();
+                      //var dracoLoader = new DRACOLoader();
+
+
+                      //DRACOLoader.setDecoderPath( '/draco/' );
+                      loader.setDRACOLoader(new DRACOLoader() );
+
+
+                      //var loader = new GLTFLoader();
                       loader.load(
-                          'succulent.glb',								// file path to gltf/glb model here
+                          'succulent_quantized.glb',								// file path to gltf/glb model here
                           function ( gltf ) {
                             model = gltf.scene;
-                            model.position.set(x, y, z);
+                            model.position.set(x, y - 0.8, z);
 
                             model.scale.set(0.01, 0.01, 0.01);
                             scene.add(model);
