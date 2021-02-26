@@ -39,13 +39,20 @@ home_directory = cwd[:-9]
 # idiosyncratic handling of arguments for Python Blender
 argv = sys.argv
 argv = argv[argv.index("--") + 1:]
+
+if len(argv) != 2:
+  print("GPU number (ex:0) and sim_mode (online or offline) must be specified")
+  quit()
+
 gpu_number = int(argv[0])
-#output_directory = argv[1]
+sim_mode = argv[1] # "online" or "offline"
+
+
 
 if gpu_number == None:
   gpu_number = 0
 
-output_directory = "."
+output_directory = "simulated_scanner_outputs"
 
 # cleanup
 for o in bpy.context.scene.objects:
@@ -189,16 +196,7 @@ class Optics():
 
   def get_point_cloud(self):
 
-    # hack to construct o3d point cloud representation; fix later
     self.export_point_cloud("pc_export")
-    #csv2ply.csv2ply("pc_export.csv", "pc_export.ply")
-    #pc = o3d.io.read_point_cloud("pc_export.ply")
-
-    # clean up
-    #command = "rm pc_export.ply"
-    #command = "rm pc_export.csv"
-    #os.system(command)
-    
     pc = "pc_export.csv"
     return pc
 
@@ -571,17 +569,18 @@ class Scanner():
     self.lasers = lasers
     self.resolution = sensors.resolution
 
-  def scan(self, f_out_name=None):
+  def scan(self, f_out_name=None, render_png=True):
     self.sensors.measure_raycasts_from_pixels(environment=self.environment)
     if f_out_name == None:
       return self.sensors.get_point_cloud()
     else:
-      #self.render("{}/{}_render.png".format(output_directory, f_out_name))
+      if render_png == True:
+        self.render("{}/{}_render.png".format(output_directory, f_out_name))
       self.sensors.export_point_cloud(f_out_name)
 
 
 
-  def move(self, x=None, y=None, z=None, pitch=None, yaw=None):
+  def move(self, x=None, y=None, z=None, yaw=None, pitch=None):
     if x != None:
       self.sensors.focal_point.x = x
     if y != None:
@@ -625,25 +624,10 @@ class Scanner():
 
   def render(self, filename):
 
-    # quiet time while blender renders
-    #logfile = "blender_render.log"
-    #open(logfile, 'a').close()
-    #old = os.dup(1)
-    #sys.stdout.flush()
-    #os.close(1)
-    #os.open(logfile, os.O_WRONLY)
-
     time_start = time.time()
     bpy.data.scenes["Scene"].render.filepath = filename
     bpy.ops.render.render( write_still=True )
     time_end = time.time()
-
-    # undo quiet time
-    #os.close(1)
-    #os.dup(old)
-    #os.close(old)
-
-
 
     print("--> Rendered scan image in {} seconds".format(round(time_end - time_start, 4)))
 
@@ -655,65 +639,24 @@ class Iris():
     self.scanner = scanner
     self.resolution = scanner.resolution
     self.workspace = "iris_workspace"
-    command = "rm {}/*".format(self.workspace)
-    os.system(command)
+    if os.path.isdir(self.workspace):
+      command = "rm -r {}".format(self.workspace)
+      os.system(command)
+
     command = "mkdir {}".format(self.workspace)
     os.system(command)    
 
+
   def scan (self, t):
     self.scanner.render("{}/scan_{}.png".format(self.workspace,t))
-    return self.scanner.scan()
+    return self.scanner.scan(render_png=False)
 
 
-def circular_scan():
-
-  #chalice: 9d506eb0e13514e167816b64852d28f.dae -> chalice_centered.dae
-  #chair: 1a2a5a06ce083786581bb5a25b17bed6.dae
-  #ant: f16f37317eac2e37b21d2748b9ce78f4.dae -> ant_centered.dae
-  #beer: f452c1053f88cd2fc21f7907838a35d1.dae -> beer_centered.dae
-  #bplant: {}/research/simulated_scanner_outputs/banana_plant/banana_plant/banana_plant.dae
-  #brownchair: {}/research/simulated_scanner_outputs/brownchair/brownchair/Zara_armchair_1.dae
-  #path = path_planning.get_brownchair_path()
-  #path = path_planning.get_circular_path()
+def startOfflineSimulation(iris, environment, path, dataset):
 
 
   print("---------------------------------")
-  print("Initializing scan environment")
-  print("---------------------------------\n")
-
-  path = path_planning.get_chalice_path()
-  environment = Environment()
-  model = "{}/research/reconstructables/data/chalice_centered.dae".format(home_directory)
-  dataset = "chalice_0.1"
-  environment.add_model(model)
-
-  sensor_resolution = 0.1 # set to 1.0 for full resolution equivalent to our scanner
-  sensors = Optics( photonics="sensors", 
-                    environment=environment, 
-                    focal_point=Point(x=1.0, y=0.0, z=0.0), # dummy value; not used
-                    focal_length=0.012, 
-                    vertical_pixels=2280 * sensor_resolution, 
-                    horizontal_pixels=1824 * sensor_resolution, 
-                    pixel_size=0.00000587 / sensor_resolution,
-                    target_point=Point(0.0,0.0,0.0))
-
-  """
-  lasers =  Optics( photonics="lasers", # here, a "laser" is technically a pixel of projected light 
-                    image="white.png", # white.png is just an image of all white pixels
-                    environment=environment, 
-                    focal_point=Point(x=0.1, y=0.0, z=0.0), # dummy value; not used
-                    focal_length=0.012, # technically for real scanner, projector and camera have different optics
-                    vertical_pixels=2048 * sensor_resolution,  
-                    horizontal_pixels=2048 * sensor_resolution, 
-                    pixel_size=0.00000587 / sensor_resolution,  
-                    target_point=Point(0.0,0.0,0.0))
-
-  scanner = Scanner(sensors=sensors, environment=environment, lasers=lasers)
-  """
-  scanner = Scanner(sensors=sensors, environment=environment)
-
-  print("---------------------------------")
-  print("Begin scan simulation")
+  print("Begin offline scan simulation")
   print("---------------------------------\n")
 
   i = 0
@@ -726,14 +669,17 @@ def circular_scan():
     pitch = p[4]
     f_out_name="{}/{}_{}".format(dataset,dataset,i)
     print("Moving to new state: [({}, {}, {}), ({}, {})]".format(round(x,2),round(y,2),round(z,2),round(yaw,2),round(pitch,2)))
-    scanner.move(x=x, y=y, z=z, pitch=pitch, yaw=yaw)
+    action = [x, y, z, yaw, pitch]
+    environment.update(iris, action) 
+    #scanner.move(x=x, y=y, z=z, pitch=pitch, yaw=yaw)
     print("Scanning")
-    scanner.scan(f_out_name=f_out_name)
-
+    iris.scanner.scan(f_out_name=f_out_name, render_png=True)
     csv2ply.csv2ply("simulated_scanner_outputs/{}.csv".format(f_out_name), "simulated_scanner_outputs/{}.ply".format(f_out_name))
     i = i + 1
 
 
+"""
+the following might be useful later, but needs to be updated
 
 # Experiment runs main control loop given a constructed iris agent and environment
 def experiment(iris, environment):
@@ -799,20 +745,23 @@ def experiment(iris, environment):
   print("End scan simulation")
   print("---------------------------------\n")
 
+"""
 
 
 def parseAction(action):
   a = action.split(",")
   return [float(a[0]), float(a[1]), float(a[2]), float(a[3]), float(a[4])]
 
-def serverMode(iris, environment, controller_start_cmd, start_pos):
+def startOnlineSimulation(iris, environment, start_pos):
 
   print("---------------------------------")
-  print("Server Mode")
+  print("Begin online scan simulation")
   print("---------------------------------\n")
+
   host = socket.gethostname()
   port = 8080
 
+  
   sock = socket.socket()
   sock.bind((host, port))
 
@@ -890,15 +839,18 @@ def serverMode(iris, environment, controller_start_cmd, start_pos):
 
 if __name__ == "__main__":  
 
-  #chalice: 9d506eb0e13514e167816b64852d28f.dae -> chalice_centered.dae
-  #chair: 1a2a5a06ce083786581bb5a25b17bed6.dae
-  #ant: f16f37317eac2e37b21d2748b9ce78f4.dae -> ant_centered.dae
-  #beer: f452c1053f88cd2fc21f7907838a35d1.dae -> beer_centered.dae
-  #bplant: {}/research/simulated_scanner_outputs/banana_plant/banana_plant/banana_plant.dae
-  #brownchair: {}/research/simulated_scanner_outputs/brownchair/brownchair/Zara_armchair_1.dae
-  #path = path_planning.get_brownchair_path()
-  #path = path_planning.get_circular_path()
-
+  ####################################################################
+  # Some models that can be used for ooi:
+  ####################################################################
+  #
+  # chalice: reconstructables/data/9d506eb0e13514e167816b64852d28f.dae -> chalice_centered.dae
+  # chair: reconstructables/data/1a2a5a06ce083786581bb5a25b17bed6.dae
+  # ant: reconstructables/data/f16f37317eac2e37b21d2748b9ce78f4.dae -> ant_centered.dae
+  # beer: reconstructables/data/f452c1053f88cd2fc21f7907838a35d1.dae -> beer_centered.dae
+  # bplant: simulated_scanner_outputs/banana_plant/banana_plant/banana_plant.dae
+  # brownchair: simulated_scanner_outputs/brownchair/brownchair/Zara_armchair_1.dae
+  #
+  ###################################################################
 
   print("---------------------------------")
   print("Initializing scan environment")
@@ -907,32 +859,54 @@ if __name__ == "__main__":
   environment = Environment()
   ooi = "reconstructables/data/chalice_centered.dae"
   environment.add_model(ooi)
-  start_pos = [4.8, 0.0, 1.7, 90.0, 90.0]
-  sensor_resolution = 0.1
+  sensor_resolution = 0.05
   sensors = Optics( photonics="sensors", 
                     environment=environment, 
-                    focal_point=Point(x=start_pos[0], y=start_pos[1], z=start_pos[2]),
+                    focal_point=Point(x=-1.0, y=-1.0, z=-1.0), # dummy value; not used
                     focal_length=0.012, 
                     vertical_pixels=2048 * sensor_resolution, 
                     horizontal_pixels=2048 * sensor_resolution, 
                     pixel_size=0.00000587 / sensor_resolution,
                     target_point=Point(0.0,0.0,0.0),
                     resolution = sensor_resolution)
+
+  """ Some version of below needs to be used for proper lighting!
+  lasers =  Optics( photonics="lasers", # here, a "laser" is technically a pixel of projected light 
+                    image="white.png", # white.png is just an image of all white pixels
+                    environment=environment, 
+                    focal_point=Point(x=-1.0, y=-1.0, z=-1.0), # dummy value; not used
+                    focal_length=0.012, # technically for real scanner, projector and camera have different optics
+                    vertical_pixels=2048 * sensor_resolution,  
+                    horizontal_pixels=2048 * sensor_resolution, 
+                    pixel_size=0.00000587 / sensor_resolution,  
+                    target_point=Point(0.0,0.0,0.0))
+  scanner = Scanner(sensors=sensors, environment=environment, lasers=lasers)
+  """
   
   scanner = Scanner(sensors=sensors, environment=environment)
   iris = Iris(scanner)
-  environment.update(iris,start_pos)
-  #controller_start_cmd = "python iris_agent.py {} &".format(sensor_resolution)
-  controller_start_cmd = "./iris_agent {} {} &".format(sensor_resolution, 8080)
-  serverMode(iris, environment, controller_start_cmd, start_pos)
-
-  #iris = iris_agent.IrisAgent(scanner, start_pos)
-  #environment.update(iris,start_pos)
-
-  #experiment(iris, environment)
 
 
+  # in online mode, actions are supplied by agent client, but start position
+  # must be specified below
+  # data goes to iris_workspace/
+  if sim_mode == "online":
+    x,y,z,theta,phi = 4.8, 0.0, 1.7, 90.0, 90.0
+    start_pos = [x,y,z,theta,phi]
+    environment.update(iris,start_pos)
+    startOnlineSimulation(iris, environment, start_pos)
+  # in offline mode, a path and name of dataset must be specified below
+  # data goes to simulated_scanner_outputs/{dataset}/
+  elif sim_mode == "offline":
+    path = path_planning.get_chalice_path()
+    dataset = "chalice_{}".format(sensor_resolution)
+    output_path = "simulated_scanner_outputs/{}".format(dataset)
+    if not os.path.isdir(output_path):
+      command = "mkdir {}".format(output_path)
+      os.system(command)
 
-
-
+    startOfflineSimulation(iris, environment, path, dataset)
+  else:
+    print("Error: invalid sim mode")
+    quit()
 
