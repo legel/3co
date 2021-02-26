@@ -21,6 +21,10 @@ int main(int argc, char** argv) {
 
   CircleAgent agent;
 
+  if (argc != 3) {
+    printf("Usage: ./iris_agent <resolution> <port>\n");
+    exit(1);
+  }
 
   float resolution = stof(argv[1]);
   int port = atoi(argv[2]);

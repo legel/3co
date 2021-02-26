@@ -1,1 +1,1 @@
-g++ iris_agent -l octomap -l octomath
+g++ IrisAgent.cpp CircleAgent.cpp Util.cpp -l octomap -l octomath -o iris_agent
