@@ -54,14 +54,9 @@ if gpu_number == None:
 
 output_directory = "simulated_scanner_outputs"
 
-# cleanup
+# delete initial objects loaded in blender, e.g. light source
 for o in bpy.context.scene.objects:
-    if o.type == 'MESH':
-        o.select_set(True)
-    else:
-        o.select_set(False)
-
-# Call the operator only once
+  o.select_set(True)
 bpy.ops.object.delete()
 
 # set rendering engine to be *Blender Cycles*, which is a physically-based raytracer (see e.g. https://www.cycles-renderer.org)
@@ -205,7 +200,6 @@ class Optics():
     vertical_pixels = len(self.get_pixel_indices("vertical"))
     horizontal_pixels = len(self.get_pixel_indices("horizontal"))
     # get color data from render and project those onto point cloud
-    """
     render_filename = "{}/{}_render.png".format(output_directory, f_name)
     render_image = Image.open(render_filename).convert('RGB')
     for h in self.get_pixel_indices("horizontal"):
@@ -214,22 +208,21 @@ class Optics():
         self.pixels[h][v].rendered_red = r
         self.pixels[h][v].rendered_green = g
         self.pixels[h][v].rendered_blue = b
-    """
 
     with open("{}/{}.csv".format(output_directory,f_name), "w") as point_cloud_file:
 
       for h in self.get_pixel_indices("horizontal"):
         for v in self.get_pixel_indices("vertical"):
           if self.pixels[h][v].hitpoint_object == "model":
-            #r = self.pixels[h][v].rendered_red
-            #g = self.pixels[h][v].rendered_green
-            #b = self.pixels[h][v].rendered_blue
+            r = self.pixels[h][v].rendered_red
+            g = self.pixels[h][v].rendered_green
+            b = self.pixels[h][v].rendered_blue
             point = self.pixels[h][v].hitpoint
             x = round(point.x,6)
             y = round(point.y,6)
             z = round(point.z,6)
-            #point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,r,g,b))
-            point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,0,0,0))
+            point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,r,g,b))
+            #point_cloud_file.write("{},{},{},{},{},{},{},{}\n".format(h,v,x,y,z,0,0,0))
     
   def get_pixel_indices(self, v_or_h):
     # v_or_h i.e. vertical or horizontal, is a string "vertical" or "horizontal", which returns the vertical or horizontal pixel indices
@@ -252,7 +245,7 @@ class Optics():
     bpy.data.scenes["Scene"].render.tile_y = 512
 
     # hack
-    self.shutterspeed = 0.03 
+    self.shutterspeed = 0.1
     print("Shutterspeed of {} seconds".format(self.shutterspeed))
     bpy.data.scenes["Scene"].cycles.film_exposure = self.shutterspeed # seconds of exposure / shutterspeed!
     
@@ -534,7 +527,17 @@ class Model():
 
   def import_object_to_scan(self, filepath):
     obs = []
-    bpy.ops.wm.collada_import(filepath=filepath)
+    ext = filepath.split(".")[-1]
+
+
+    if ext == "dae":
+      bpy.ops.wm.collada_import(filepath=filepath)
+    elif ext == "obj":
+      bpy.ops.import_scene.obj(filepath=filepath, filter_glob="*.obj;*.mtl")
+
+    else:
+      print("Unrecognized object extension: {}".format(ext))
+      quit()
     for object_in_scene in bpy.context.scene.objects:
       if object_in_scene.type == 'MESH':
        obs.append(object_in_scene)
@@ -857,9 +860,11 @@ if __name__ == "__main__":
   print("---------------------------------\n")
 
   environment = Environment()
-  ooi = "reconstructables/data/chalice_centered.dae"
+  #ooi = "reconstructables/data/chalice_centered.dae"
+  #ooi = "simulated_scanner_outputs/brownchair/brownchair/Zara_armchair_1.dae"
+  ooi = "simulated_scanner_outputs/balustervase/balustervase_150k.obj"
   environment.add_model(ooi)
-  sensor_resolution = 0.05
+  sensor_resolution = 0.2
   sensors = Optics( photonics="sensors", 
                     environment=environment, 
                     focal_point=Point(x=-1.0, y=-1.0, z=-1.0), # dummy value; not used
@@ -870,7 +875,6 @@ if __name__ == "__main__":
                     target_point=Point(0.0,0.0,0.0),
                     resolution = sensor_resolution)
 
-  """ Some version of below needs to be used for proper lighting!
   lasers =  Optics( photonics="lasers", # here, a "laser" is technically a pixel of projected light 
                     image="white.png", # white.png is just an image of all white pixels
                     environment=environment, 
@@ -881,9 +885,8 @@ if __name__ == "__main__":
                     pixel_size=0.00000587 / sensor_resolution,  
                     target_point=Point(0.0,0.0,0.0))
   scanner = Scanner(sensors=sensors, environment=environment, lasers=lasers)
-  """
   
-  scanner = Scanner(sensors=sensors, environment=environment)
+  #scanner = Scanner(sensors=sensors, environment=environment)
   iris = Iris(scanner)
 
 
@@ -898,8 +901,8 @@ if __name__ == "__main__":
   # in offline mode, a path and name of dataset must be specified below
   # data goes to simulated_scanner_outputs/{dataset}/
   elif sim_mode == "offline":
-    path = path_planning.get_chalice_path()
-    dataset = "chalice_{}".format(sensor_resolution)
+    path = path_planning.get_balustervase_path()
+    dataset = "balustervase_{}".format(sensor_resolution)
     output_path = "simulated_scanner_outputs/{}".format(dataset)
     if not os.path.isdir(output_path):
       command = "mkdir {}".format(output_path)

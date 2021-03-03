@@ -67,6 +67,15 @@ def get_theta_test_path():
   
   return path
 
+def get_balustervase_path():
+  fps = 1.0
+  path = []
+  p = [4.8, 0.0, 2.5, 90.0, 60.0]
+  path.append(p)
+  for i in range(12):
+    rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+
+  return path
 
 def get_chalice_path():
   fps = 1.0

@@ -1,5 +1,5 @@
 import sys
-from multipledispatch import dispatch
+#from multipledispatch import dispatch
 import math
 import numpy as np
 from scipy.spatial import ConvexHull
@@ -30,8 +30,10 @@ class Point3D:
 
 
 class GridCloud:
-  vertical_pixels = 2048
-  horizantal_pixels = 2048
+  #vertical_pixels = 2048
+  #horizantal_pixels = 2048
+  vertical_pixels = 2280
+  horizantal_pixels = 1824
 
   def __init__(self, sensor_resolution):
     self.sensor_resolution = sensor_resolution
@@ -55,6 +57,7 @@ class GridCloud:
   def set(self, v, h, p):
     v_i = v
     h_i = h
+
     self.gc[v_i][h_i].x = p.x
     self.gc[v_i][h_i].y = p.y
     self.gc[v_i][h_i].z = p.z
@@ -218,15 +221,31 @@ def getGridCloud(fname, sensor_resolution):
   with open(fname, "r") as fin:
 
     for line in fin:
+      if line[0] == 'h':
+        continue     
       l = line.split(",")
-      h = int(l[0])
-      v = int(l[1])
-      x = float(l[2])
-      y = float(l[3])
-      z = float(l[4])
-      r = int(l[5])
-      g = int(l[6])
-      b = int(l[7])
+      if len(l) == 8:
+        h = int(l[0])
+        v = int(l[1])
+        x = float(l[2])
+        y = float(l[3])
+        z = float(l[4])
+        r = int(l[5])
+        g = int(l[6])
+        b = int(l[7])
+      elif len(l) == 11:
+        h = int(l[0])
+        v = int(l[1])
+        x = float(l[2])
+        y = float(l[3])
+        z = float(l[4])
+        nx = float(l[5])
+        ny = float(l[6])
+        nz = float(l[7])
+        r = int(l[8])
+        g = int(l[9])
+        b = int(l[10])
+
       gc.set(v, h, Point3D(x,y,z,r,g,b))
 
     gc.computeValidBounds()
@@ -259,13 +278,13 @@ def overlapping(tri1, tri2, thresh):
   tp3 = Point3D(tri2[2][0], tri2[2][1], tri2[2][2])
   tri = [tp1, tp2, tp3]
   p1_proj = projectPointToTriangle(p1, (tp1,tp2,tp3))
-  if d(p1_proj, p1) < thresh and isInTriangle(p1_proj, tri):
+  if d_p3d(p1_proj, p1) < thresh and isInTriangle(p1_proj, tri):
     return True
   p2_proj = projectPointToTriangle(p2, (tp1,tp2,tp3))
-  if d(p2_proj, p2) < thresh and isInTriangle(p2_proj, tri):
+  if d_p3d(p2_proj, p2) < thresh and isInTriangle(p2_proj, tri):
     return True
   p3_proj = projectPointToTriangle(p3, (tp1,tp2,tp3))
-  if d(p3_proj, p3) < thresh and isInTriangle(p3_proj, tri):
+  if d_p3d(p3_proj, p3) < thresh and isInTriangle(p3_proj, tri):
     return True
   
   return False
@@ -318,13 +337,11 @@ def cubeBound(x):
 
 
 # euclidean distance for points represented as Point3D
-@dispatch(object, object)
-def d(p1,p2):
-  return d((p1.x,p1.y,p1.z), (p2.x,p2.y,p2.z))
+def d_p3d(p1,p2):
+  return d_tuple((p1.x,p1.y,p1.z), (p2.x,p2.y,p2.z))
 
 # euclidean distance for points represented as tuples
-@dispatch(tuple, tuple)
-def d(p1,p2):
+def d_tuple(p1,p2):
   dx = (p1[0]-p2[0])*(p1[0]-p2[0])
   dy = (p1[1]-p2[1])*(p1[1]-p2[1])
   dz = (p1[2]-p2[2])*(p1[2]-p2[2])
@@ -335,13 +352,11 @@ def pindex(v,h,cols):
   return v*cols + h
 
 # max edge length for triangle represented as vertex coordinate tuple
-@dispatch(list)
 def maxEdgeLen(v):  
-  return max(d(v[0],v[1]), d(v[0],v[2]), d(v[1],v[2]))
+  return max(d_p3d(v[0],v[1]), d_p3d(v[0],v[2]), d_p3d(v[1],v[2]))
 
 # max edge length for triangle represented as indices into vertex coordinate tuple
-@dispatch(list, list)
-def maxEdgeLen(tri_is, vs):
+def maxEdgeLen_indices(tri_is, vs):
   return maxEdgeLen([vs[tri_is[0]], vs[tri_is[1]], vs[tri_is[2]]])
 
 
@@ -409,10 +424,10 @@ def localSurfaceReconstruction(gc, d_thresh):
         tri3 = [0, 3, 1]
         tri4 = [0, 2, 3]
 
-        tri1_d = maxEdgeLen(tri1, ij_points)
-        tri2_d = maxEdgeLen(tri2, ij_points)
-        tri3_d = maxEdgeLen(tri3, ij_points)
-        tri4_d = maxEdgeLen(tri4, ij_points)
+        tri1_d = maxEdgeLen_indices(tri1, ij_points)
+        tri2_d = maxEdgeLen_indices(tri2, ij_points)
+        tri3_d = maxEdgeLen_indices(tri3, ij_points)
+        tri4_d = maxEdgeLen_indices(tri4, ij_points)
 
         # note: if can make 2 triangles, consider choosing the way to do it that
         # minimizes cross-length
@@ -595,7 +610,6 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
   command = command + " -o {}/{}_{}_reconstructed_vcg.ply".format(fdir,dataset,resolution)
   os.system(command)
 
-
   # clean up
   os.system("rm meshlab_script.mlx")
 
@@ -605,7 +619,7 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
   if use_im_remesh == True:
     print("Remeshing with Instant Meshes...")
     target_face_count = int(len(mesh.faces)/10)
-    command = "../instant-meshes/InstantMeshes {}/{}_{}_reconstructed_vcg.ply -f {} -d -S 0 -r 6 -p 6 -o {}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution , target_face_count, fdir,dataset,resolution)
+    command = "../instant-meshes/InstantMeshes {}/{}_{}_reconstructed_vcg.ply -f {} -d -S 0 -r 6 -p 6 -o {}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution , target_face_count, fdir,dataset,resolution)    
     os.system(command)
 
   mesh = readMesh("{}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution))
@@ -616,19 +630,33 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
     f_in_name = "{}.csv".format(f)
     csv2ply.csv2ply(f_in_name, "{}.ply".format(f))
 
-  mergeRawPointClouds(files, "{}/{}_{}_merged.ply".format(fdir,resolution,dataset))
+  mergeRawPointClouds(files, "{}/{}_{}_merged.ply".format(fdir,dataset,resolution))
   print("--> loading merged point cloud into o3d...")
-  pc = o3d.io.read_point_cloud("{}/{}_{}_merged.ply".format(fdir,resolution,dataset))
+  pc = o3d.io.read_point_cloud("{}/{}_{}_merged.ply".format(fdir,dataset,resolution))
   pc_tree = o3d.geometry.KDTreeFlann(pc)
 
   print("--> mapping and coloring mesh vertices...")
   for v in mesh.V:
     p = np.asarray([v[0], v[1], v[2]])
-    [k, idx, _] = pc_tree.search_knn_vector_3d(p, 1)
-    colors = np.asarray(pc.colors)[idx[0], :]
-    v[3] = int( float(colors[0])*255.0 )
-    v[4] = int( float(colors[1])*255.0 )
-    v[5] = int( float(colors[2])*255.0 )
+    n_neighbors = 8
+    [k, idx, _] = pc_tree.search_knn_vector_3d(p, n_neighbors)
+    c = np.asarray(pc.colors)
+    colors = c[idx[0:]]    
+    r = 0.0
+    g = 0.0
+    b = 0.0
+    for i in range(n_neighbors):
+      r = r + colors[i][0]
+      g = g + colors[i][1]
+      b = b + colors[i][2]
+
+    r = r / float(n_neighbors)
+    g = g / float(n_neighbors)
+    b = b / float(n_neighbors)
+    
+    v[3] = int( float(r)*255.0 )
+    v[4] = int( float(g)*255.0 )
+    v[5] = int( float(b)*255.0 )
 
 
   return mesh
@@ -673,13 +701,15 @@ def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, vo
 
 def main():
 
-  resolution = 1.0
-  dataset = "cry"
+
+
+  resolution = 0.2 
+  dataset = "balustervase"
   fdir = "simulated_scanner_outputs/{}_{}".format(dataset, resolution)
   fname = "simulated_scanner_outputs/{}_{}/{}_{}".format(dataset, resolution, dataset, resolution)
-  n_files = 5
-  max_edge_len = 1.0
-  voxel_size = 0.2
+  n_files = 13 
+  max_edge_len = 0.04
+  voxel_size = 0.005
   use_im_remesh = True 
 
   print("Reconstruction initiated.")
