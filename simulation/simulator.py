@@ -585,6 +585,58 @@ class Iris():
     self.model = Model(model)
     self.simulation_method = simulation_method
 
+    if simulation_method == "render_layer_access":
+      self.initialize_blender_render_layers()
+
+  def initialize_blender_render_layers(self):
+    view_layer = bpy.data.scenes["Scene"].view_layers["View Layer"]
+    view_layer.use = True
+    view_layer.use_pass_combined = True
+    view_layer.use_pass_z = True
+    view_layer.use_pass_normal = True
+    view_layer.use_pass_diffuse_color = True
+    view_layer.use_pass_diffuse_direct = True
+    view_layer.use_pass_glossy_direct = True
+    view_layer.use_pass_glossy_color = True
+
+    bpy.context.scene.render.use_compositing = True
+    bpy.context.scene.use_nodes = True
+    tree = bpy.context.scene.node_tree
+    links = tree.links
+
+    for node in tree.nodes:
+      tree.nodes.remove(node)
+    render_layer = tree.nodes.new('CompositorNodeRLayers') 
+
+    viewer = tree.nodes.new('CompositorNodeViewer')   
+    viewer.use_alpha = True
+
+    links.new(render_layer.outputs[0], viewer.inputs[0])  # link Render Image to Viewer Image
+    links.new(render_layer.outputs['Depth'], viewer.inputs[1])  # link Render Z to Viewer Alpha
+    #links.new(render_layer.outputs[3], viewer.inputs[1])  # link Render Z to Viewer Alpha
+
+
+    ### NORMALS 
+    normal_file_output = tree.nodes.new(type="CompositorNodeOutputFile")
+    normal_file_output.label = 'Normal Output'
+    # links.new(bias_normal.outputs[0], normal_file_output.inputs[0])
+    links.new(render_layer.outputs['Normal'], normal_file_output.inputs[0])
+    normal_file_output.format.file_format = "PNG"
+    normal_file_output.format.color_mode = "RGBA"
+    normal_file_output.base_path = "{}/outputs/test_normals.png".format(cwd)
+
+    ### DIFFUSE
+    diffuse_file_output = tree.nodes.new(type="CompositorNodeOutputFile")
+    diffuse_file_output.label = 'Diffuse Output'
+    links.new(render_layer.outputs['DiffCol'], diffuse_file_output.inputs[0])
+    diffuse_file_output.format.file_format = "PNG"
+    diffuse_file_output.format.color_mode = "RGBA"
+    diffuse_file_output.base_path = "{}/outputs/test_diffuse.png".format(cwd)
+
+
+
+
+
   def non_zero_degeneracy_radians(self, pitch,yaw,roll):
     # epsilon non-zero value to prevent degeneracy
     if pitch == 0 or pitch == 0.0:
@@ -657,10 +709,80 @@ class Iris():
     render_filepath = "{}/outputs/{}".format(cwd,render_filepath)
     print("Rendering image to {}.png".format(render_filepath))
     time_start = time.time()
-    bpy.data.scenes["Scene"].render.filepath = render_filepath
+    bpy.data.scenes["Scene"].render.filepath = "{}_render".format(render_filepath)
     bpy.ops.render.render(write_still=True)
     time_end = time.time()
     print("--> Rendered scan image in {} seconds".format(round(time_end - time_start, 4)))
+
+    pixels = np.array(bpy.data.images['Viewer Node'].pixels)
+    print("Recovered {} pixels from render viewer node".format(len(pixels)))
+
+    image_width = bpy.context.scene.render.resolution_x 
+    image_height = bpy.context.scene.render.resolution_y
+
+    #reshaping into image array 4 channel (r,g,b,z,normal_x,normal_y,normal_z)
+    image = pixels.reshape(image_height,image_width,4)
+
+
+    ### PROCESS DEPTH DATA ###
+    depth_data = image[:,:,3]
+    maximum_depth = 2.0 # meters, anything outside of this is too big for Iris
+
+    print("Shape of raw depth data: {}".format(depth_data.shape))
+    depth_data = np.clip(a=depth_data, a_min=0.0, a_max=maximum_depth)
+    print("Shape of depth data after clipping: {}".format(depth_data.shape))
+
+    print(depth_data)
+
+    print("Min and Max depths (metric): {}, {}".format(np.min(depth_data), np.max(depth_data)))
+
+    normalized_depth = depth_data / maximum_depth
+
+    min_measured_depth = np.min(normalized_depth)
+    max_measured_depth = np.max(normalized_depth)
+
+    print("Min and Max depths (normalized): {}, {}".format(min_measured_depth,max_measured_depth))
+
+    depth_pixels = (255 - normalized_depth * 255).astype(np.uint8)
+
+    print("Min and Max depths (pixels): {}, {}".format(np.min(depth_pixels), np.max(depth_pixels)))
+
+    image_output = Image.fromarray(depth_pixels)
+    image_output = image_output.transpose(Image.FLIP_TOP_BOTTOM)
+    output_filename = "{}_depth.png".format(render_filepath)
+    print("Saving depth to {}".format(output_filename))
+    image_output.save(output_filename)
+
+
+    # ### PROCESS NORMALS DATA ### 
+    # normals_data = image[:,:,4:7]
+
+    # print("Shape of raw normals data: {}".format(normals_data.shape))
+    # #normals_data = np.clip(a=depth_data, a_min=0.0, a_max=maximum_depth)
+    # #print("Shape of depth data after clipping: {}".format(depth_data.shape))
+
+    # print(normals_data)
+
+
+
+    # print("Min and Max depths (metric): {}, {}".format(np.min(depth_data), np.max(depth_data)))
+
+    # normalized_depth = depth_data / maximum_depth
+
+    # min_measured_depth = np.min(normalized_depth)
+    # max_measured_depth = np.max(normalized_depth)
+
+    # print("Min and Max depths (normalized): {}, {}".format(min_measured_depth,max_measured_depth))
+
+    # depth_pixels = (255 - normalized_depth * 255).astype(np.uint8)
+
+    # print("Min and Max depths (pixels): {}, {}".format(np.min(depth_pixels), np.max(depth_pixels)))
+
+    # image_output = Image.fromarray(depth_pixels)
+    # image_output = image_output.transpose(Image.FLIP_TOP_BOTTOM)
+    # output_filename = "{}_depth.png".format(render_filepath)
+    # print("Saving depth to {}".format(output_filename))
+    # image_output.save(output_filename)
 
 
 if __name__ == "__main__": 
