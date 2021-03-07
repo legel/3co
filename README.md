@@ -1,9 +1,9 @@
 ### 3D scanning simulator in Blender + Python
 
 *3D models with geometry, diffuse, normals, and roughness rendered in simulator:*
-![](https://github.com/3cology/research/blob/master/simulation/outputs/chair_0.png)
-![](https://github.com/3cology/research/blob/master/simulation/outputs/tire_0.png)
-![](https://github.com/3cology/research/blob/master/simulation/outputs/pillow_0.png)
+![](https://github.com/3cology/research/blob/master/simulation/outputs/full_res_chair.png)
+![](https://github.com/3cology/research/blob/master/simulation/outputs/full_res_tire.png)
+![](https://github.com/3cology/research/blob/master/simulation/outputs/full_res_pillow.png)
 
 Instructions for installing and developing on the simulator, with optics and photonics modeled after the Iris 3D scanning system by 3co.
 
