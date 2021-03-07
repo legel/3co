@@ -42,3 +42,6 @@ if __name__ == "__main__":
 ```
 You can run the above via:  
   `blender --python simulator.py -- cpu`
+
+In the cloud, this will work nicely too:  
+  `blender -noaudio -b --python simulator.py -- gpu`
