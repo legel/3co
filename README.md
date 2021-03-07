@@ -1,12 +1,11 @@
 ### 3D scanning simulator in Blender + Python
 
-*One of 100 cleaned 3D models we have for testing, rendered from 3 perspectives:*
-![](https://github.com/stev3/research/blob/master/assets/reconstructable_1.png)
-![](https://github.com/stev3/research/blob/master/assets/reconstructable_2.png)
-![](https://github.com/stev3/research/blob/master/assets/reconstructable_3.png)
+*3D models with geometry, diffuse, normals, and roughness rendered in simulator:*
+![](https://github.com/stev3/research/blob/master/simulation/outputs/chair_0.png)
+![](https://github.com/stev3/research/blob/master/simulation/outputs/tire_0.png)
+![](https://github.com/stev3/research/blob/master/simulation/outputs/pillow_0.png)
 
-
-Instructions for installing and developing on 3co's raycast+render-powered RGB point cloud simulator, which uses the same optics as our scanner and motion coordinate system as our robot.
+Instructions for installing and developing on the simulator, with optics and photonics modeled after the Iris 3D scanning system by 3co.
 
 #### Install via Command Line Terminal
 0. Get this directory on your computer  
@@ -29,56 +28,17 @@ Instructions for installing and developing on 3co's raycast+render-powered RGB p
 6. `source ~/.bash_profile`
 5. Prepare to install new modules into this Python:  
    `blender_py -m ensurepip`
-6. Here's how to install any missing modules, including this one for reading render images:  
+6. Here's how to install any missing modules, including these that will be needed:  
    `blender_py -m pip install Pillow`
-7. Download 100 cleaned 3D models for testing  
-   `curl -O https://3co.s3.amazonaws.com/reconstructables.zip`
-8. Unzip that directory  
-   `unzip reconstructables.zip`
 
-(Incidentally rendered images of the entire dataset can be downloaded and viewed [here](https://3co.s3.amazonaws.com/renders_360.zip "here"))
-
-#### Let there be raycasts
-The simulator is currently entirely in optics.py, with an example implemented in the main function:  
+#### Let there be renders
+The simulator is based in simulation/simulator.py, with an example implemented in the main function: 
 
 ```python
-if __name__ == "__main__":  
-  environment = Environment()
-
-  sensor_resolution = 0.25 # set to 1.0 for full resolution equivalent to our scanner
-  sensors = Optics( photonics="sensors", 
-                    environment=environment, 
-                    focal_point=Point(x=2.0, y=0.0, z=0.0), 
-                    focal_length=0.012, 
-                    vertical_pixels=2280 * sensor_resolution, 
-                    horizontal_pixels=1824 * sensor_resolution, 
-                    pixel_size=0.00000587 / sensor_resolution,
-                    target_point=Point(0.0,0.0,0.0))
-
-  scanner = Scanner(sensors=sensors, environment=environment)
-  models = get_3D_models()
-
-  for i, model in enumerate(models):
-    environment.new_model(model)
-    outputs = scanner.scan(x=1.25, y=0.0, z=0.0, pitch=90, yaw=90, turntable=0)
-
-    print("render: {}".format(outputs["render_file"]))
-    print("(x,y,z,r,g,b) + pixel position (h,v): {}".format(outputs["point_cloud_file"]))
-    print("3D model w/ mesh: {}".format(outputs["3D_model_file"]))
-  
-    # e.g. load outputs above, process, continue scanning and processing below... 
-
-    outputs = scanner.scan(x=1.1, y=0.0, z=0.25, pitch=75, yaw=90, turntable=30) 
-    
-  # ...
+if __name__ == "__main__": 
+  iris = Iris(model="/pillow/pillow.glb", resolution=0.1)
+  iris.view(x=0, y=1.15, z=1.2, rotation_x=45, rotation_y=0.0, rotation_z=180)
+  iris.scan(exposure_time=0.025, scan_id=1)
 ```
-You can just run the above in optics.py by running the following:  
-  `blender -b --python optics.py -noaudio -- 0 simulated_scanner_outputs`
-
-To convert a raw point cloud (.ply) from the scanner into a mesh with faces:  
-  `blender --python add_mesh_to_point_cloud.py -- some.ply`
-
-##### Notes:
-* Colors of (x,y,z) points in .csv and .ply output file are based on real renders (i.e. shadows, effects of lighting).  We will need to be able to build a model that accounts for the perspective that a color was seen.
-* Position of (x,y,z) points are based on original global values in the 3D model.  Therefore for the purpose of aligning point clouds and for measuring error, these values are valid.
-* Scanner is based on our robotic coordinate system, i.e. (x,y,z,pitch,yaw,turntable). A bit of further documentation/thinking [here](https://docs.google.com/document/d/1FsgnzzdmZE0qz_1uw7lePc5e3lh1HGlXNSBlKcXP4hU/edit "here").
+You can run the above via:  
+  `blender --python simulator.py -- cpu`
