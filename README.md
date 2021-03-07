@@ -1,15 +1,15 @@
 ### 3D scanning simulator in Blender + Python
 
 *3D models with geometry, diffuse, normals, and roughness rendered in simulator:*
-![](https://github.com/stev3/research/blob/master/simulation/outputs/chair_0.png)
-![](https://github.com/stev3/research/blob/master/simulation/outputs/tire_0.png)
-![](https://github.com/stev3/research/blob/master/simulation/outputs/pillow_0.png)
+![](https://github.com/3cology/research/blob/master/simulation/outputs/chair_0.png)
+![](https://github.com/3cology/research/blob/master/simulation/outputs/tire_0.png)
+![](https://github.com/3cology/research/blob/master/simulation/outputs/pillow_0.png)
 
 Instructions for installing and developing on the simulator, with optics and photonics modeled after the Iris 3D scanning system by 3co.
 
 #### Install via Command Line Terminal
 0. Get this directory on your computer  
-   `git clone https://github.com/stev3/research.git`  
+   `git clone https://github.com/3cology/research.git`  
    `cd research`
 1. Download Blender [here](https://www.blender.org/download/ "here")
 2. Add Blender to command line path ([instructions for Linux, Mac, Windows](https://docs.blender.org/manual/en/2.79/render/workflows/command_line.html "instructions")).
