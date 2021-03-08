@@ -19,7 +19,7 @@ Instructions for installing and developing on the simulator, with optics and pho
    `alias blender=/path/to/blender-2.82a-linux64/blender`
 3. `source ~/.bash_profile`
 4. Run Blender command to get path of its Python installation:  
-   `blender -b -P check_python_executable_path.py`
+   `blender -b -P utilities/check_python_executable_path.py`
 5. Copy and paste into terminal the output line that includes "blender_py".
    For Mac:
    `blender_py=/Applications/Blender.app/Contents/Resources/2.81/python/bin/python3.7m`
