@@ -8,7 +8,7 @@ def rotate(x, y, z, yaw, pitch, theta):
   xp = x*math.cos(a) - y*math.sin(a)
   yp = x*math.sin(a) + y*math.cos(a)
   zp = z
-  yaw = yaw - theta
+  yaw = yaw + theta
   if yaw >= 360.0:
     yaw = yaw - 360.0
   elif yaw < 0:
@@ -65,6 +65,16 @@ def get_theta_test_path():
     q[3] = theta
     path.append(q)
   
+  return path
+
+def get_pillow_path():
+  fps = 1.0
+  path = []
+  p = [1.15, 0.0, 0.8, 90.0, 60.0]
+  path.append(p)
+  for i in range(12):
+    rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+
   return path
 
 def get_balustervase_path():

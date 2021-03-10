@@ -3,7 +3,8 @@ import evaluation
 import socket
 
 
-# Code from Rob to be refactored into system when ready
+# Online code for when we want to test autonomous control, needs to be integrated
+# back into simulator.py
 
 # in online mode, actions are supplied by agent client, but start position
 # must be specified below
@@ -14,38 +15,6 @@ if sim_mode == "online":
   scene.update(iris,start_pos)
   startOnlineSimulation(iris, scene, start_pos)
 
-def startOfflineSimulation(iris, environment, path, dataset):
-  print("---------------------------------")
-  print("Begin offline scan simulation")
-  print("---------------------------------\n")
-  i = 0
-  scaling = 1.0
-  for p in path:
-    x = p[0] / scaling
-    y = p[1] / scaling
-    z = p[2] / scaling
-    yaw = p[3]
-    pitch = p[4]
-    f_out_name="{}/{}_{}".format(dataset,dataset,i)
-    print("Moving to new state: [({}, {}, {}), ({}, {})]".format(round(x,2),round(y,2),round(z,2),round(yaw,2),round(pitch,2)))
-    action = [x, y, z, yaw, pitch]
-    environment.update(iris, action) 
-    #scanner.move(x=x, y=y, z=z, pitch=pitch, yaw=yaw)
-    print("Scanning")
-    iris.scanner.scan(f_out_name=f_out_name, render_png=True)
-    csv2ply.csv2ply("simulated_scanner_outputs/{}.csv".format(f_out_name), "simulated_scanner_outputs/{}.ply".format(f_out_name))
-    i = i + 1
-
-    # execute action on environment
-    environment.update(iris, action)
-
-    t = t + 1
-
-  msg = "end_session"
-  client_sock.send(msg.encode("utf-8"))
-  client_sock.close()
-  sock.close()
-  print("------ Simulation concluded ------")
 
 def parseAction(action):
   a = action.split(",")

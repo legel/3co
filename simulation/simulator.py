@@ -14,7 +14,7 @@ import sys
 cwd = getcwd()
 sys.path.append(cwd)
 import os
-
+import path_planning
 # example way to run via command line locally:
 # blender --python simulator.py -- cpu
 #
@@ -692,13 +692,13 @@ class Iris():
 
     self.projectors.reorient()
 
-  def scan(self, exposure_time=0.1, scan_id=""):
+  def scan(self, exposure_time=0.1, scan_id="", scan_name=""):
     self.sensors.set_exposure_time(exposure_time=exposure_time)
     if self.simulation_method == "raycasting":
       self.sensors.measure_raycasts_from_pixels(model=self.model)
     if scan_id != "":
       scan_name = "{}_{}".format(self.model.description, scan_id)
-    else:
+    elif scan_name == "":
       current_time = int(time.time())
       scan_name = "{}_{}".format(self.model.description, current_time)
     self.render(scan_name)
@@ -785,10 +785,48 @@ class Iris():
     # image_output.save(output_filename)
 
 
+def startOfflineSimulation(iris, exposure_time, path, dataset):
+  print("---------------------------------")
+  print("Begin offline scan simulation")
+  print("---------------------------------\n")
+  i = 0
+  for p in path:
+    x = p[0] 
+    y = p[1]
+    z = p[2]
+    yaw = p[3]
+    pitch = p[4]
+    scan_name="{}/{}_{}".format(dataset,dataset,i)
+    print("Moving to new state: [({}, {}, {}), ({}, {})]".format(round(x,2),round(y,2),round(z,2),round(yaw,2),round(pitch,2)))
+    action = [x, y, z, yaw, pitch]
+    iris.view(x=x, y=y, z=z, yaw=yaw, pitch=pitch, roll=0.0)
+    print("Scanning")
+    iris.scan(exposure_time=exposure_time, scan_name=scan_name)
+    i = i + 1
+
+  print("------ Simulation concluded ------")
+
+
 if __name__ == "__main__": 
-  iris = Iris(model="/pillow/pillow.glb", resolution=0.1)
-  iris.view(x=0, y=1.15, z=1.2, rotation_x=45, rotation_y=0.0, rotation_z=180)
-  iris.scan(exposure_time=0.025, scan_id=1)
+
+  ################
+  ## parameters ##
+  sensor_resolution = 0.1  
+  path = path_planning.get_pillow_path()
+  dataset = "pillow_{}".format(sensor_resolution)
+  ################
+
+  # create output data directory if it doesn't exist yet
+  if not os.path.isdir("outputs/{}/".format(dataset)):
+    command = "mkdir outputs/{}".format(dataset)
+    os.system(command)
+
+  iris = Iris(model="/pillow/pillow.glb", resolution=sensor_resolution)
+  startOfflineSimulation(iris=iris, exposure_time=0.025, path=path, dataset=dataset)
+
+
+  #iris.view(x=0, y=1.15, z=1.2, rotation_x=45, rotation_y=0.0, rotation_z=180)
+  #iris.scan(exposure_time=0.025, scan_id=1)
 
   # iris = Iris(model="/tire/tire.glb", resolution=1.0)
   # iris.view(x=0, y=1.15, z=1.2, rotation_x=45, rotation_y=0.0, rotation_z=180)
