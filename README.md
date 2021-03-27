@@ -19,14 +19,14 @@ Instructions for installing and developing on the simulator, with optics and pho
    ```echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile```  
    For Ubuntu:  
    ```echo "alias blender=/home/3co/blender-2.83.13-linux64/blender" >> ~/.bashrc```  
-3. `source ~/.bash_profile` or `source ~/.bashrc`
+3. `source ~/.bash_profile` (Mac) or `source ~/.bashrc` (Linux)
 4. Run Blender command to get path of its Python installation:  
    `blender -b -P check_python_executable_path.py`
 5. Copy and paste into terminal the output line that includes "blender_py".  
    For Mac:  
    ```echo "alias blender_py=/Applications/Blender.app/Contents/Resources/2.82/python/bin/python3.7m" >> ~/.bash_profile```  
    For Ubuntu:   
-   ```echo "alias blender_py=/home/3co/blender-2.83.13-linux64/2.83/python/bin/python3.7m" >> ~/.bash_profile```  
+   ```echo "alias blender_py=/home/3co/blender-2.83.13-linux64/2.83/python/bin/python3.7m" >> ~/.bashrc```  
 6. `source ~/.bash_profile` (Mac) or `source ~/.bashrc` (Linux)
 7. Prepare to install new modules into this Python:  
    `blender_py -m ensurepip`
