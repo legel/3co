@@ -16,7 +16,7 @@ Instructions for installing and developing on the simulator, with optics and pho
 
 2. Add Blender to command line path ([instructions for Linux, Mac, Windows](https://docs.blender.org/manual/en/2.79/render/workflows/command_line.html "instructions")).  
    For Mac:  
-   ```echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile```
+   ```echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile```  
    For Ubuntu:  
    ```echo "alias blender=/home/3co/blender-2.83.13-linux64/blender" >> ~/.bashrc```  
 3. `source ~/.bash_profile` or `source ~/.bashrc`
@@ -24,12 +24,13 @@ Instructions for installing and developing on the simulator, with optics and pho
    `blender -b -P check_python_executable_path.py`
 5. Copy and paste into terminal the output line that includes "blender_py".  
    For Mac:  
-   `echo "alias blender_py=/Applications/Blender.app/Contents/Resources/2.82/python/bin/python3.7m" >> ~/.bash_profile`  
-   For Ubuntu: `echo "alias blender_py=/path/to/blender-2.82a-linux64/2.82/python/bin/python3.7m" >> ~/.bash_profile`  
-6. `source ~/.bash_profile`
-5. Prepare to install new modules into this Python:  
+   ```echo "alias blender_py=/Applications/Blender.app/Contents/Resources/2.82/python/bin/python3.7m" >> ~/.bash_profile```  
+   For Ubuntu:   
+   ```echo "alias blender_py=/home/3co/blender-2.83.13-linux64/2.83/python/bin/python3.7m" >> ~/.bash_profile```  
+6. `source ~/.bash_profile` (Mac) or `source ~/.bashrc` (Linux)
+7. Prepare to install new modules into this Python:  
    `blender_py -m ensurepip`
-6. Here's how to install any missing modules, including these that will be needed:  
+8. Here's how to install any missing modules, including these that will be needed:  
    `blender_py -m pip install Pillow`
 
 #### Let there be renders
