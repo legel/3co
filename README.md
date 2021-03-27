@@ -29,10 +29,11 @@ Instructions for installing and developing on the simulator, with optics and pho
    ```echo "alias blender_py=/home/3co/blender-2.83.13-linux64/2.83/python/bin/python3.7m" >> ~/.bashrc```  
 6. `source ~/.bash_profile` (Mac) or `source ~/.bashrc` (Linux)
 7. Prepare to install new modules into this Python:  
-   `blender_py -m ensurepip`
+   ```blender_py -m ensurepip```  
+   ```blender_py -m pip install --upgrade pip setuptools wheel```
 8. Here's how to install any missing modules, including these that will be needed:  
-   `blender_py -m pip install Pillow`  
-   `blender_py -m pip install opencv-python`
+   ```blender_py -m pip install Pillow```  
+   ```blender_py -m pip install opencv-python```  
 
 #### Let there be renders
 The simulator is based in simulation/simulator.py, with an example implemented in the main function: 
