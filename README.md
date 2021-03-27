@@ -15,10 +15,10 @@ Instructions for installing and developing on the simulator, with optics and pho
 1. Download Blender LTS Release 2.83.13 [here](https://www.blender.org/download/lts/ "here"). Unzip.
 
 2. Add Blender to command line path ([instructions for Linux, Mac, Windows](https://docs.blender.org/manual/en/2.79/render/workflows/command_line.html "instructions")).
-   	For Mac: 
-   		`echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile`  
-   	For Ubuntu (depending on where you downloaded and unzipped the Blender executable):
-   		`echo "alias blender=/home/3co/blender-2.83.13-linux64/blender" >> ~/.bashrc`
+
+  For Mac: `echo "alias blender=/Applications/Blender.app/Contents/MacOS/Blender" >> ~/.bash_profile`  
+
+  For Ubuntu: `echo "alias blender=/home/3co/blender-2.83.13-linux64/blender" >> ~/.bashrc`
 3. `source ~/.bash_profile` or `source ~/.bashrc`
 4. Run Blender command to get path of its Python installation:  
    `blender -b -P check_python_executable_path.py`
