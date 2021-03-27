@@ -31,7 +31,8 @@ Instructions for installing and developing on the simulator, with optics and pho
 7. Prepare to install new modules into this Python:  
    `blender_py -m ensurepip`
 8. Here's how to install any missing modules, including these that will be needed:  
-   `blender_py -m pip install Pillow`
+   `blender_py -m pip install Pillow`  
+   `blender_py -m pip install opencv-python`
 
 #### Let there be renders
 The simulator is based in simulation/simulator.py, with an example implemented in the main function: 
