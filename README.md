@@ -49,4 +49,15 @@ You can run the above via:
   `blender --python simulator.py -- cpu`
 
 In the cloud, this will work nicely too:  
-  `blender -noaudio -b --python simulator.py -- gpu`
+  `DISPLAY=:0 blender --python simulator.py -- gpu`
+  This opens up a dummy display for the GUI to virtually show up in. If you want to run multiple simulations at the same time, or for some reason a display doesn't work, set up a new one as following:
+  
+  Make sure you are in the `research/simulation` directory.
+  To set up a display N, run 
+  `sudo X :N -config dummy-1920x1080.conf`
+  So for example, a new display 1:
+  `sudo X :1 -config dummy-1920x1080.conf`
+  
+  
+  
+  
