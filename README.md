@@ -36,8 +36,10 @@ Instructions for installing and developing on the simulator, with optics and pho
    ```blender_py -m pip install opencv-python```  
    ```blender_py -m pip install imageio```  
 
+
+
 #### Let there be renders
-The simulator is based in simulation/simulator.py, with an example implemented in the main function: 
+The simulator is based in simulation/simulator.py, with an example to get one view implemented in the main function: 
 
 ```python
 if __name__ == "__main__": 
@@ -45,18 +47,53 @@ if __name__ == "__main__":
   iris.view(x=0, y=1.15, z=1.2, rotation_x=45, rotation_y=0.0, rotation_z=180)
   iris.scan(exposure_time=0.025, scan_id=1)
 ```
-You can run the above via:  
-  `blender --python simulator.py -- cpu`
 
-In the cloud, this will work nicely too:  
-  `DISPLAY=:0 blender --python simulator.py -- gpu`
-  This opens up a dummy display for the GUI to virtually show up in. If you want to run multiple simulations at the same time, or for some reason a display doesn't work, set up a new one as following:
+In path_planning.py, there's have different paths for the pillow: 
+```
+path = path_planning.get_pillow_path_small()    # to get a few
+path = path_planning.get_pillow_path()          # really big dataset
+
+iris = Iris(model="/pillow/pillow.glb", resolution=1.0)
+startOfflineSimulation(iris=iris, exposure_time=0.015, path=path)
+```
+
+Decide whether to run the code on gpu or cpu by setting `device=` to either. Then you can run the above via:
+  `blender --python simulator.py -- device=cpu`
+ 
+If you want to add a render configuration for the Principled BSDF shader:
+`blender --python simulator.py -- device=cpu render_config=render_config.json`
+
+This `render_config.json` file should use the names that blender uses. For example:
+```
+{
+"Base Color" : [0.23, 0.87, 0.48, 1.0],
+"Metallic" : 0.1,
+"Subsurface": 0.2,
+"Specular": 0.3,
+"Roughness": 0.4,
+"Specular Tint": 0.5,
+"Anisotropic": 0.6,
+"Sheen": 0.7,
+"Sheen Tint": 0.8,
+"Clearcoat": 0.9,
+"Clearcoat Roughness" : 1.0
+}
+```
+
+To use the code in the cloud, this will work nicely:  
+  `DISPLAY=:0 blender --python simulator.py -- device=gpu`
+
+This opens a dummy display for the GUI to virtually show up in. If you want to run multiple simulations at the same time, or for some reason a display doesn't work, set up a new one as following:
   
-  Make sure you are in the `research/simulation` directory.
-  To set up a display N, run 
-  `sudo X :N -config dummy-1920x1080.conf`
-  So for example, a new display 1:
-  `sudo X :1 -config dummy-1920x1080.conf`
+Make sure you are in the `research/simulation` directory, which is where the dummy display configuration lives.
+
+To set up a display N, run 
+`sudo X :N -config dummy-1920x1080.conf`
+To run:
+`DISPLAY=:N blender --python simulator.py -- device=gpu`
+So for example, a new display 1:
+`sudo X :1 -config dummy-1920x1080.conf`
+`DISPLAY=:1 blender --python simulator.py -- device=gpu`
   
   
   
