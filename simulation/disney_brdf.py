@@ -2,7 +2,6 @@ import math
 import numpy as np
 import open3d as o3d
 
-
 # [type] [name] [min val] [max val] [default val]
 #baseColor = [0, 1, [.82, .67, .16] ]
 #metallic = [0, 1, 0]
@@ -45,7 +44,6 @@ def GTR1(NdotH, a):
   t = 1 + (a2-1)*NdotH*NdotH
   return (a2-1) / (PI*math.log(a2)*t)
 
-
 def GTR2(NdotH, a):
   a2 = a*a
   t = 1 + (a2-1)*NdotH*NdotH
@@ -65,7 +63,6 @@ def smithG_GGX_aniso(NdotV, VdotX, VdotY, ax, ay):
 def mon2lin(x):
   return np.asarray( [pow(x[0], 2.2), pow(x[1], 2.2), pow(x[2], 2.2)] )
 
-
 def BRDF( L, V, N, X, Y, baseColor = np.asarray([.82, .67, .16]), metallic = 0, subsurface = 0, specular = 0.5,
 	roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
 
@@ -75,6 +72,7 @@ def BRDF( L, V, N, X, Y, baseColor = np.asarray([.82, .67, .16]), metallic = 0, 
   if (NdotL < 0 or NdotV < 0): 
     return np.zeros(3)
   H = normalize(L+V)
+  
   NdotH = np.dot(N,H)
   LdotH = np.dot(L,H)
   Cdlin = mon2lin(baseColor)
@@ -101,8 +99,8 @@ def BRDF( L, V, N, X, Y, baseColor = np.asarray([.82, .67, .16]), metallic = 0, 
   aspect = math.sqrt(1-anisotropic*.9)
   ax = max(.001, sqr(roughness)/aspect)
   ay = max(.001, sqr(roughness)*aspect)
-  Ds = GTR2_aniso(NdotH, np.dot(H, X), np.dot(H, Y), ax, ay)
-  FH = SchlickFresnel(LdotH)
+  Ds = GTR2_aniso(NdotH, np.dot(H, X), np.dot(H, Y), ax, ay)  
+  FH = SchlickFresnel(LdotH)  
   Fs = mix(Cspec0, np.ones(3), FH)
   Gs = smithG_GGX_aniso(NdotL, np.dot(L, X), np.dot(L, Y), ax, ay)
   Gs = Gs * smithG_GGX_aniso(NdotV, np.dot(V, X), np.dot(V, Y), ax, ay)
@@ -114,7 +112,7 @@ def BRDF( L, V, N, X, Y, baseColor = np.asarray([.82, .67, .16]), metallic = 0, 
   Dr = GTR1(NdotH, mix(.1,.001,clearcoatGloss))
   Fr = mix(.04, 1, FH)
   Gr = smithG_GGX(NdotL, .25) * smithG_GGX(NdotV, .25)
-
+  
   return ((1/PI) * mix(Fd, ss, subsurface)*Cdlin + Fsheen) * (1-metallic) + Gs*Fs*Ds + .25*clearcoat*Gr*Fr*Dr
 
 
@@ -124,10 +122,16 @@ def main():
   fname = "test_mesh.ply"  
   mesh = o3d.io.read_triangle_mesh(fname)
   mesh.compute_vertex_normals()
-  mesh.compute_adjacency_list()
 
 	#               x    y   z    yaw  pitch
-  camera_pos = [2.8, 0.0, 2.5, 90.0, 60.0]
+  camera_pos = [4.8, 0.0, 2.5, 90.0, 60.0]
+  light_pos = [4.8, 0.0, 2.5]
+  light_red = 1
+  light_green = 1
+  light_blue = 1
+  light_intensity_scale = np.dot(light_pos, light_pos) * 4.0 * PI
+  light_intensity = np.asarray([light_red, light_green, light_blue]) * light_intensity_scale
+  
 
   for i in range(len(mesh.vertices)):
     
@@ -146,28 +150,37 @@ def main():
 
     vertex = mesh.vertices[i]
 	  #  V: view direction        
-    V = np.asarray(camera_pos[:3]) - np.asarray(vertex)	    
+    V = normalize(np.asarray(camera_pos[:3]) - np.asarray(vertex))
 
     #  L: light direction: same as view direction
-    L = V
-
+    L = normalize(light_pos)
 
     metallic = 0.0
     subsurface = 0.0
     specular = 0.5
-    roughness = 0.05
-    specularTint = 0.5
-    anisotropic = 0.5
-    sheen = 0.5
+    roughness = 0.9
+    specularTint = 0.0
+    anisotropic = 0.0
+    sheen = 0.0
     sheenTint = 0.5
-    clearcoat = 0.5
+    clearcoat = 0.0
     clearcoatGloss = 1.0
     
     baseColor = np.asarray([0.2, 0.5, 0.2])
     #baseColor = np.asarray(mesh.vertex_colors[i])
-    render =  5*BRDF(L=L, V=V, N=N, X=X, Y=Y, baseColor=baseColor, metallic=metallic, subsurface=subsurface, specular=specular, roughness=roughness, specularTint=specularTint, anisotropic=anisotropic,sheen=sheen,sheenTint=sheenTint,clearcoat=clearcoat,clearcoatGloss=clearcoatGloss)
+    brdf = 4 * BRDF(L=L, V=V, N=N, X=X, Y=Y, baseColor=baseColor, metallic=metallic, subsurface=subsurface, specular=specular, roughness=roughness, specularTint=specularTint, anisotropic=anisotropic,sheen=sheen,sheenTint=sheenTint,clearcoat=clearcoat,clearcoatGloss=clearcoatGloss)
 
-    mesh.vertex_colors[i] = render
+    # Irradiance
+    cosine_term = np.dot(N, L)
+    cosine_term = max(0, cosine_term)
+    #vector_light_to_surface = intersection_3d - light_position
+    vector_light_to_surface = np.asarray(light_pos[:3]) - np.asarray(vertex)
+    light_to_surface_distance_squared = np.dot(vector_light_to_surface, vector_light_to_surface)
+    irradiance = light_intensity / (4 * PI * light_to_surface_distance_squared) * cosine_term
+    # Rendering equation    
+    radiance = brdf * irradiance
+
+    mesh.vertex_colors[i] = radiance
       
   o3d.visualization.draw_geometries([mesh])
 
