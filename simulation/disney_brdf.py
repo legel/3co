@@ -175,6 +175,11 @@ def render_disney_brdf_on_mesh(mesh, camera_pos, brdf_params):
 
     # Rendering equation    
     radiance = brdf * irradiance
+
+    # Saturate radiance at 1 for rendering purposes.
+    radiance = np.minimum(radiance, 1.0)
+
+    # Gamma correction
     radiance = np.power(radiance, 1.0 / 2.2)
 
     mesh.vertex_colors[i] = radiance
@@ -196,18 +201,17 @@ def main():
   brdf_params['metallic'] = 0.0  
   brdf_params['subsurface'] = 0.0
   brdf_params['specular'] = 0.5
-  brdf_params['roughness'] = 0.9
+  brdf_params['roughness'] = 0.1
   brdf_params['specularTint'] = 0.0
   brdf_params['anisotropic'] = 0.0
   brdf_params['sheen'] = 0.0
   brdf_params['sheenTint'] = 0.5
-  brdf_params['clearcoat'] = 0.0
+  brdf_params['clearcoat'] = 1.0
   brdf_params['clearcoatGloss'] = 1.0
 
   mesh = render_disney_brdf_on_mesh(mesh,camera_pos[:3],brdf_params)
   outfname = "test.ply"
   o3d.io.write_triangle_mesh(outfname, mesh)
-  o3d.visualization.draw_geometries([mesh])
 
 if __name__ == "__main__":
   main()
