@@ -164,7 +164,7 @@ def render_disney_brdf_on_mesh(mesh, camera_pos, brdf_params):
     #  L: light direction: same as view direction
     L = normalize(light_pos)
 
-    brdf = 4 * BRDF(L=L, V=V, N=N, X=X, Y=Y, baseColor=baseColor, metallic=metallic, subsurface=subsurface, specular=specular, roughness=roughness, specularTint=specularTint, anisotropic=anisotropic,sheen=sheen,sheenTint=sheenTint,clearcoat=clearcoat,clearcoatGloss=clearcoatGloss)
+    brdf = 1.0 * BRDF(L=L, V=V, N=N, X=X, Y=Y, baseColor=baseColor, metallic=metallic, subsurface=subsurface, specular=specular, roughness=roughness, specularTint=specularTint, anisotropic=anisotropic,sheen=sheen,sheenTint=sheenTint,clearcoat=clearcoat,clearcoatGloss=clearcoatGloss)
 
     # Irradiance
     cosine_term = np.dot(N, L)
@@ -175,6 +175,7 @@ def render_disney_brdf_on_mesh(mesh, camera_pos, brdf_params):
 
     # Rendering equation    
     radiance = brdf * irradiance
+    radiance = np.power(radiance, 1.0 / 2.2)
 
     mesh.vertex_colors[i] = radiance
       
