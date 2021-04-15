@@ -117,15 +117,24 @@ def BRDF( L, V, N, X, Y, baseColor = np.asarray([.82, .67, .16]), metallic = 0, 
 
 
 
-def main():
+def render_disney_brdf_on_mesh(mesh, camera_pos, brdf_params):
 
-  fname = "test_mesh.ply"  
-  mesh = o3d.io.read_triangle_mesh(fname)
-  mesh.compute_vertex_normals()
+  baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])
+  metallic = brdf_params['metallic']
+  subsurface = brdf_params['subsurface'] 
+  specular = brdf_params['specular'] 
+  roughness = brdf_params['roughness'] 
+  specularTint = brdf_params['specularTint'] 
+  anisotropic = brdf_params['anisotropic'] 
+  sheen = brdf_params['sheen'] 
+  sheenTint = brdf_params['sheenTint']
+  clearcoat = brdf_params['clearcoat'] 
+  clearcoatGloss = brdf_params['clearcoatGloss']
 
-	#               x    y   z    yaw  pitch
-  camera_pos = [4.8, 0.0, 2.5, 90.0, 60.0]
-  light_pos = [4.8, 0.0, 2.5]
+  if not mesh.has_vertex_normals():
+    raise Exception("Mesh must have vertex normals")
+
+  light_pos = camera_pos
   light_red = 1
   light_green = 1
   light_blue = 1
@@ -155,39 +164,49 @@ def main():
     #  L: light direction: same as view direction
     L = normalize(light_pos)
 
-    metallic = 0.0
-    subsurface = 0.0
-    specular = 0.5
-    roughness = 0.9
-    specularTint = 0.0
-    anisotropic = 0.0
-    sheen = 0.0
-    sheenTint = 0.5
-    clearcoat = 0.0
-    clearcoatGloss = 1.0
-    
-    baseColor = np.asarray([0.2, 0.5, 0.2])
-    #baseColor = np.asarray(mesh.vertex_colors[i])
     brdf = 4 * BRDF(L=L, V=V, N=N, X=X, Y=Y, baseColor=baseColor, metallic=metallic, subsurface=subsurface, specular=specular, roughness=roughness, specularTint=specularTint, anisotropic=anisotropic,sheen=sheen,sheenTint=sheenTint,clearcoat=clearcoat,clearcoatGloss=clearcoatGloss)
 
     # Irradiance
     cosine_term = np.dot(N, L)
-    cosine_term = max(0, cosine_term)
-    #vector_light_to_surface = intersection_3d - light_position
+    cosine_term = max(0, cosine_term)    
     vector_light_to_surface = np.asarray(light_pos[:3]) - np.asarray(vertex)
     light_to_surface_distance_squared = np.dot(vector_light_to_surface, vector_light_to_surface)
     irradiance = light_intensity / (4 * PI * light_to_surface_distance_squared) * cosine_term
+
     # Rendering equation    
     radiance = brdf * irradiance
 
     mesh.vertex_colors[i] = radiance
       
-  o3d.visualization.draw_geometries([mesh])
+  return mesh
+  
+  
+def main():
+  fname = "test_mesh.ply"  
+  mesh = o3d.io.read_triangle_mesh(fname)
+  mesh.compute_vertex_normals()
 
-  outfname = "test.ply"  
+	#               x    y   z    yaw  pitch
+  camera_pos = [4.8, 0.0, 2.5, 90.0, 60.0]  
+  brdf_params = {}
+  brdf_params['red'] = 0.2
+  brdf_params['green'] = 0.5
+  brdf_params['blue'] = 0.2
+  brdf_params['metallic'] = 0.0  
+  brdf_params['subsurface'] = 0.0
+  brdf_params['specular'] = 0.5
+  brdf_params['roughness'] = 0.9
+  brdf_params['specularTint'] = 0.0
+  brdf_params['anisotropic'] = 0.0
+  brdf_params['sheen'] = 0.0
+  brdf_params['sheenTint'] = 0.5
+  brdf_params['clearcoat'] = 0.0
+  brdf_params['clearcoatGloss'] = 1.0
+
+  mesh = render_disney_brdf_on_mesh(mesh,camera_pos[:3],brdf_params)
+  outfname = "test.ply"
   o3d.io.write_triangle_mesh(outfname, mesh)
-  
-  
+  o3d.visualization.draw_geometries([mesh])
 
 if __name__ == "__main__":
   main()
