@@ -39,8 +39,6 @@ home_directory = cwd[:-9]
 argv = sys.argv
 argv = argv[argv.index("--") + 1:]
 
-output_directory = "outputs"
-
 # delete initial objects loaded in blender, e.g. light source
 for o in bpy.context.scene.objects:
   o.select_set(True)
@@ -51,7 +49,15 @@ bpy.context.scene.render.engine = 'CYCLES'
 print(' header: \ncurrent render engine {}'.format(bpy.context.scene.render.engine))
 
 
-gpu_or_cpu = argv[0]
+device_input = argv[0]
+[_, gpu_or_cpu] = device_input.split('=')
+inverse_render_mode = False
+
+if len(argv) > 1:
+  render_config = argv[1]
+  [_, render_config_file] = render_config.split('=')
+  inverse_render_mode = True
+
 if gpu_or_cpu == "gpu":
   try:
     bpy.context.preferences.addons['cycles'].preferences.get_devices()
@@ -566,44 +572,67 @@ class Model():
     bpy.ops.object.join(c)
     self.model_object = bpy.context.object
     bpy.context.object.name = "Model"
-    
-    # SETTING UP SHADER NODES #
-    resolution_bake = self.resolution * 2048
-    for m in bpy.context.object.material_slots:
-      links = m.material.node_tree.links
-      nodes = m.material.node_tree.nodes
 
-      # set up of single color node connected to an diffuse bsdf shader:
-      single_color_node = nodes.new(type="ShaderNodeRGBCurve")
-      single_color_node.inputs['Color'].default_value = (0.148636, 0.204908, 0.1400332, 1)
-      single_color_node.name = 'single_color_node'
+    def single_value_brdf_maker(self, brdf_node, render_config):
+      with open(render_config) as json_file:
+        data = json.load(json_file)
+        for key in data:
+          brdf_node.inputs[key].default_value = data[key]
+                    
+    if (inverse_render_mode == True):
+      if len(render_config) > 2:
+        for m in bpy.context.object.material_slots:
+          links = m.material.node_tree.links
+          nodes = m.material.node_tree.nodes
 
-      diffuse_bsdf_shader = nodes.new(type="ShaderNodeBsdfDiffuse")
-      diffuse_bsdf_shader.name = 'diffuse_bsdf'
-      diffuse_bsdf_shader.inputs[1].default_value = 0.5   # adjust roughness for single color render here
-      links.new(single_color_node.outputs[0], diffuse_bsdf_shader.inputs[0])
-      # SETTING UP SHADER NODES #
+          brdf_node = nodes['Principled BSDF']
+          for input in brdf_node.inputs:
+            for link in input.links:
+              links.remove(link)
 
-      roughness_bake = bpy.data.images.new('roughness_bake', resolution_bake, resolution_bake)
-      roughness_bake_node = nodes.new(type="ShaderNodeTexImage")
-      roughness_bake_node.image = roughness_bake
-      roughness_bake_node.name = 'roughness_bake'
+          single_value_brdf_maker(self, brdf_node, render_config_file)
 
-      # set up of bake file connected to an emission shader:
-      emission_node = nodes.new("ShaderNodeEmission")
-      emission_node.name = 'emission_node'
-      emission_node.inputs[1].default_value = 20.0
 
-      links.new(roughness_bake_node.outputs[0], emission_node.inputs[0])
+    else:
+      resolution_bake = self.resolution * 2048
+      for m in bpy.context.object.material_slots:
+        links = m.material.node_tree.links
+        nodes = m.material.node_tree.nodes
 
-    nodes.active = roughness_bake_node
-    print("---------------------------------")
-    print('Start baking of {}...'.format('roughness_bake'))
-    print("---------------------------------\n")
-    bpy.ops.object.bake(type='ROUGHNESS', width=resolution_bake, height=resolution_bake)
-    print("---------------------------------")
-    print('Bake ready.')
-    print("---------------------------------\n")
+        geometry_node = nodes.new(type="ShaderNodeNewGeometry")
+        geometry_node.name = 'geometry_node'
+
+        # set up of single color node connected to an diffuse bsdf shader:
+        single_color_node = nodes.new(type="ShaderNodeRGBCurve")
+        single_color_node.inputs['Color'].default_value = (0.248636, 0.504908, 0.2400332, 1)
+        single_color_node.name = 'single_color_node'
+
+        diffuse_bsdf_shader = nodes.new(type="ShaderNodeBsdfDiffuse")
+        diffuse_bsdf_shader.name = 'diffuse_bsdf'
+        diffuse_bsdf_shader.inputs[1].default_value = 0.5   # adjust roughness for single color render here
+        links.new(single_color_node.outputs[0], diffuse_bsdf_shader.inputs[0])
+        # SETTING UP SHADER NODES #
+
+        roughness_bake = bpy.data.images.new('roughness_bake', resolution_bake, resolution_bake)
+        roughness_bake_node = nodes.new(type="ShaderNodeTexImage")
+        roughness_bake_node.image = roughness_bake
+        roughness_bake_node.name = 'roughness_bake'
+
+        # set up of bake file connected to an emission shader:
+        emission_node = nodes.new("ShaderNodeEmission")
+        emission_node.name = 'emission_node'
+        emission_node.inputs[1].default_value = 20.0
+
+        links.new(roughness_bake_node.outputs[0], emission_node.inputs[0])
+
+      nodes.active = roughness_bake_node
+      print("---------------------------------")
+      print('Start baking of {}...'.format('roughness_bake'))
+      print("---------------------------------\n")
+      bpy.ops.object.bake(type='ROUGHNESS', width=resolution_bake, height=resolution_bake)
+      print("---------------------------------")
+      print('Bake ready.')
+      print("---------------------------------\n")
 
 
 class Iris():
@@ -631,7 +660,6 @@ class Iris():
 
     self.model = Model(model, resolution)
     self.simulation_method = simulation_method
-    
 
   def initialize_blender_render_layers(self, scan_name, resolution):
 
@@ -650,58 +678,60 @@ class Iris():
     bpy.context.scene.render.use_compositing = True
     bpy.context.scene.use_nodes = True
 
-    tree = bpy.context.scene.node_tree
-    nodes = tree.nodes
-    links = tree.links
+    if (inverse_render_mode == False):
+      tree = bpy.context.scene.node_tree
+      nodes = tree.nodes
+      links = tree.links
 
-    for node in tree.nodes:
-      tree.nodes.remove(node)
-    render_layer = tree.nodes.new('CompositorNodeRLayers') 
+      for node in tree.nodes:
+        tree.nodes.remove(node)
+      render_layer = tree.nodes.new('CompositorNodeRLayers') 
+      render_layer.name = 'compositor_node'
 
-    viewer = tree.nodes.new('CompositorNodeViewer')   
-    viewer.use_alpha = True
+      global_co = nodes.new(type="CompositorNodeOutputFile")
+      global_co.name = 'global_co' 
+      global_co.format.file_format = "OPEN_EXR"
+      ##############
+      ### DEPTH ####
+      ##############
+      depth_file_output_exr = tree.nodes.new(type="CompositorNodeOutputFile")
+      depth_file_output_exr.name = 'depth_output_gt_not_normalized' 
+      depth_file_output_exr.format.file_format = "OPEN_EXR"
+      links.new(render_layer.outputs['Depth'], depth_file_output_exr.inputs[0])
+      depth_file_output_exr.base_path = '{}/{}_{}'.format(directory_for_scan, scan_name, depth_file_output_exr.name)
+      ###############
+      #### DEPTH ####
+      ###############
 
-    ###############
-    #### DEPTH ####
-    ###############
-    depth_file_output_exr = tree.nodes.new(type="CompositorNodeOutputFile")
-    depth_file_output_exr.name = 'depth_output_gt_not_normalized' 
-    depth_file_output_exr.format.file_format = "OPEN_EXR"
-    links.new(render_layer.outputs['Depth'], depth_file_output_exr.inputs[0])
-    depth_file_output_exr.base_path = '{}/{}_{}'.format(directory_for_scan, scan_name, depth_file_output_exr.name)
-    ###############
-    #### DEPTH ####
-    ###############
+      ###############
+      ### NORMALS ###
+      ###############
+      normal_file_output = tree.nodes.new(type="CompositorNodeOutputFile")
+      normal_file_output.name = 'normal_output'
+      links.new(render_layer.outputs['Normal'], normal_file_output.inputs[0])
+      normal_file_output.format.file_format = "PNG"
+      normal_file_output.format.color_mode = "RGBA"
+      normal_file_output.base_path = '{}/{}_{}'.format(directory_for_scan, scan_name, normal_file_output.name)
+      ###############
+      ### NORMALS ###
+      ###############
 
-    ###############
-    ### NORMALS ###
-    ###############
-    normal_file_output = tree.nodes.new(type="CompositorNodeOutputFile")
-    normal_file_output.name = 'normal_output'
-    links.new(render_layer.outputs['Normal'], normal_file_output.inputs[0])
-    normal_file_output.format.file_format = "PNG"
-    normal_file_output.format.color_mode = "RGBA"
-    normal_file_output.base_path = '{}/{}_{}'.format(directory_for_scan, scan_name, normal_file_output.name)
-    ###############
-    ### NORMALS ###
-    ###############
-
-    ###############
-    ### DIFFUSE ###
-    ###############
-    
-    diffuse_file_output = tree.nodes.new(type="CompositorNodeOutputFile")
-    diffuse_file_output.name = 'diffuse_output_compositor'
-    tone_map_node = tree.nodes.new(type="CompositorNodeTonemap")
-    tone_map_node.intensity = 1.0
-    links.new(render_layer.outputs['DiffCol'], tone_map_node.inputs[0])
-    links.new(tone_map_node.outputs[0],diffuse_file_output.inputs[0])
-    diffuse_file_output.format.file_format = "PNG"
-    diffuse_file_output.format.color_mode = "RGBA"
-    diffuse_file_output.base_path = '{}/{}_{}'.format(directory_for_scan, scan_name, diffuse_file_output.name)
-    ###############
-    ### DIFFUSE ###
-    ###############
+      ###############
+      ### DIFFUSE ###
+      ###############
+      
+      diffuse_file_output = tree.nodes.new(type="CompositorNodeOutputFile")
+      diffuse_file_output.name = 'diffuse_output_compositor'
+      tone_map_node = tree.nodes.new(type="CompositorNodeTonemap")
+      tone_map_node.intensity = 1.0
+      links.new(render_layer.outputs['DiffCol'], tone_map_node.inputs[0])
+      links.new(tone_map_node.outputs[0],diffuse_file_output.inputs[0])
+      diffuse_file_output.format.file_format = "PNG"
+      diffuse_file_output.format.color_mode = "RGBA"
+      diffuse_file_output.base_path = '{}/{}_{}'.format(directory_for_scan, scan_name, diffuse_file_output.name)
+      ##############
+      ## DIFFUSE ###
+      ##############
 
 
   def scan(self, exposure_time=0.3, scan_id="", resolution=1.0):
@@ -721,9 +751,9 @@ class Iris():
             'y_pos': self.sensors.focal_point.y,
             'z_pos': self.sensors.focal_point.z,
             'pitch': self.sensors.rotation_euler_x,
-            'roll': self.sensors.rotation_euler_y,
-            'yaw': self.sensors.rotation_euler_z,
-            'single_color_render': (0.148636, 0.204908, 0.1400332, 1),
+            'yaw': self.sensors.rotation_euler_y,
+            'roll': self.sensors.rotation_euler_z,
+            'single_color_render': (0.248636, 0.504908, 0.2400332, 1),
             'single_color_roughness': 0.5}
     
     with open('{}/outputs/{}/data.json'.format(cwd, scan_name), 'w') as outfile:
@@ -797,62 +827,78 @@ class Iris():
     # RENDER IMAGES #
 
     bpy.context.scene.render.engine = 'BLENDER_EEVEE'
-    for (render_node, name) in [('Principled BSDF', 'render'), ('emission_node', 'roughness'), ('diffuse_bsdf', 'single_color'), ('Image Texture', 'diffuse_colors')]:
-      print("---------------------------------")
-      print('Currently rendering: {}'.format(name))
-      print("---------------------------------\n")
-      for m in bpy.context.object.material_slots:  
-        print('start for loop engine: {} for scan {}'.format(bpy.context.scene.render.engine, scan_name))
-        links = m.material.node_tree.links      # shader       
-        nodes = m.material.node_tree.nodes
-        links.new(nodes[render_node].outputs[0], nodes['Material Output'].inputs[0])
-        render_filepath = "{}/{}_{}".format(directory_for_scan, scan_name, name)
-        print("Rendering image to {}.png".format(render_filepath))
-        if render_node == 'Principled BSDF':
-          bpy.context.scene.render.use_compositing = True
-        else:
-          bpy.context.scene.render.use_compositing = False 
-        time_start = time.time()
-        bpy.data.scenes["Scene"].render.filepath = render_filepath
-        bpy.ops.render.render(animation=False, write_still=True)
-        time_end = time.time()
+    if (inverse_render_mode == False):
+      for (render_node, name) in [('geometry_node', 'geometry'), ('Principled BSDF', 'render'), ('emission_node', 'roughness'), ('diffuse_bsdf', 'single_color'), ('Image Texture', 'diffuse_colors')]:
         print("---------------------------------")
-        print("--> Rendered scan image in {} seconds".format(round(time_end - time_start, 4)))
-        print("---------------------------------\n")   
+        print('Currently rendering: {}'.format(name))
+        print("---------------------------------\n")
+        for m in bpy.context.object.material_slots:  
+          image_settings = bpy.context.scene.render.image_settings
+          image_settings.file_format = "PNG"
+          print('start for loop engine: {} for scan {}'.format(bpy.context.scene.render.engine, scan_name))
+          links = m.material.node_tree.links      # shader       
+          nodes = m.material.node_tree.nodes
+          links.new(nodes[render_node].outputs[0], nodes['Material Output'].inputs[0])
+          render_filepath = "{}/{}_{}".format(directory_for_scan, scan_name, name)
+          print("Rendering image to {}.png".format(render_filepath))
+
+          if render_node == 'Principled BSDF':
+            bpy.context.scene.render.use_compositing = True
+          elif render_node == 'geometry_node':
+            image_settings.file_format = "OPEN_EXR"
+          else:
+            bpy.context.scene.render.use_compositing = False
+          
+          time_start = time.time()
+          bpy.data.scenes["Scene"].render.filepath = render_filepath
+          bpy.ops.render.render(animation=False, write_still=True)
+          time_end = time.time()
+          print("---------------------------------")
+          print("--> Rendered scan image in {} seconds".format(round(time_end - time_start, 4)))
+          print("---------------------------------\n") 
+    else:
+      time_start = time.time()
+      render_filepath = "{}/{}_inv_render".format(directory_for_scan, scan_name)
+      bpy.data.scenes["Scene"].render.filepath = render_filepath
+      bpy.ops.render.render(animation=False, write_still=True)
+      time_end = time.time()
+      print("---------------------------------")
+      print("--> Rendered inverse render image in {} seconds".format(round(time_end - time_start, 4)))
+      print("---------------------------------\n") 
     bpy.context.scene.render.engine = 'CYCLES'
       
     # RENDER IMAGES #
+    if (inverse_render_mode == False):
+      # RENAMING FILES BECAUSE BLENDER WON'T DO IT #
+      for output in ['diffuse_output_compositor', 'normal_output', 'depth_output_gt_not_normalized']:
+        output_path = '{}_{}'.format(scan_name, output)
+        current_file = '{}/{}'.format(directory_for_scan, output_path)
+        output_file_current = os.listdir(current_file)[0]
+        _, file_extension = os.path.splitext(output_file_current)
+        output_file_new = '{}/{}{}'.format(directory_for_scan, output_path, file_extension)
+        output_file_old = '{}/{}/{}'.format(directory_for_scan, output_path,output_file_current)
+        os.rename(output_file_old, output_file_new)
+        os.rmdir(current_file)
+      # RENAMING FILES BECAUSE BLENDER WON'T DO IT #
 
-    # RENAMING FILES BECAUSE BLENDER WON'T DO IT #
-    for output in ['diffuse_output_compositor', 'normal_output', 'depth_output_gt_not_normalized']:
-      output_path = '{}_{}'.format(scan_name, output)
-      current_file = '{}/{}'.format(directory_for_scan, output_path)
-      output_file_current = os.listdir(current_file)[0]
-      _, file_extension = os.path.splitext(output_file_current)
-      output_file_new = '{}/{}{}'.format(directory_for_scan, output_path, file_extension)
-      output_file_old = '{}/{}/{}'.format(directory_for_scan, output_path,output_file_current)
-      os.rename(output_file_old, output_file_new)
-      os.rmdir(current_file)
-    # RENAMING FILES BECAUSE BLENDER WON'T DO IT #
+          
+      blender_exr_depth_output = cv.imread('{}/{}_depth_output_gt_not_normalized.exr'.format(directory_for_scan, scan_name), cv.IMREAD_ANYCOLOR | cv.IMREAD_ANYDEPTH)
+      image = np.asarray(blender_exr_depth_output, dtype=np.float32)
+      shape = image.shape
 
-        
-    blender_exr_depth_output = cv.imread('{}/{}_depth_output_gt_not_normalized.exr'.format(directory_for_scan, scan_name), cv.IMREAD_ANYCOLOR | cv.IMREAD_ANYDEPTH)
-    image = np.asarray(blender_exr_depth_output, dtype=np.float32)
-    shape = image.shape
-
-    # ADD NOISE TO DEPTH VALUES #
-    noise_output_slice = image[:,:,2]
-    shape_noise = noise_output_slice.shape
-    noise_output_slice_flat = noise_output_slice.flatten()
-    apply_noise_map = [add_noise(x) for x in noise_output_slice_flat]
-    noise_applied = np.reshape(apply_noise_map, shape_noise)
-    noise_applied_image = np.asarray(np.dstack((noise_applied, noise_applied, noise_applied)), dtype=np.float32)
-    output_noise_not_normalized = '{}/{}_depth_output_noise_not_normalized.exr'.format(directory_for_scan, scan_name)
-    imageio.imwrite(output_noise_not_normalized, noise_applied_image)
-    # ADD NOISE TO DEPTH VALUES #
-    
-    normalize_depth_values(image, 'depth_output_gt_normalized.exr')
-    normalize_depth_values(noise_applied_image, 'depth_output_noise_normalized.exr')
+      # ADD NOISE TO DEPTH VALUES #
+      noise_output_slice = image[:,:,2]
+      shape_noise = noise_output_slice.shape
+      noise_output_slice_flat = noise_output_slice.flatten()
+      apply_noise_map = [add_noise(x) for x in noise_output_slice_flat]
+      noise_applied = np.reshape(apply_noise_map, shape_noise)
+      noise_applied_image = np.asarray(np.dstack((noise_applied, noise_applied, noise_applied)), dtype=np.float32)
+      output_noise_not_normalized = '{}/{}_depth_output_noise_not_normalized.exr'.format(directory_for_scan, scan_name)
+      imageio.imwrite(output_noise_not_normalized, noise_applied_image)
+      # ADD NOISE TO DEPTH VALUES #
+      
+      normalize_depth_values(image, 'depth_output_gt_normalized.exr')
+      normalize_depth_values(noise_applied_image, 'depth_output_noise_normalized.exr')
 
   def non_zero_degeneracy_radians(self, pitch,yaw,roll):
     # epsilon non-zero value to prevent degeneracy
@@ -927,14 +973,14 @@ def startOfflineSimulation(iris, exposure_time, path):
 
 
 if __name__ == "__main__":  
-  path = path_planning.get_pillow_path()
+  # path = path_planning.get_pillow_path_small()
 
-  iris = Iris(model="/pillow/pillow.glb", resolution=1.0)
-  startOfflineSimulation(iris=iris, exposure_time=0.015, path=path)
+  # iris = Iris(model="/pillow/pillow.glb", resolution=1.0)
+  # startOfflineSimulation(iris=iris, exposure_time=0.015, path=path)
 
-  # iris = Iris(model="pillow/pillow.glb", resolution=0.2)
-  # iris.view(x=0.9, y=0.45, z=0, rotation_x=95, rotation_y=0.0, rotation_z=130)
-  # iris.scan(exposure_time=0.01, scan_id=1)  
+  iris = Iris(model="pillow/pillow.glb", resolution=0.2)
+  iris.view(x=0.9, y=0.45, z=0, rotation_x=95, rotation_y=0.0, rotation_z=130)
+  iris.scan(exposure_time=0.01, scan_id=1)
 
   # path = path_planning.get_tire_path()
 
