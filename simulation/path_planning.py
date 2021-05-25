@@ -1,28 +1,26 @@
 import math
 
-
-
-def rotate(x, y, z, yaw, pitch, theta):
+def rotate(x, y, z, pitch, yaw, roll, theta):
 
   a = 1.0*math.radians(theta)
   xp = x*math.cos(a) - y*math.sin(a)
   yp = x*math.sin(a) + y*math.cos(a)
   zp = z
-  yaw = yaw - theta
-  if yaw >= 360.0:
-    yaw = yaw - 360.0
-  elif yaw < 0:
-    yaw = yaw + 360.0
-
-  return [xp, yp, zp, yaw, pitch]
-
+  roll = roll + theta
+  # yaw = yaw + theta
+  if roll >= 360.0:
+    roll = roll - 360.0
+  elif roll < 0:
+    roll = roll + 360.0
+  return [xp, yp, zp, pitch, yaw, roll]
 
 def rotateMotion(theta, path, fps, sec):
 
   p = path[-1]
   for i in range(1, int(fps*sec)+1):
-    p = rotate(p[0], p[1], p[2], p[3], p[4], theta/(fps*sec))
+    p = rotate(p[0], p[1], p[2], p[3], p[4], p[5], theta/(fps*sec))
     path.append(p)
+
 
 def zMotion(z, path, fps, sec):
   p = path[-1]
@@ -65,6 +63,116 @@ def get_theta_test_path():
     q[3] = theta
     path.append(q)
   
+  return path
+
+def get_pillow_path():
+  fps = 1.0
+  path = []
+  p = [0, 0.45, 0.45, 45.0, 0.0, 180.0]   # scan from above/side
+  path.append(p)
+  for i in range(30):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  
+  p = [0, 0.45, -0.45, 135.0, 0.0, 180.0]    # scan from below/side
+  path.append(p)
+  for i in range(30):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+
+  p = [0.9, 0.0, 0.0, 90.0, 0.0, 90.0]   # scan from the side
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+
+  p = [0.8, -0.55, 0, 90, 0, 45]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+
+  p = [0.24, -0.55, 0, 90, 0, 0]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.24, -0.55, 0, 90, 0, 0]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.8, -0.55, 0, 90, 0, 315]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.8, -0.17, 0, 90, 0, 280]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.8, 0.19, 0, 90, 0, 280]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.8, 0.55, 0, 90, 0, 235]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.24, 0.55, 0, 90, 0, 180]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [0.24, 0.55, 0, 90, 0, 180]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [0.8, 0.55, 0, 90, 0, 135]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [0.8, 0.19, 0, 90, 0, 90]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [0.8, 0.17, 0, 90, 0, 90]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [0.23, 0, 0.32, 0, 0, 0]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.23, 0, 0.32, 0, 0, 0]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [0.23, 0, -0.32, -180, 0, 0]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+  p = [-0.23, 0, -0.32, -180, 0, 0]
+  path.append(p)
+  for i in range(10):
+    rotateMotion(theta=10.0, path=path, fps=fps, sec=1.0)
+
+
+  
+   
+  return path
+
+def get_tire_path():
+  fps = 1.0
+  path = []
+  p = [0, -1.0, 0.7, 45.0, 0.0, 0.0]   # scan from above
+
+  path.append(p)
+  for i in range(24):
+    rotateMotion(theta=15.0, path=path, fps=fps, sec=1.0)
+  
+  p = [0.0, -1.0, 0.0, 90.0, 0.0, 0.0]    # scan from below
+  path.append(p)
+  for i in range(24):
+    rotateMotion(theta=15.0, path=path, fps=fps, sec=1.0)
+
+  p = [0.0, -1.0, 0.7, 135.0, 0.0, 0.0]   # scan from the side
+  path.append(p)
+  for i in range(24):
+    rotateMotion(theta=15.0, path=path, fps=fps, sec=1.0)
+   
   return path
 
 def get_balustervase_path():
@@ -113,8 +221,6 @@ def get_brownchair_path():
 
   for i in range(12):
     rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-
-
 
   return path
 
@@ -173,24 +279,27 @@ def get_circular_path():
   fps = 1.0
   path = []
 
-  # chair
-  p = [1.3, 0.0, 0.35, 90.0, 75.0]
+  # # chair
+  # p = [1.3, 0.0, 0.35, 90.0, 75.0]
+
+  # PILLOW
+  p = [0.0, 0.5, 0.4, 45.0, 0.0]
 
   # bplant
   #p = [1.25, 0.0, 0.9, 90.0, 75.0]
 
   path.append(p)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
-  rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
+  # rotateMotion(theta=30.0, path=path, fps=fps, sec=1.0)
   return path
 
 def get_mock_path():
@@ -276,5 +385,3 @@ if __name__ == "__main__":
   path = get_chalice_path()
   for i in range(0, len(path)):
     print (path[i])
-
-
