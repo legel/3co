@@ -36,8 +36,6 @@ Instructions for installing and developing on the simulator, with optics and pho
    ```blender_py -m pip install opencv-python```  
    ```blender_py -m pip install imageio```  
 
-
-
 #### Let there be renders
 The simulator is based in simulation/simulator.py, with an example to get one view implemented in the main function: 
 
@@ -94,7 +92,3 @@ To run:
 So for example, a new display 1:
 `sudo X :1 -config dummy-1920x1080.conf`
 `DISPLAY=:1 blender --python simulator.py -- device=gpu`
-  
-  
-  
-  
