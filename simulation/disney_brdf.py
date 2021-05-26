@@ -4,6 +4,7 @@ import open3d as o3d
 import copy
 import cv2
 from numpy.linalg import inv
+import tensorflow as tf
 
 ##############################################################################
 ################################### BRDF #####################################
@@ -11,11 +12,66 @@ from numpy.linalg import inv
 
 PI = 3.14159265358979323846 # preserving this silliness for the sake of posterity
 
+
 def sqr(x):
   return x*x
 
+def sqr_tf(x):
+  return tf.math.square(x)
+
+def _test_sqr_tf():
+  test_data = np.asarray([[2.0, 4.0, 8.0], [3.0, 5.0, 6.0]])
+  original_result = sqr(test_data)
+
+  tf_test_data = tf.convert_to_tensor(test_data)
+  tf_result = sqr_tf(tf_test_data)
+
+  tf_result_numpy = tf_result.numpy()
+
+  if np.array_equal(original_result, tf_result_numpy):
+    print("\nsqr() test passed")
+    print("{} is equal to {}".format(original_result, tf_result_numpy))
+  else:
+    print("\nsqr() test failed")
+    print("{} is not equal to {}".format(original_result, tf_result_numpy))
+
 def clamp(x, a, b):
-  return max(a, min(x, b))
+  absolute_min = a
+  absolute_max = b
+  x = min(x, absolute_max)
+  x = max(absolute_min, x)
+  return x
+
+def clamp_tf(x, a, b):
+  absolute_min = a
+  absolute_max = b
+  x = tf.math.minimum(x, absolute_max)
+  x = tf.math.maximum(absolute_min, x)
+  return x
+
+def _test_clamp_tf():
+  a = 0.0
+  b = 10.0
+  values_of_x = [-1.0, 0.0, 5.0, 10.0, 11.0]
+  original_results = []
+  tf_results = []
+
+  for x in values_of_x:
+    original_result = clamp(x, a, b)
+    original_results.append(original_result)
+
+    # tf_test_data = tf.convert_to_tensor(test_data)
+    tf_result = clamp_tf(x, a, b)
+    tf_result_numpy = tf_result.numpy()
+    tf_results.append(tf_result_numpy)
+
+  if np.array_equal(original_results, tf_results):
+    print("\nclamp() test passed")
+    print("{} is equal to {}".format(original_results, tf_results))
+  else:
+    print("\nclamp() test failed")
+    print("{} is not equal to {}".format(original_results, tf_results))
+
 
 def normalize(x):
 	norm = np.linalg.norm(x)
@@ -426,13 +482,18 @@ def render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_po
   render = np.zeros((height,width,3), np.float32)
 
   for i in range(height):
+    print(i)
+
     for j in range(width):
+
       diffuse_color = diffuse_colors[i,j]
       p = xyz_coordinates[i,j]
+
       N = normalize(normals[i,j])
       
       if diffuse_color[0] == 70/255 and diffuse_color[1] == 70/255 and diffuse_color[2] == 70/255:
         render[i,j,:] = [70/255,70/255,70/255]
+
       else:
         brdf_params = copy.deepcopy(reflectance_params)
         brdf_params['red'] = diffuse_color[0]
@@ -498,6 +559,9 @@ def main():
   cv2.imwrite("{}/toucan_0.5_0_render.png".format(path), render)
 
 
-
 if __name__ == "__main__":
-  main()
+  #_test_sqr_tf()
+  _test_clamp_tf()
+
+
+  #main()
