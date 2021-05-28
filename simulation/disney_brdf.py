@@ -17,11 +17,11 @@ PI = 3.14159265358979323846 # preserving this silliness for the sake of posterit
 ####################
 
 def tf_tests():
-  # _test_sqr_tf()
-  # _test_clamp_tf()
+  _test_sqr_tf()
+  _test_clamp_tf()
   # _test_normalize_tf()
   #_test_SchlickFresnel_tf()
-  _test_GTR1_tf()
+  # _test_GTR1_tf()
 
 
 ####################
@@ -36,10 +36,10 @@ def sqr_tf(x):
   return tf.math.square(x)
 
 def _test_sqr_tf():
-  test_data = np.asarray([[2.0, 4.0, 8.0], [3.0, 5.0, 6.0]])
+  test_data = np.asarray([[2.0, 4.0, 8.0], [3.0, 5.0, 6.0]], dtype=np.float64)
   original_result = sqr(test_data)
 
-  tf_test_data = tf.convert_to_tensor(test_data)
+  tf_test_data = tf.convert_to_tensor(test_data, dtype=tf.float64)
   tf_result = sqr_tf(tf_test_data)
 
   tf_result_numpy = tf_result.numpy()
@@ -50,43 +50,41 @@ def _test_sqr_tf():
   else:
     print("\nsqr() test failed")
     print("{} is not equal to {}".format(original_result, tf_result_numpy))
-## sqr ## 
 
-## clamp ## 
 def clamp(x, a, b):
   absolute_min = a
   absolute_max = b
-  x = min(x, absolute_max)
-  x = max(absolute_min, x)
+  x = np.minimum(x, absolute_max)
+  x = np.maximum(absolute_min, x)
   return x
 
-def clamp_tf(x, a, b):
-  absolute_min = tf.constant(a, dtype= tf.float32)
-  absolute_max = tf.constant(b, dtype= tf.float32)
-  x = tf.math.minimum(x, absolute_max)
-  x = tf.math.maximum(absolute_min, x)
-  return x
-  
 # def clamp_tf(x, a, b):
-#   tf.constant(x, dtype= tf.float32)
-#   tf.constant(a, dtype= tf.float32)
-#   tf.constant(b, dtype= tf.float32)
-#   return tf.clip_by_value(
-#       x, a, b, name=None
-#   )
+#   absolute_min = tf.constant(a, dtype= tf.float64)
+#   absolute_max = tf.constant(b, dtype= tf.float64)
+#   x = tf.math.minimum(x, absolute_max)
+#   x = tf.math.maximum(absolute_min, x)
+#   return x
+  
+def clamp_tf(x, a, b):
+  tf.constant(x, dtype= tf.float64)
+  tf.constant(a, dtype= tf.float64)
+  tf.constant(b, dtype= tf.float64)
+  return tf.clip_by_value(x, a, b, name=None)
 
 def _test_clamp_tf():
-  a = 1.0
-  b = 10.0             
+  a = np.float64(1.0)
+  b = np.float64(10.0)           
   test_data = [0.1, 0.0, 0.6, 0.19, 1.4, 10, -1.0, 0.0, 5.0, 10.0, 11.0] 
   original_results = []
   tf_results = []
 
   for x in test_data:
+    x = np.float64(x)
+
     original_result = clamp(x, a, b)
     original_results.append(original_result)
 
-    tensor_x = tf.constant(x, dtype= tf.float32)
+    tensor_x = tf.constant(x, dtype= tf.float64)
     tf_result = np.asarray(clamp_tf(tensor_x, a, b))
     tf_results.append(tf_result)
 
@@ -134,7 +132,7 @@ def _test_normalize_tf():
 ## normalize ## 
 
 def mix(x, y, a):
-	return x * (1 - a) + y*a
+	return x * (1 - a) + y * a
 
 ## SchlickFresnel ## 
 
@@ -594,7 +592,9 @@ def render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_po
 
   height = len(diffuse_colors)
   width = len(diffuse_colors[0])
+
   render = np.zeros((height,width,3), np.float32)
+  # all_zeros = np.zeros((height,width,3), np.float32)
 
   for i in range(height):
     print(i)
@@ -606,15 +606,23 @@ def render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_po
 
       N = normalize(normals[i,j])
       
+
       if diffuse_color[0] == 70/255 and diffuse_color[1] == 70/255 and diffuse_color[2] == 70/255:
         render[i,j,:] = [70/255,70/255,70/255]
 
       else:
+
         brdf_params = copy.deepcopy(reflectance_params)
+
         brdf_params['red'] = diffuse_color[0]
         brdf_params['green'] = diffuse_color[1]
         brdf_params['blue'] = diffuse_color[2]
+
         radiance = render_disney_brdf_on_point(camera_pos, N, camera_pos, p, brdf_params, diffuse_approximation)
+
+        # render = numpy.where(diffuse_color == [70/255,70/255,70/255], all_zeros, radiance)
+        # render = tf.where(...)
+
         render[i,j,:] = radiance
 
   return render
