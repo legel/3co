@@ -163,6 +163,7 @@ def BRDF( L, V, N, X, Y, baseColor = np.asarray([.82, .67, .16]), metallic = 0, 
   #return NdotL * (((1/PI) * mix(Fd, ss, subsurface)*Cdlin + Fsheen) * (1-metallic) + Gs*Fs*Ds + .25*clearcoat*Gr*Fr*Dr)
 
   # Innmann has the above leading NdotL, whereas original (below) does not?
+  # Note that the gradient will be slightly off if below used
   return ((1/PI) * mix(Fd, ss, subsurface)*Cdlin + Fsheen) * (1-metallic) + Gs*Fs*Ds + .25*clearcoat*Gr*Fr*Dr
 
 
@@ -288,7 +289,8 @@ def brdf_gradient( L, V, N, X, Y, baseColor = np.asarray([.82, .67, .16]), metal
 #   implementation of the BRDF...?
 def render_disney_brdf_on_point(light_pos, N, camera_pos, p, brdf_params, diffuse_approximation=False):
 
-
+  if (N == [0,0,0]).all():
+    return [70/255.0, 70/255.0, 70/255.0]
 
   # compute orthogonal vectors in surface tangent plane
   # note: any two orthogonal vectors on the plane will do. 
@@ -306,8 +308,10 @@ def render_disney_brdf_on_point(light_pos, N, camera_pos, p, brdf_params, diffus
   V = normalize(np.asarray(camera_pos[:3]) - np.asarray(vertex))
 
   #  L: light direction (same as view direction)
-  
   L = V
+
+  if (brdf_params['red'] > 1 or brdf_params['green'] > 1 or brdf_params['blue'] > 1):
+    raise Exception("Disney brdf requires [0, 1] representation for RGB")
 
   if diffuse_approximation == True:
     baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])    
@@ -331,9 +335,6 @@ def render_disney_brdf_on_point(light_pos, N, camera_pos, p, brdf_params, diffus
   for i in range(3):
     radiance[i] = round(radiance[i] * 255.0) / 255.0
 
-
-  #radiance = [NdotL, NdotL, NdotL]
-
   return radiance
 
 
@@ -344,12 +345,12 @@ def compute_irradiance(light_pos, N, camera_pos, p):
   light_green = 1
   light_blue = 1
   light_pos = light_pos[:3] # in case additional camera info passed in
-  #L = normalize(light_pos)
   L = normalize(np.asarray(camera_pos[:3]) - np.asarray(p))
 
   # as long as the object is centered at the origin, 
   # the following should result in a reasonable intensity
-  #light_intensity_scale = np.dot(light_pos - np.asarray([1,1,0]), light_pos - np.asarray([1,1,0])) 
+  #light_intensity_scale = np.dot(light_pos, light_pos) 
+  # TEMP HACK FOR BIRD CENTERED AT [1,1,0]
   light_intensity_scale = np.dot(light_pos - np.asarray([1,1,0]), light_pos - np.asarray([1,1,0])) 
   light_intensity = np.asarray([light_red, light_green, light_blue]) * light_intensity_scale  
 
@@ -361,17 +362,12 @@ def compute_irradiance(light_pos, N, camera_pos, p):
   irradiance = light_intensity / (light_to_surface_distance_squared) * cosine_term  
   return irradiance
 
-
 def render_disney_brdf_on_mesh(mesh, camera_pos, brdf_params, diffuse_approximation=False):
-
   if not mesh.has_vertex_normals():
     raise Exception("Mesh must have vertex normals")
   for i in range(len(mesh.vertices)):
-    # N: surface normal
     N = normalize(mesh.vertex_normals[i])
     p = [mesh.vertices[i][0], mesh.vertices[i][1], mesh.vertices[i][2]]
-    # L: light direction (same as view direction)
-    L = camera_pos
     mesh.vertex_colors[i] = render_disney_brdf_on_point(camera_pos, N, camera_pos, p, brdf_params, diffuse_approximation)
   return mesh
 
@@ -389,16 +385,13 @@ def render_diffuse_disney_brdf_on_mesh(mesh, camera_pos, c):
   brdf_params['blue'] = c[2]  
   return render_disney_brdf_on_mesh(mesh, camera_pos, brdf_params, True)
 
-
 # Here, diffuse BRDF is defined as (1/pi) * NdotL * c,
 # where c is base color
 def render_diffuse_brdf_on_point(light_pos, N, camera_pos, p, c):
-
-  L = normalize(light_pos)
+  L = normalize(np.asarray(light_pos) - np.asarray(p))
   N = normalize(N)
   irradiance = compute_irradiance(light_pos, N, camera_pos, p)
   radiance = irradiance * (1.0 / math.pi) * np.dot(N, L) * c
-
   radiance = np.power(radiance, 1.0 / 2.2)
   for i in range(3):
     radiance[i] = round(radiance[i] * 255.0) / 255.0
@@ -409,92 +402,82 @@ def render_diffuse_brdf_on_mesh(mesh, camera_pos, c):
   if not mesh.has_vertex_normals():
     raise Exception("Mesh must have vertex normals")
   for i in range(len(mesh.vertices)):
-    # N: surface normal
     N = normalize(mesh.vertex_normals[i])
     p = [mesh.vertices[i][0], mesh.vertices[i][1], mesh.vertices[i][2]]
-    # L: light direction (same as view direction)
-    L = camera_pos
     mesh.vertex_colors[i] = render_diffuse_brdf_on_point(camera_pos, N, camera_pos, p, c)
   return mesh  
 
 
-
 def render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_pos, reflectance_params, diffuse_approximation=False):
-
-  height = len(diffuse_colors)
-  width = len(diffuse_colors[0])
+  height = len(xyz_coordinates)
+  width = len(xyz_coordinates[0])
   render = np.zeros((height,width,3), np.float32)
+  background_color = [70/255, 70/255, 70/255] # gray
 
   for i in range(height):
     for j in range(width):
-      diffuse_color = diffuse_colors[i,j]
+
+      # skip pixels with no data
+      if (normals[i,j,:] == [0,0,0]).all():
+        render[i,j,:] = background_color
+        continue
+
+      if np.asarray(diffuse_colors).shape == (3,):
+        diffuse_color = diffuse_colors
+      else:
+        diffuse_color = diffuse_colors[i,j]
+
       p = xyz_coordinates[i,j]
       N = normalize(normals[i,j])
       
-      if diffuse_color[0] == 70/255 and diffuse_color[1] == 70/255 and diffuse_color[2] == 70/255:
-        render[i,j,:] = [70/255,70/255,70/255]
-      else:
-        brdf_params = copy.deepcopy(reflectance_params)
-        brdf_params['red'] = diffuse_color[0]
-        brdf_params['green'] = diffuse_color[1]
-        brdf_params['blue'] = diffuse_color[2]
-        radiance = render_disney_brdf_on_point(camera_pos, N, camera_pos, p, brdf_params, diffuse_approximation)
-        render[i,j,:] = radiance
+      brdf_params = copy.deepcopy(reflectance_params)
+      brdf_params['red'] = diffuse_color[0]
+      brdf_params['green'] = diffuse_color[1]
+      brdf_params['blue'] = diffuse_color[2]
+
+      radiance = render_disney_brdf_on_point(camera_pos, N, camera_pos, p, brdf_params, diffuse_approximation)
+      render[i,j,:] = radiance
 
   return render
-
 
   
 def main():
 
-
   path = "models/toucan_0.5"
   fname = "{}/toucan_0.5_0_diffuse_colors_projected.png".format(path)  
-  img = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  img = cv2.imread(fname)
     
   diffuse_colors = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
   diffuse_colors = diffuse_colors / 255.0
 
-  x_offset = 0#1.1
-  y_offset = 0#1.1
-  z_offset = 0#0.5
-
   fname = "{}/toucan_0.5_0_geometry.exr".format(path)  
   img = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
   xyz_coordinates = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-  #xyz_coordinates = xyz_coordinates - [x_offset, y_offset, z_offset]
   xyz_coordinates = xyz_coordinates 
 
   fname = "{}/toucan_0.5_0_normals.exr".format(path)  
   img = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
   normals = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
 
-  # flamingo
-  #camera_pos = [1.62 - x_offset, 0.07 - y_offset, 0.62 - z_offset]
-
   # toucan
-  camera_pos = [1.7 - x_offset, 0.11 - y_offset, 0.7 - z_offset]
+  camera_pos = [1.7, 0.11, 0.7]
   
   brdf_params = {}
   brdf_params['metallic'] = 0.0
   brdf_params['subsurface'] = 0.0  
   brdf_params['specular'] = 0.5
-  brdf_params['roughness'] = 0.0
+  brdf_params['roughness'] = 0.3
   brdf_params['specularTint'] = 0.0
   brdf_params['anisotropic'] = 0.0
   brdf_params['sheen'] = 0.0
   brdf_params['sheenTint'] = 0.0
-  brdf_params['clearcoat'] = 1.0
-  brdf_params['clearcoatGloss'] = 1.0
-
+  brdf_params['clearcoat'] = 0.5
+  brdf_params['clearcoatGloss'] = 0.5
 
   render = render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_pos, brdf_params, False)
   render = render * 255.0
   
-  
   render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)      
-  
-
   cv2.imwrite("{}/toucan_0.5_0_render.png".format(path), render)
 
 
