@@ -4,7 +4,6 @@ import numpy as np
 import copy
 import cv2
 from numpy.linalg import inv
-import tensorflow as tf
 
 ##############################################################################
 ################################### BRDF #####################################
@@ -12,6 +11,7 @@ import tensorflow as tf
 
 PI = 3.14159265358979323846 # preserving this silliness for the sake of posterity
 
+<<<<<<< HEAD
 ####################
 ## test functions ##
 ####################
@@ -98,114 +98,34 @@ def _test_clamp_tf():
   else:
     print("\nclamp() test failed")
     print("{} is not equal to {}".format(original_results, tf_results))
+=======
+def sqr(x):
+  return x*x
 
-## clamp ## 
+def clamp(x, a, b):
+  return max(a, min(x, b))
+>>>>>>> 266567b33c9e1999683924136a0b2c61f9b3268c
 
-## normalize ## 
 def normalize(x):
 	norm = np.linalg.norm(x)
 	if norm == 0:
 		return x
 	return x / norm
 
-def normalize_tf(x):
-	norm = tf.linalg.norm(x)
-	if norm == 0:
-		return x
-	return x / norm
-
-def _test_normalize_tf():
-  test_data = np.asarray([[2.0, 4.0, 8.0], [-4.0, 4.0, 0.0]])
-  original_result = normalize(test_data)
-
-  tf_test_data = tf.convert_to_tensor(test_data)
-  tf_result = normalize_tf(tf_test_data)
-
-  tf_result_numpy = tf_result.numpy()
-
-  if np.array_equal(original_result, tf_result_numpy):
-    print("\nnormalize() test passed")
-    print("{} is equal to {}".format(original_result, tf_result_numpy))
-  else:
-    print("\nnormalize() test failed")
-    print("{} is not equal to {}".format(original_result, tf_result_numpy))
-## normalize ## 
-
 def mix(x, y, a):
 	return x * (1 - a) + y * a
-
-## SchlickFresnel ## 
 
 def SchlickFresnel(u):
   m = clamp(1-u, 0, 1)
   m2 = m*m
   return m2*m2*m # pow(m,5)
 
-def SchlickFresnel_tf(u):
-  u = tf.constant(u, dtype= tf.float32)   
-  m = tf.constant(clamp_tf(1-u, 0, 1), dtype= tf.float32)
-  power = tf.constant(5, dtype= tf.float32)
-  return tf.pow(m, power) # pow(m,5)
-
-def _test_SchlickFresnel_tf():
-  test_data = [0.1, 0.2, 0.4, 0.99, 1.99, 200]
-  original_results = []
-  tf_results = []
-
-  for test in test_data:
-    original_results.append(SchlickFresnel(test))
-    tf_results.append(SchlickFresnel_tf(test).numpy())
-
-  if np.array_equal(original_results, tf_results):
-    print("\nSchlickFresnel() test passed")
-    print("{} is equal to {}".format(original_results, tf_results))
-  else:
-    print("\nSchlickFresnel() test failed")
-    print("{} is not equal to {}".format(original_results, tf_results))
-
-# The datatypes are different. The test fails with:
-# '0.3276800000000002 is not equal to 0.3276800000000001'
-
-## SchlickFresnel ## 
-
-## GTR1 ##
 def GTR1(NdotH, a):
   if (a >= 1): 
     return 1/PI
   a2 = a*a
   t = 1 + (a2-1)*NdotH*NdotH
   return (a2-1) / (PI*math.log(a2)*t)
-
-def GTR1_tf(NdotH, a):
-  NdotH = tf.constant(NdotH, dtype=tf.float32)
-  a = tf.constant(a, dtype=tf.float32)
-
-  if (a >= 1):
-    result = tf.constant(1/PI, dtype=tf.float32)
-    return result
-  power = tf.constant(2, dtype=tf.float32)
-  a2 = tf.pow(a, power)
-  NdotH2 = tf.pow(NdotH, power)
-  t = 1 + (a2-1)*NdotH2
-  return (a2-1) / (PI*tf.math.log(a2)*t)
-
-def _test_GTR1_tf():
-  test_data = [(0.00003908, 0.001), (0.1, 0.4), (0.2, 0.001), (0.00001, 0.4), (2.0, 0.99), (1.99, 333), (0.0, 200)]
-  original_results = []
-  tf_results = []
-
-  for NdotH, a in test_data:
-    original_results.append(GTR1(NdotH, a))
-    tf_results.append(GTR1_tf(NdotH, a).numpy())
-
-  if np.array_equal(original_results, tf_results):
-    print("\nGTR1() test passed")
-    print("{} is equal to {}".format(original_results, tf_results))
-  else:
-    print("\nGTR1() test failed")
-    print("{} is not equal to {}".format(original_results, tf_results))
- 
-## GTR1 ##
 
 def GTR2_aniso(NdotH, HdotX, HdotY, ax, ay):
   return 1 / ( PI * ax*ay * sqr( sqr(HdotX/ax) + sqr(HdotY/ay) + NdotH*NdotH ))
@@ -597,19 +517,14 @@ def render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_po
   # all_zeros = np.zeros((height,width,3), np.float32)
 
   for i in range(height):
-    print(i)
-
     for j in range(width):
-
       diffuse_color = diffuse_colors[i,j]
       p = xyz_coordinates[i,j]
-
       N = normalize(normals[i,j])
       
 
       if diffuse_color[0] == 70/255 and diffuse_color[1] == 70/255 and diffuse_color[2] == 70/255:
         render[i,j,:] = [70/255,70/255,70/255]
-
       else:
 
         brdf_params = copy.deepcopy(reflectance_params)
@@ -682,7 +597,6 @@ def main():
   cv2.imwrite("{}/toucan_0.5_0_render.png".format(path), render)
 
 
-if __name__ == "__main__":
-  tf_tests()
 
-  #main()
+if __name__ == "__main__":
+  main()
