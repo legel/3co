@@ -29,25 +29,10 @@ def clamp_tf(x, a, b):
 def normalize_tf(x):
   norm = np.array(tf.linalg.norm(x, axis=2))
   ones = tf.ones([1024, 1024], dtype=tf.float64)
-  # nnorm = tf.where(norm[norm==0], lambda: ones, lambda: norm)
   norm[norm == 0.0] = tf.constant(1.0, dtype=tf.float64)
   norm = tf.broadcast_to(tf.expand_dims(norm, axis=2), [1024, 1024, 3])
   result = x / norm
-  # result = tf.where(norm[norm == tf.constant([0.0, 0.0, 0.0], dtype=tf.float64)], lambda: x, lambda: x / norm)
   return result
-
-# def mix_tf(x, y, a):
-#   x = tf.constant(x, dtype=tf.float64)
-#   y = tf.constant(y, dtype=tf.float64)
-#   a = tf.constant(a, dtype=tf.float64)
-
-#   one = tf.constant(1.0, dtype=tf.float64)
-
-#   one_minus_a = tf.math.subtract(one, a)
-#   x_times_one_minus_a = tf.math.multiply(x, one_minus_a)
-#   y_times_a = tf.math.multiply(y, a)
-#   addition = tf.math.add(x_times_one_minus_a, y_times_a)
-#   return addition
 
 def mix_tf(x, y, a):
   return x * (1 - a) + y * a
@@ -57,33 +42,16 @@ def SchlickFresnel_tf(u):
   return tf.pow(m, 5) # pow(m,5)
 
 def GTR1_tf(NdotH, a):
-  NdotH = tf.constant(NdotH, dtype=tf.float64)
-  a = tf.constant(a, dtype=tf.float64)
-
-  if (a >= 1):
-    result = tf.constant(1/PI, dtype=tf.float64)
-    return result
-  power = tf.constant(2, dtype=tf.float64)
-  a2 = tf.pow(a, power)
-  NdotH2 = tf.pow(NdotH, power)
-  t = 1 + (a2-1)*NdotH2
-  return (a2-1) / (PI*tf.math.log(a2)*t)
+  if (a >= 1): 
+    return 1/PI
+  a2 = a*a
+  t = 1 + (a2-1)*NdotH*NdotH
+  return (a2-1) / (PI*math.log(a2)*t)
 
 def GTR2_aniso_tf(NdotH, HdotX, HdotY, ax, ay):
-  PI = tf.constant(3.14159265358979323846, dtype=tf.float64)
-  ax_times_ay = tf.math.multiply(ax, ay)
-  PI_times_ax_times_ay = tf.math.multiply(PI, ax_times_ay)
-  HdotX_divide_ax = tf.math.divide(HdotX, ax)
-  HdotX_divide_ax_squared = sqr_tf(HdotX_divide_ax)
-  HdotY_divide_ay = tf.math.divide(HdotY, ay)
-  HdotY_divide_ay_squared = sqr_tf(HdotY_divide_ay)
-  NdotH_squared = sqr_tf(NdotH)
-  left_side_added = tf.math.add(HdotX_divide_ax_squared, HdotY_divide_ay_squared)
-  left_side_more_added = tf.math.add(left_side_added, NdotH_squared)
-  left_side_sqr = sqr_tf(left_side_more_added)
-  noemer = tf.math.multiply(PI_times_ax_times_ay, left_side_sqr)
-  teller = tf.constant(1, dtype=tf.float64)
-  return tf.math.divide(1, noemer)
+  shape = tf.shape(NdotH)
+  ones = tf.ones(shape, dtype=tf.float64)
+  return ones / ( PI * ax*ay * sqr_tf( sqr_tf(HdotX/ax) + sqr_tf(HdotY/ay) + sqr_tf(NdotH)))
 
 def smithG_GGX_tf(Ndotv, alphaG):
   a = sqr_tf(alphaG)
@@ -93,22 +61,18 @@ def smithG_GGX_tf(Ndotv, alphaG):
   teller = tf.constant(1, dtype=tf.float64)
   return teller/noemer
 
-def d_GGX_aG_tf(NdotA, aG):
-  NdotA_squared = sqr_tf(NdotA)
-  aG_squared = sqr_tf(aG)
-  sum = tf.math.add(NdotA_squared, aG_squared)
-  multiplied = tf.math.multiply(NdotA_squared, aG_squared)
-  subtract = tf.math.subtract(sum, multiplied)
-  k = tf.math.sqrt(subtract)
-  # left
-  subtract_1_of_ndota = tf.math.subtract(NdotA_squared, tf.constant(1.0,dtype=tf.float64))
-  aG_times_subtract = tf.math.multiply(aG, subtract_1_of_ndota)
+# innmann version of this partial derivative seems to have an extra aG which is incorrect?
+#def d_GGX_aG_innmann(NdotA, aG):
+#  k = math.sqrt( aG**2 + NdotA**2 - aG**2 * NdotA**2 )
+#  return aG*aG * (NdotA**2 - 1.0) / (k * (NdotA + k)**2)
 
-  # right
-  sum_ndota_k = tf.math.add(NdotA, k)
-  sum_ndota_k_squared = sqr_tf(sum_ndota_k)
-  k_times_sum_ndota_k_squared = tf.multiply(k, sum_ndota_k_squared)
-  return tf.math.divide(aG_times_subtract, k_times_sum_ndota_k_squared)
+def d_GGX_aG_tf(NdotA, aG):
+  k = tf.math.sqrt( sqr_tf(aG) + sqr_tf(NdotA) - sqr_tf(aG) * sqr_tf(NdotA) )
+  return aG * (sqr_tf(NdotA) - 1.0) / (k * sqr_tf((NdotA + k)))
+
+def smithG_GGX_aniso_tf(NdotV, VdotX, VdotY, ax, ay):
+  return 1 / (NdotV + math.sqrt( sqr_tf(VdotX*ax) + sqr_tf(VdotY*ay) + sqr_tf(NdotV) ))
+
 
 def mon2lin_tf(x):
   x_tf = tf.math.pow(x, 2.2)
@@ -182,7 +146,7 @@ def BRDF_tf( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), me
   FH = SchlickFresnel_tf(LdotH)
   FH_exp = tf.broadcast_to(tf.expand_dims(FH, axis=2),[1024, 1024, 3])
   Fs = mix_tf(Cspec0, tf.ones((1024, 1024, 3), dtype=tf.float64), FH_exp)
-  # Fs = Fs[:,:,0]
+
   # Fs = mix(Cspec0, tf.ones((1024, 1024, 3), dtype=tf.float64), FN)
 
   # Gs = smithG_GGX_aniso(NdotL, np.dot(L, X), np.dot(L, Y), ax, ay)
@@ -210,7 +174,6 @@ def BRDF_tf( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), me
   brdf = ((1/PI) * Cdlin_mix_fd + Fsheen) * (1-metallic) + clearcoat_gr_fr_dr + Gs_exp*Fs*Ds_exp
 
   return L, V, N, X, Y, NdotL, NdotV, NdotH, LdotH, Cdlin, Cdlum, Ctint, Cspec0, Csheen, FL, FV, Fd90, Fd, Fss90, Fss, ss, anisotropic, aspect, ax, ay,Ds, FH, Fs, aG, Gs, Fsheen, Dr, Fr, Gr, brdf
-  # return ((1/PI) * test + Fsheen) * (1-metallic) + Gs*Fs*Ds + .25*clearcoat*Gr*Fr*Dr
 
 def brdf_gradient_tf( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), metallic = 0, subsurface = 0, specular = 0.5,
 	roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
@@ -414,9 +377,9 @@ def render_disney_brdf_image_tf(diffuse_colors, xyz_coordinates, normals, camera
                                         xyz_coordinates, 
                                         diffuse_colors, 
                                         brdf_params)
-  render = tf.where(diffuse_colors!=grey,
-   brdf,
-   diffuse_colors)
+  render = tf.where(diffuse_colors!=grey,  # where diffuse colors aren't grey... 
+   brdf,                                   # calculate the brdf 
+   diffuse_colors)                         # otherwise, make it grey!
   return render
 
 def main_tf():
