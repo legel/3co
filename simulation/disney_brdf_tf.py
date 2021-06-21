@@ -273,7 +273,7 @@ def brdf_gradient( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16
 
 
 # number_of_iterations = 1000
-# exponential_decay_learning = range(0.01 * (0.99**i) for i in range(number_of_iterations))
+# exponential_decay_learning = [0.01 * (0.99**i) for i in range(number_of_iterations)]
 #
 # initial_values = ...
 # hypothesis = initial_values
