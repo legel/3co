@@ -269,6 +269,31 @@ def brdf_gradient( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16
             d_f_clearcoat, d_f_clearcoatGloss
 
 
+# https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Optimizer#example_2  
+
+
+# number_of_iterations = 1000
+# exponential_decay_learning = range(0.01 * (0.99**i) for i in range(number_of_iterations))
+#
+# initial_values = ...
+# hypothesis = initial_values
+# for iteration in number_of_iterations:
+#   observation 
+#   inverse_render = f(hypothesis)
+#   loss = observation - inverse_render
+#   
+#   gradients = brdf_gradient()
+#   for parameter in parameters:
+#     roughness = roughness - loss * exponential_decay_learning[iteration] * gradients["d_f_roughness"]
+#     ...
+# 
+#   print(gradients)
+#   print(loss)
+#   good to visualize for every step
+
+# 
+
+
 def brdf_gradient_wrapper(L,V,N,X,Y, diffuse, brdf_params):
   baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])
   metallic = brdf_params['metallic']
