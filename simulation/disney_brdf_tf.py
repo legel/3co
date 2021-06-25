@@ -6,6 +6,7 @@ import cv2
 from numpy.linalg import inv
 import tensorflow as tf
 import time
+import scipy
 
 
 ######################################################################  ########
@@ -79,7 +80,7 @@ def mon2lin(x):
   return x
 
 def BRDF_wrapper(L, V, N, X, Y, diffuse,brdf_params):
-  baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])
+  # baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])
   metallic = brdf_params['metallic']
   subsurface = brdf_params['subsurface'] 
   specular = brdf_params['specular'] 
@@ -91,10 +92,14 @@ def BRDF_wrapper(L, V, N, X, Y, diffuse,brdf_params):
   clearcoat = brdf_params['clearcoat'] 
   clearcoatGloss = brdf_params['clearcoatGloss']  
 
-  return BRDF(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss) 
+  # return BRDF(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss) 
+  return BRDF(L, V, N, X, Y, diffuse, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss) 
 
-def BRDF( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), metallic = 0, subsurface = 0, specular = 0.5,
+def BRDF( L, V, N, X, Y, diffuse, metallic = 0, subsurface = 0, specular = 0.5,
 	roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
+
+# def BRDF( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), metallic = 0, subsurface = 0, specular = 0.5,
+# 	roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
 
   L = normalize(L)
   V = normalize(V)
@@ -109,9 +114,7 @@ def BRDF( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), metal
 
   NdotH = tf.reduce_sum(tf.math.multiply(N, H), axis=2)
   LdotH = tf.reduce_sum(tf.math.multiply(L, H), axis=2)
-  print(tf.shape(diffuse))
   Cdlin = mon2lin(diffuse)
-  print(tf.shape(Cdlin))
   Cdlum =  0.3*Cdlin[:,:,0] + 0.6*Cdlin[:,:,1]  + 0.1*Cdlin[:,:,2] # luminance approx.
   Cdlum_exp = tf.broadcast_to(tf.expand_dims(Cdlum, axis=2), [1024, 1024, 3])
   Ctint = tf.where(Cdlum_exp > 0, Cdlin/Cdlum_exp, tf.ones((1024, 1024, 3), dtype=tf.float64))
@@ -175,14 +178,20 @@ def BRDF( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), metal
 
   return L, V, N, X, Y, NdotL, NdotV, NdotH, LdotH, Cdlin, Cdlum, Ctint, Cspec0, Csheen, FL, FV, Fd90, Fd, Fss90, Fss, ss, anisotropic, aspect, ax, ay,Ds, FH, Fs, aG, Gs, Fsheen, Dr, Fr, Gr, brdf
 
-def brdf_gradient( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), metallic = 0, subsurface = 0, specular = 0.5,
-	roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
+# def brdf_gradient( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16]), metallic = 0, subsurface = 0, specular = 0.5,
+	#roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
   
-  
+def brdf_gradient( L, V, N, X, Y, diffuse, metallic = 0, subsurface = 0, specular = 0.5,
+roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
+
   L, V, N, X, Y, NdotL, NdotV, NdotH, LdotH, C_d, Cdlum, C_tint, C_spec0,\
      C_sheen, F_L, F_V, F_d90, F_d, F_ss90, F_ss, ss, anisotropic, aspect, ax, ay,\
-       D_s, F_H, F_s, aG, G_s, F_sheen, D_r, F_r, G_r, brdf = BRDF(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular,
-	roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)
+       D_s, F_H, F_s, aG, G_s, F_sheen, D_r, F_r, G_r, brdf = BRDF(L, V, N, X, Y, diffuse, metallic, subsurface, specular,
+	roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)  
+  # L, V, N, X, Y, NdotL, NdotV, NdotH, LdotH, C_d, Cdlum, C_tint, C_spec0,\
+  #    C_sheen, F_L, F_V, F_d90, F_d, F_ss90, F_ss, ss, anisotropic, aspect, ax, ay,\
+  #      D_s, F_H, F_s, aG, G_s, F_sheen, D_r, F_r, G_r, brdf = BRDF(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular,
+	# roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)
   H = normalize(L+V)
   HdotX = tf.reduce_sum(tf.math.multiply(H, X), axis=2)
   HdotY = tf.reduce_sum(tf.math.multiply(H, Y), axis=2)
@@ -264,38 +273,17 @@ def brdf_gradient( L, V, N, X, Y, diffuse, baseColor = np.asarray([.82, .67, .16
   ## clearcoatGloss ##   
  
   a, b, c = tf.zeros((1024, 1024, 3), dtype=tf.float64), tf.zeros((1024, 1024, 3), dtype=tf.float64), tf.zeros((1024, 1024, 3), dtype=tf.float64)
-  return a,b,c, d_f_metallic, d_f_subsurface, d_f_specular, \
-          d_f_roughness, d_f_specularTint, d_f_anisotropic, d_f_sheen, d_f_sheenTint, \
-            d_f_clearcoat, d_f_clearcoatGloss
+  
+  names = ['metallic_loss','subsurface_loss','specular_loss','roughness_loss','specularTint_loss','anisotropic_loss','sheen_loss','sheenTint_loss','clearcoat_loss','clearcoatGloss_loss']
+  for i,(name,thing) in enumerate(zip(names, [d_f_metallic, d_f_subsurface, d_f_specular,d_f_roughness, d_f_specularTint, d_f_anisotropic, d_f_sheen, d_f_sheenTint,d_f_clearcoat, d_f_clearcoatGloss])):
+    loss = np.array(thing * 255.0, dtype=np.float32)
+    loss = cv2.cvtColor(loss, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(f'models/toucan_0.5/def_brdf_gradient/{name}.png', loss)
 
-
-# https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Optimizer#example_2  
-
-
-# number_of_iterations = 1000
-# exponential_decay_learning = [0.01 * (0.99**i) for i in range(number_of_iterations)]
-#
-# initial_values = ...
-# hypothesis = initial_values
-# for iteration in number_of_iterations:
-#   observation 
-#   inverse_render = f(hypothesis)
-#   loss = observation - inverse_render
-#   
-#   gradients = brdf_gradient()
-#   for parameter in parameters:
-#     roughness = roughness - loss * exponential_decay_learning[iteration] * gradients["d_f_roughness"]
-#     ...
-# 
-#   print(gradients)
-#   print(loss)
-#   good to visualize for every step
-
-# 
-
+  return [d_f_metallic, d_f_subsurface, d_f_specular,d_f_roughness, d_f_specularTint, d_f_anisotropic, d_f_sheen, d_f_sheenTint,d_f_clearcoat, d_f_clearcoatGloss]
 
 def brdf_gradient_wrapper(L,V,N,X,Y, diffuse, brdf_params):
-  baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])
+  # baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])
   metallic = brdf_params['metallic']
   subsurface = brdf_params['subsurface'] 
   specular = brdf_params['specular'] 
@@ -306,16 +294,17 @@ def brdf_gradient_wrapper(L,V,N,X,Y, diffuse, brdf_params):
   sheenTint = brdf_params['sheenTint']
   clearcoat = brdf_params['clearcoat'] 
   clearcoatGloss = brdf_params['clearcoatGloss']  
+  # return brdf_gradient(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)  
+  return brdf_gradient(L, V, N, X, Y, diffuse, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)  
 
-  return brdf_gradient(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)  
 
-def render_disney_brdf_on_point(width, height, light_pos, N, camera_pos, p, diffuse, brdf_params, diffuse_approximation=False):
+def render_disney_brdf(width, height, light_pos, N, camera_pos, p, diffuse, brdf_params, diffuse_approximation=False):
   # compute orthogonal vectors in surface tangent plane
   # note: any two orthogonal vectors on the plane will do. 
   # choose the first one arbitrarily
   # baseColor_diffuse = np.asarray(diffuse)
 
-  brdf_params['red'], brdf_params['green'], brdf_params['blue'] = diffuse[:,:,0], diffuse[:,:,1], diffuse[:,:,2]
+  # brdf_params['red'], brdf_params['green'], brdf_params['blue'] = diffuse[:,:,0], diffuse[:,:,1], diffuse[:,:,2]
 
   U = normalize(tf.experimental.numpy.random.rand(width, height, 3))
 
@@ -333,7 +322,7 @@ def render_disney_brdf_on_point(width, height, light_pos, N, camera_pos, p, diff
   L = V
 
   L, V, N, X, Y, NdotL, NdotV, NdotH, LdotH, Cdlin, Cdlum, Ctint, Cspec0, Csheen, FL, FV, Fd90, Fd, Fss90, Fss, ss, anisotropic, aspect, ax, ay,Ds, FH, Fs, aG, Gs, Fsheen, Dr, Fr, Gr, brdf = tf.cond(diffuse_approximation == True,
-  lambda:BRDF(L=L, V=V, N=N, X=X, Y=Y, baseColor=np.asarray(brdf_params['red'], brdf_params['green'], brdf_params['blue']), metallic=0, subsurface=0, specular=0, roughness=1.0, specularTint=0, anisotropic=0,sheen=0,sheenTint=0,clearcoat=0,clearcoatGloss=0),
+  lambda:BRDF(L=L, V=V, N=N, X=X, Y=Y, metallic=0, subsurface=0, specular=0, roughness=1.0, specularTint=0, anisotropic=0,sheen=0,sheenTint=0,clearcoat=0,clearcoatGloss=0),
   lambda:BRDF_wrapper(L=L, V=V, N=N, X=X, Y=Y, diffuse=diffuse, brdf_params=brdf_params))
 
   # # Irradiance
@@ -351,9 +340,28 @@ def render_disney_brdf_on_point(width, height, light_pos, N, camera_pos, p, diff
 
   # # Project to [0-255] and back for consistency with .ply format
   radiance = np.round(radiance * 255.0) / 255.0
-  # # radiance = [NdotL, NdotL, NdotL]
+  
+  # # Directly fom Rob's optimization code, inverse gamma encoding or something along those lines
+  loss_radiance = tf.math.divide(tf.math.pow(brdf * irradiance, -1.2 / 2.2), 2.2) * irradiance
+
   print('calculations finished.')
-  return radiance
+
+  grey = tf.constant([70/255,70/255,70/255], tf.float64)
+  brdf = tf.where(diffuse!=grey, 
+   brdf,                          
+   diffuse)                       
+   
+  loss_radiance = tf.where(diffuse!=grey, 
+   loss_radiance,                         
+   diffuse)                        
+
+  radiance = tf.where(diffuse!=grey, 
+   radiance,                          
+   diffuse)              
+  return L, V, N, X, Y, brdf, loss_radiance, radiance  
+           # --> returning L, V, N, X, Y they don't have to be calculated again for gradients in optimization code
+           # --> returning brdf, loss_radiance, radiance they don't have to be calculated again for gradients in optimization code
+                    
 
 def compute_irradiance(light_pos, N, camera_pos, p):
   light_red = 1
@@ -384,17 +392,15 @@ def compute_irradiance(light_pos, N, camera_pos, p):
 
 def render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_pos, reflectance_params, diffuse_approximation=False):
 
-  width, height, _ = diffuse_colors.shape
+  width, height, _ = diffuse_colors.shape     
 
   render = tf.zeros((height,width,3), dtype=tf.float64)
-  diffuse_colors = tf.constant(diffuse_colors, dtype=tf.float64)
-  xyz_coordinates = tf.constant(xyz_coordinates, dtype=tf.float64)
-  normals = tf.constant(normals, dtype=tf.float64)
-  brdf_params = copy.deepcopy(reflectance_params)
   grey = tf.constant([70/255,70/255,70/255], tf.float64)
+  brdf_params = copy.deepcopy(reflectance_params)
+  
   print('calculating brdf...')
 
-  brdf = render_disney_brdf_on_point(width, 
+  L, V, N, X, Y, brdf, loss_radiance, radiance = render_disney_brdf(width, 
                                         height, 
                                         camera_pos,
                                         normals, 
@@ -403,8 +409,11 @@ def render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_po
                                         diffuse_colors, 
                                         brdf_params)
   render = tf.where(diffuse_colors!=grey,  # where diffuse colors aren't grey... 
-   brdf,                                   # calculate the brdf 
+   radiance,                               # calculate the radiance 
    diffuse_colors)                         # otherwise, make it grey!
+  brdf_params = copy.deepcopy(reflectance_params)
+  brdf_gradient_wrapper(L=L, V=V, N=N, X=X, Y=Y, diffuse=diffuse_colors, brdf_params=brdf_params)
+
   return render
 
 def main():
@@ -413,7 +422,7 @@ def main():
   y_offset = 0#1.1
   z_offset = 0#0.5
   
-  path = "/Users/x/3cology/research/simulation/models/toucan_0.5"
+  path = "models/toucan_0.5"
   fname = "{}/toucan_0.5_0_diffuse_colors.png".format(path)  
   img = cv2.imread(fname)
   diffuse_colors = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
@@ -457,10 +466,162 @@ def main():
   render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)
   cv2.imwrite("{}/toucan_0.5_0_render.png".format(path), render)
 
+
+def photometric_error(ground_truth, hypothesis):
+  return(tf.abs(ground_truth - hypothesis))
+
+def reflectance_loss(ground_truth, hypothesis, simple):
+  [width, height, _] = tf.shape(ground_truth)
+  total_pixels = tf.constant(width * height,dtype=tf.float64)
+  error = sqr(np.array(tf.linalg.norm((ground_truth - hypothesis), axis=2)))
+  return error / total_pixels
+
+
+# https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Optimizer#example_2  
+def lossgradient_hypothesis(diffuse_colors, xyz_coordinates, normals, camera_pos, brdf_hypothesis, ground_truth):
+  [width, height, _] = tf.shape(diffuse_colors)
+  total = tf.cast(width * height, dtype=tf.float64)
+  brdf_params = brdf_hypothesis
   
+  L, V, N, X, Y, brdf, loss_radiance, hypothesis = render_disney_brdf\
+                                       (width, 
+                                        height, 
+                                        camera_pos,
+                                        normals, 
+                                        camera_pos, 
+                                        xyz_coordinates, 
+                                        diffuse_colors, 
+                                        brdf_params)
+
+  grey = tf.constant([70/255,70/255,70/255], tf.float64)
+  hypothesis = tf.where(ground_truth!=grey,
+                           hypothesis,                              
+                           ground_truth)
+
+  # # pixelwise difference across rgb channels                         
+  loss = tf.reduce_sum(photometric_error(ground_truth, hypothesis), axis = 2) 
+
+  brdf_gradients = brdf_gradient_wrapper(L=L, V=V, N=N, X=X, Y=Y, diffuse=diffuse_colors, brdf_params=brdf_params)
+
+  loss_radiance = tf.reduce_sum(tf.math.multiply(brdf_gradients, loss_radiance), axis=3) * loss
+
+
+  zeros=tf.zeros([width, height], dtype=tf.float64)  # replacing any NaN values by 0
+  
+  # # average gradient over all pixels
+  metallic_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[0]), zeros, loss_radiance[0]))  / total
+  subsurface_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[1]), zeros, loss_radiance[1])) / total
+  specular_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[2]), zeros, loss_radiance[2])) / total
+  roughness_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[3]), zeros, loss_radiance[3])) / total
+  specularTint_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[4]), zeros, loss_radiance[4])) / total
+  anisotropic_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[5]), zeros, loss_radiance[5])) / total
+  sheen_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[6]), zeros, loss_radiance[6])) / total
+  sheenTint_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[7]), zeros, loss_radiance[7])) / total
+  clearcoat_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[8]), zeros, loss_radiance[8])) / total
+  clearcoatGloss_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[0]), zeros, loss_radiance[9])) / total
+
+  loss_gradients = [metallic_loss,\
+    subsurface_loss,specular_loss,\
+    roughness_loss,specularTint_loss,\
+    anisotropic_loss,sheen_loss,sheenTint_loss,\
+    clearcoat_loss,clearcoatGloss_loss]
+
+  return loss_gradients, hypothesis
+
+def optimization(diffuse_colors, xyz_coordinates, normals, camera_pos, ground_truth):
+  
+  number_of_iterations = 1000
+  exponential_decay_learning = [0.05 * (0.99**i) for i in range(number_of_iterations)]
+  brdf_hypothesis = {}
+  brdf_hypothesis['metallic'] = 0.00
+  brdf_hypothesis['subsurface'] = 0.0
+  brdf_hypothesis['specular'] = 0.5
+  brdf_hypothesis['roughness'] = 0.5
+  brdf_hypothesis['specularTint'] = 0.0
+  brdf_hypothesis['anisotropic'] = 0.0
+  brdf_hypothesis['sheen'] = 0.0
+  brdf_hypothesis['sheenTint'] = 0.0
+  brdf_hypothesis['clearcoat'] = 0.0
+  brdf_hypothesis['clearcoatGloss'] = 0.0
+  
+
+  for iteration in range(number_of_iterations):
+    print('-----------------------------------')
+    print(f'         Iteration {iteration}     ')
+    loss_gradients, hypothesis = lossgradient_hypothesis(diffuse_colors, xyz_coordinates, normals, camera_pos, brdf_hypothesis, ground_truth)
+
+    render = np.array(hypothesis * 255.0, dtype=np.float32)
+    render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(f'outputs/optimization/optimization_iter_{iteration}.png', render)
+
+
+    [metallic_loss,subsurface_loss,specular_loss,roughness_loss,\
+      specularTint_loss,anisotropic_loss,sheen_loss,sheenTint_loss,\
+        clearcoat_loss,clearcoatGloss_loss] = loss_gradients
+
+    brdf_hypothesis['metallic'] = clamp(brdf_hypothesis['metallic'] - exponential_decay_learning[iteration] * metallic_loss, 0, 1) ## clamp to keep brdf params in [0,1]
+    brdf_hypothesis['subsurface'] = clamp(brdf_hypothesis['subsurface'] - exponential_decay_learning[iteration] *  subsurface_loss, 0, 1)
+    brdf_hypothesis['specular'] = clamp(brdf_hypothesis['specular'] - exponential_decay_learning[iteration] * specular_loss, 0, 1)
+    brdf_hypothesis['roughness'] = clamp(brdf_hypothesis['roughness'] - exponential_decay_learning[iteration] * roughness_loss, 0, 1)
+    brdf_hypothesis['specularTint'] = clamp(brdf_hypothesis['specularTint'] - exponential_decay_learning[iteration] * specularTint_loss, 0, 1)
+    brdf_hypothesis['anisotropic'] = clamp(brdf_hypothesis['anisotropic'] - exponential_decay_learning[iteration] * anisotropic_loss, 0, 1)
+    brdf_hypothesis['sheen'] = clamp(brdf_hypothesis['sheen'] - exponential_decay_learning[iteration] * sheen_loss, 0, 1)
+    brdf_hypothesis['sheenTint'] = clamp(brdf_hypothesis['sheenTint'] - exponential_decay_learning[iteration] * sheenTint_loss, 0, 1)
+    brdf_hypothesis['clearcoat'] = clamp(brdf_hypothesis['clearcoat'] - exponential_decay_learning[iteration] * clearcoat_loss, 0, 1)
+    brdf_hypothesis['clearcoatGloss'] = clamp(brdf_hypothesis['clearcoatGloss'] - exponential_decay_learning[iteration] * clearcoatGloss_loss, 0, 1)
+
+    for parameter in brdf_hypothesis:
+      print(f'{parameter}: {brdf_hypothesis[parameter]}')
+    print('-----------------------------------')
+
+def optimize_main():
+  path = "models/toucan_0.5"
+  fname = "{}/toucan_0.5_0_diffuse_colors.png".format(path)  
+  img = cv2.imread(fname)
+  diffuse_colors = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
+  diffuse_colors = diffuse_colors / 255.0
+
+  fname = "{}/toucan_0.5_0_geometry.exr".format(path)  
+  img = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  xyz_coordinates = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+  fname = '{}/toucan_0.5_0_normals.exr'.format(path)
+  img = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  normals = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
+  camera_pos = [1.7, 0.11, 0.7]
+
+  diffuse_colors = tf.constant(diffuse_colors, dtype=tf.float64)
+  xyz_coordinates = tf.constant(xyz_coordinates, dtype=tf.float64)
+  normals = tf.constant(normals, dtype=tf.float64)
+
+  brdf_params = {}        # ground truth brdf values
+  brdf_params['metallic'] = 0.0
+  brdf_params['subsurface'] = 0.0 
+  brdf_params['specular'] = 0.5
+  brdf_params['roughness'] = 0.0
+  brdf_params['specularTint'] = 0.0
+  brdf_params['anisotropic'] = 0.0
+  brdf_params['sheen'] = 0.0
+  brdf_params['sheenTint'] = 0.0
+  brdf_params['clearcoat'] = 1.0
+  brdf_params['clearcoatGloss'] = 1.0
+
+  print('-----------------------------------')
+  print('building ground truth:')
+  ground_truth = render_disney_brdf_image(diffuse_colors, xyz_coordinates, normals, camera_pos, brdf_params, False)
+  render_gt = cv2.cvtColor(np.array(ground_truth * 255.0, dtype=np.float32), cv2.COLOR_RGB2BGR)
+  cv2.imwrite(f'outputs/optimization/ground_truth.png', render_gt)
+
+  print('starting optimization.')
+  optimization(diffuse_colors, xyz_coordinates, normals, camera_pos, ground_truth)
+  print('-----------------------------------')
+
+
+
 if __name__ == "__main__":
-  start_time = time.time()
-  main()
-  end_time = time.time()
-  print(f'render took {np.round(end_time - start_time, 2)} seconds.')
-  print('----------------------------------------')
+  # start_time = time.time()
+  # main()
+  # end_time = time.time()
+  # print(f'render took {np.round(end_time - start_time, 2)} seconds.')
+  # print('----------------------------------------')
+  optimize_main()
