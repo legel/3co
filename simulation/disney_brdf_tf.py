@@ -7,6 +7,7 @@ from numpy.linalg import inv
 import tensorflow as tf
 import time
 import scipy
+from pathlib import Path
 
 
 ######################################################################  ########
@@ -468,7 +469,7 @@ def main():
 
 
 def photometric_error(ground_truth, hypothesis):
-  return(tf.abs(ground_truth - hypothesis))
+  return(hypothesis - ground_truth) # tf.abs(ground_truth - hypothesis)
 
 def reflectance_loss(ground_truth, hypothesis, simple):
   [width, height, _] = tf.shape(ground_truth)
@@ -502,23 +503,51 @@ def lossgradient_hypothesis(diffuse_colors, xyz_coordinates, normals, camera_pos
   loss = tf.reduce_sum(photometric_error(ground_truth, hypothesis), axis = 2) 
 
   brdf_gradients = brdf_gradient_wrapper(L=L, V=V, N=N, X=X, Y=Y, diffuse=diffuse_colors, brdf_params=brdf_params)
-
   loss_radiance = tf.reduce_sum(tf.math.multiply(brdf_gradients, loss_radiance), axis=3) * loss
-
-
   zeros=tf.zeros([width, height], dtype=tf.float64)  # replacing any NaN values by 0
-  
+
   # # average gradient over all pixels
-  metallic_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[0]), zeros, loss_radiance[0]))  / total
-  subsurface_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[1]), zeros, loss_radiance[1])) / total
-  specular_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[2]), zeros, loss_radiance[2])) / total
-  roughness_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[3]), zeros, loss_radiance[3])) / total
-  specularTint_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[4]), zeros, loss_radiance[4])) / total
-  anisotropic_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[5]), zeros, loss_radiance[5])) / total
-  sheen_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[6]), zeros, loss_radiance[6])) / total
-  sheenTint_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[7]), zeros, loss_radiance[7])) / total
-  clearcoat_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[8]), zeros, loss_radiance[8])) / total
-  clearcoatGloss_loss = np.sum(tf.where(tf.math.is_nan(loss_radiance[0]), zeros, loss_radiance[9])) / total
+  infinity_jump=tf.fill(dims=[width, height], value=tf.cast(0.1, dtype=tf.float64))  # replacing any Infinite values by 0.1
+
+  metallic_loss = tf.where(tf.math.is_nan(loss_radiance[0]), zeros, loss_radiance[0])
+  metallic_loss = tf.where(tf.math.is_inf(metallic_loss), infinity_jump, metallic_loss)
+  metallic_loss = (tf.reduce_sum(metallic_loss) / total).numpy()
+
+  subsurface_loss = tf.where(tf.math.is_nan(loss_radiance[1]), zeros, loss_radiance[1])
+  subsurface_loss = tf.where(tf.math.is_inf(subsurface_loss), infinity_jump, subsurface_loss)
+  subsurface_loss = (tf.reduce_sum(subsurface_loss) / total).numpy()
+
+  specular_loss = tf.where(tf.math.is_nan(loss_radiance[2]), zeros, loss_radiance[2])
+  specular_loss = tf.where(tf.math.is_inf(specular_loss), infinity_jump, specular_loss)
+  specular_loss = (tf.reduce_sum(specular_loss) / total).numpy()
+
+  roughness_loss = tf.where(tf.math.is_nan(loss_radiance[3]), zeros, loss_radiance[3])
+  roughness_loss = tf.where(tf.math.is_inf(roughness_loss), infinity_jump, roughness_loss)
+  roughness_loss = (tf.reduce_sum(roughness_loss) / total).numpy()
+
+  specularTint_loss = tf.where(tf.math.is_nan(loss_radiance[4]), zeros, loss_radiance[4])
+  specularTint_loss = tf.where(tf.math.is_inf(specularTint_loss), infinity_jump, specularTint_loss)
+  specularTint_loss = (tf.reduce_sum(specularTint_loss) / total).numpy()
+
+  anisotropic_loss = tf.where(tf.math.is_nan(loss_radiance[5]), zeros, loss_radiance[5])
+  anisotropic_loss = tf.where(tf.math.is_inf(anisotropic_loss), infinity_jump, anisotropic_loss)
+  anisotropic_loss = (tf.reduce_sum(anisotropic_loss) / total).numpy()
+
+  sheen_loss = tf.where(tf.math.is_nan(loss_radiance[6]), zeros, loss_radiance[6])
+  sheen_loss = tf.where(tf.math.is_inf(sheen_loss), infinity_jump, sheen_loss)
+  sheen_loss = (tf.reduce_sum(sheen_loss) / total).numpy()
+
+  sheenTint_loss = tf.where(tf.math.is_nan(loss_radiance[7]), zeros, loss_radiance[7])
+  sheenTint_loss = tf.where(tf.math.is_inf(sheenTint_loss), infinity_jump, sheenTint_loss)
+  sheenTint_loss = (tf.reduce_sum(sheenTint_loss) / total).numpy()
+
+  clearcoat_loss = tf.where(tf.math.is_nan(loss_radiance[8]), zeros, loss_radiance[8])
+  clearcoat_loss = tf.where(tf.math.is_inf(clearcoat_loss), infinity_jump, clearcoat_loss)
+  clearcoat_loss = (tf.reduce_sum(clearcoat_loss) / total).numpy()
+
+  clearcoatGloss_loss = tf.where(tf.math.is_nan(loss_radiance[9]), zeros, loss_radiance[9])
+  clearcoatGloss_loss = tf.where(tf.math.is_inf(clearcoatGloss_loss), infinity_jump, clearcoatGloss_loss)
+  clearcoatGloss_loss = (tf.reduce_sum(clearcoatGloss_loss) / total).numpy()
 
   loss_gradients = [metallic_loss,\
     subsurface_loss,specular_loss,\
@@ -531,12 +560,12 @@ def lossgradient_hypothesis(diffuse_colors, xyz_coordinates, normals, camera_pos
 def optimization(diffuse_colors, xyz_coordinates, normals, camera_pos, ground_truth):
   
   number_of_iterations = 1000
-  exponential_decay_learning = [0.05 * (0.99**i) for i in range(number_of_iterations)]
+  exponential_decay_learning = [1.0 * (1.0**i) for i in range(number_of_iterations)]
   brdf_hypothesis = {}
   brdf_hypothesis['metallic'] = 0.00
-  brdf_hypothesis['subsurface'] = 0.0
+  brdf_hypothesis['subsurface'] = 0.00
   brdf_hypothesis['specular'] = 0.5
-  brdf_hypothesis['roughness'] = 0.5
+  brdf_hypothesis['roughness'] = 0.9
   brdf_hypothesis['specularTint'] = 0.0
   brdf_hypothesis['anisotropic'] = 0.0
   brdf_hypothesis['sheen'] = 0.0
@@ -544,6 +573,11 @@ def optimization(diffuse_colors, xyz_coordinates, normals, camera_pos, ground_tr
   brdf_hypothesis['clearcoat'] = 0.0
   brdf_hypothesis['clearcoatGloss'] = 0.0
   
+  print("\nInitial hypothesis:")
+  for parameter in brdf_hypothesis:
+    print("{}: {:.6f}".format(parameter, brdf_hypothesis[parameter]))
+    # print(f'{parameter}: {brdf_hypothesis[parameter]} (Loss: {loss_gradient})')
+
 
   for iteration in range(number_of_iterations):
     print('-----------------------------------')
@@ -570,8 +604,10 @@ def optimization(diffuse_colors, xyz_coordinates, normals, camera_pos, ground_tr
     brdf_hypothesis['clearcoat'] = clamp(brdf_hypothesis['clearcoat'] - exponential_decay_learning[iteration] * clearcoat_loss, 0, 1)
     brdf_hypothesis['clearcoatGloss'] = clamp(brdf_hypothesis['clearcoatGloss'] - exponential_decay_learning[iteration] * clearcoatGloss_loss, 0, 1)
 
-    for parameter in brdf_hypothesis:
-      print(f'{parameter}: {brdf_hypothesis[parameter]}')
+    print("\nLearning rate multiplier: {}\n".format(exponential_decay_learning[iteration]))
+    for parameter, loss_gradient in zip(brdf_hypothesis, loss_gradients):
+      print("{}: {:.6f} (Loss Gradient: {:.6f})".format(parameter, brdf_hypothesis[parameter], -1*loss_gradient))
+      # print(f'{parameter}: {brdf_hypothesis[parameter]} (Loss: {loss_gradient})')
     print('-----------------------------------')
 
 def optimize_main():
@@ -595,16 +631,19 @@ def optimize_main():
   normals = tf.constant(normals, dtype=tf.float64)
 
   brdf_params = {}        # ground truth brdf values
-  brdf_params['metallic'] = 0.0
-  brdf_params['subsurface'] = 0.0 
+  brdf_params['metallic'] = 0.00
+  brdf_params['subsurface'] = 0.00
   brdf_params['specular'] = 0.5
-  brdf_params['roughness'] = 0.0
+  brdf_params['roughness'] = 0.3
   brdf_params['specularTint'] = 0.0
   brdf_params['anisotropic'] = 0.0
   brdf_params['sheen'] = 0.0
   brdf_params['sheenTint'] = 0.0
-  brdf_params['clearcoat'] = 1.0
-  brdf_params['clearcoatGloss'] = 1.0
+  brdf_params['clearcoat'] = 0.0
+  brdf_params['clearcoatGloss'] = 0.0
+
+  Path("outputs/optimization").mkdir(parents=True, exist_ok=True)
+  Path("models/toucan_0.5/def_brdf_gradient").mkdir(parents=True, exist_ok=True)
 
   print('-----------------------------------')
   print('building ground truth:')
