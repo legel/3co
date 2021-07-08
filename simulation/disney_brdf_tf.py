@@ -365,29 +365,34 @@ def render_disney_brdf(width, height, light_pos, N, camera_pos, p, diffuse, brdf
                     
 
 def compute_irradiance(light_pos, N, camera_pos, p):
-  light_red = 1
-  light_green = 1
-  light_blue = 1
+  # light_red = 1
+  # light_green = 1
+  # light_blue = 1
+
+  light = 1
+
   light_pos = light_pos[:3] # in case additional camera info passed in
-  # L = normalize(light_pos)
-  L = normalize(tf.convert_to_tensor((np.asarray(camera_pos[:3]) - np.asarray(p)), dtype = tf.float64))
+  #L = normalize(light_pos)
+  L = normalize(np.asarray(camera_pos[:3]) - np.asarray(p))
 
   # as long as the object is centered at the origin, 
   # the following should result in a reasonable intensity
-  # light_intensity_scale = np.dot(light_pos - np.asarray([1,1,0]), light_pos - np.asarray([1,1,0])) 
-  
-  light_intensity_scale = tf.experimental.numpy.dot(light_pos - np.asarray([1,1,0]), light_pos - np.asarray([1,1,0])) 
-  light_intensity = tf.constant([light_red, light_green, light_blue], dtype=tf.float64) * light_intensity_scale  
+  light_intensity_scale = np.dot(light_pos - np.asarray([1,1,0]), light_pos - np.asarray([1,1,0])) 
+  light_intensity = light * light_intensity_scale
 
   # Irradiance
-  cosine_term = tf.convert_to_tensor(np.sum(N * L, axis=2),dtype=tf.float64)
+  cosine_term = tf.reduce_sum(tf.math.multiply(N, L), axis=2)
+
   cosine_term = tf.math.maximum(0.5, cosine_term)  # TEMP HACK TO DEAL WITH BIRD FLEAS
 
   vector_light_to_surface = tf.convert_to_tensor(np.asarray(light_pos[:3]) - np.asarray(p), dtype=tf.float64)
-  light_to_surface_distance_squared = tf.convert_to_tensor(np.sum(vector_light_to_surface * vector_light_to_surface, axis=2), dtype=tf.float64)
-  light_surf_sq_cosine = tf.broadcast_to(tf.expand_dims(light_to_surface_distance_squared * cosine_term, axis=2), [1024, 1024,3])
-  light_intensity = tf.broadcast_to(light_intensity, [1024, 1024, 3])
-  irradiance = light_intensity / light_surf_sq_cosine
+
+  light_to_surface_distance_squared = tf.reduce_sum(tf.math.multiply(vector_light_to_surface, vector_light_to_surface), axis=2)
+
+  light_intensity = tf.fill(dims=[1024, 1024], value=tf.cast(light_intensity, dtype=tf.float64))
+  irradiance = light_intensity / light_to_surface_distance_squared * cosine_term
+  irradiance =  tf.broadcast_to(tf.expand_dims(irradiance, axis=2), [1024, 1024,3])
+
   return irradiance
 
 
