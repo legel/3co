@@ -109,7 +109,7 @@ def BRDF( L, V, N, X, Y, diffuse, metallic = 0, subsurface = 0, specular = 0.5,
   Y = normalize(Y)
 
   NdotL = tf.reduce_sum(tf.math.multiply(N, L), axis=2)
-  NdotV = tf.reduce_sum(tf.math.multiply(N, V), axis=2)
+  NdotV = tf.reduce_sum(tf.math.multiply(N, V), axis=2)                 
 
   H = normalize(tf.math.add(L, V)) 
 
@@ -202,9 +202,12 @@ roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, 
   right_d_Fs_metallic = tf.broadcast_to(right_d_Fs_metallic, [1024, 1024, 3])
   d_Fs_metallic = C_d - 0.08 * specular * mix(tf.ones((1024, 1024, 3), dtype=tf.float64), C_tint, specularTint) * right_d_Fs_metallic
 
+  #print(d_Fs_metallic)
+
   NdotL3d = tf.broadcast_to(tf.expand_dims(NdotL, axis=2), [1024, 1024, 3])
   mix_f_d_ss_subsurface = tf.broadcast_to(tf.expand_dims(mix(F_d, ss, subsurface), axis=2), [1024, 1024, 3])
   G_s_D_s = tf.broadcast_to(tf.expand_dims(G_s * D_s, axis=2), [1024, 1024, 3])
+
   d_f_metallic = NdotL3d * ((-1.0 / PI) * mix_f_d_ss_subsurface * C_d + F_sheen + G_s_D_s * d_Fs_metallic)
   ## metallic ## 
   
@@ -280,6 +283,7 @@ roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, 
     loss = np.array(thing * 255.0, dtype=np.float32)
     loss = cv2.cvtColor(loss, cv2.COLOR_RGB2BGR)
     cv2.imwrite(f'models/toucan_0.5/def_brdf_gradient/{name}.png', loss)
+
 
   return [d_f_metallic, d_f_subsurface, d_f_specular,d_f_roughness, d_f_specularTint, d_f_anisotropic, d_f_sheen, d_f_sheenTint,d_f_clearcoat, d_f_clearcoatGloss]
 
@@ -500,59 +504,56 @@ def lossgradient_hypothesis(diffuse_colors, xyz_coordinates, normals, camera_pos
                                         brdf_params)
 
   grey = tf.constant([70/255,70/255,70/255], tf.float64)
-  hypothesis = tf.where(ground_truth!=grey,
-                           hypothesis,                              
-                           ground_truth)
 
   # # pixelwise difference across rgb channels                         
-  loss = tf.reduce_sum(photometric_error(ground_truth, hypothesis), axis = 2) 
+  loss = tf.reduce_sum(photometric_error(ground_truth, hypothesis), axis = 2)
 
   brdf_gradients = brdf_gradient_wrapper(L=L, V=V, N=N, X=X, Y=Y, diffuse=diffuse_colors, brdf_params=brdf_params)
+
   loss_radiance = tf.reduce_sum(tf.math.multiply(brdf_gradients, loss_radiance), axis=3) * loss
-  zeros=tf.zeros([width, height], dtype=tf.float64)  # replacing any NaN values by 0
+
+  zeros=tf.zeros([width, height, 3], dtype=tf.float64)
 
   # # average gradient over all pixels
-  infinity_jump=tf.fill(dims=[width, height], value=tf.cast(0.1, dtype=tf.float64))  # replacing any Infinite values by 0.1
+  metallic_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[0], axis=2), [1024, 1024,3])
+  metallic_loss = tf.where(ground_truth==grey, zeros, metallic_loss)
+  metallic_loss = (tf.reduce_sum(metallic_loss) / total).numpy() / 3.0
 
-  metallic_loss = tf.where(tf.math.is_nan(loss_radiance[0]), zeros, loss_radiance[0])
-  metallic_loss = tf.where(tf.math.is_inf(metallic_loss), infinity_jump, metallic_loss)
-  metallic_loss = (tf.reduce_sum(metallic_loss) / total).numpy()
+  subsurface_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[1], axis=2), [1024, 1024,3])
+  subsurface_loss = tf.where(ground_truth==grey, zeros, subsurface_loss)
+  subsurface_loss = (tf.reduce_sum(subsurface_loss) / total).numpy() / 3.0
 
-  subsurface_loss = tf.where(tf.math.is_nan(loss_radiance[1]), zeros, loss_radiance[1])
-  subsurface_loss = tf.where(tf.math.is_inf(subsurface_loss), infinity_jump, subsurface_loss)
-  subsurface_loss = (tf.reduce_sum(subsurface_loss) / total).numpy()
+  specular_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[2], axis=2), [1024, 1024,3])
+  specular_loss = tf.where(ground_truth==grey, zeros, specular_loss)
+  specular_loss = (tf.reduce_sum(specular_loss) / total).numpy() / 3.0
 
-  specular_loss = tf.where(tf.math.is_nan(loss_radiance[2]), zeros, loss_radiance[2])
-  specular_loss = tf.where(tf.math.is_inf(specular_loss), infinity_jump, specular_loss)
-  specular_loss = (tf.reduce_sum(specular_loss) / total).numpy()
+  roughness_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[3], axis=2), [1024, 1024,3])
+  roughness_loss = tf.where(ground_truth==grey, zeros, roughness_loss)
+  roughness_loss = (tf.reduce_sum(roughness_loss) / total).numpy() / 3.0
 
-  roughness_loss = tf.where(tf.math.is_nan(loss_radiance[3]), zeros, loss_radiance[3])
-  roughness_loss = tf.where(tf.math.is_inf(roughness_loss), infinity_jump, roughness_loss)
-  roughness_loss = (tf.reduce_sum(roughness_loss) / total).numpy()
+  specularTint_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[4], axis=2), [1024, 1024,3])
+  specularTint_loss = tf.where(ground_truth==grey, zeros, specularTint_loss)
+  specularTint_loss = (tf.reduce_sum(specularTint_loss) / total).numpy() / 3.0
 
-  specularTint_loss = tf.where(tf.math.is_nan(loss_radiance[4]), zeros, loss_radiance[4])
-  specularTint_loss = tf.where(tf.math.is_inf(specularTint_loss), infinity_jump, specularTint_loss)
-  specularTint_loss = (tf.reduce_sum(specularTint_loss) / total).numpy()
+  anisotropic_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[5], axis=2), [1024, 1024,3])
+  anisotropic_loss = tf.where(ground_truth==grey, zeros, anisotropic_loss)
+  anisotropic_loss = (tf.reduce_sum(anisotropic_loss) / total).numpy() / 3.0
 
-  anisotropic_loss = tf.where(tf.math.is_nan(loss_radiance[5]), zeros, loss_radiance[5])
-  anisotropic_loss = tf.where(tf.math.is_inf(anisotropic_loss), infinity_jump, anisotropic_loss)
-  anisotropic_loss = (tf.reduce_sum(anisotropic_loss) / total).numpy()
+  sheen_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[6], axis=2), [1024, 1024,3])
+  sheen_loss = tf.where(ground_truth==grey, zeros, sheen_loss)
+  sheen_loss = (tf.reduce_sum(sheen_loss) / total).numpy() / 3.0
 
-  sheen_loss = tf.where(tf.math.is_nan(loss_radiance[6]), zeros, loss_radiance[6])
-  sheen_loss = tf.where(tf.math.is_inf(sheen_loss), infinity_jump, sheen_loss)
-  sheen_loss = (tf.reduce_sum(sheen_loss) / total).numpy()
+  sheenTint_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[7], axis=2), [1024, 1024,3])
+  sheenTint_loss = tf.where(ground_truth==grey, zeros, sheenTint_loss)
+  sheenTint_loss = (tf.reduce_sum(sheenTint_loss) / total).numpy() / 3.0
 
-  sheenTint_loss = tf.where(tf.math.is_nan(loss_radiance[7]), zeros, loss_radiance[7])
-  sheenTint_loss = tf.where(tf.math.is_inf(sheenTint_loss), infinity_jump, sheenTint_loss)
-  sheenTint_loss = (tf.reduce_sum(sheenTint_loss) / total).numpy()
+  clearcoat_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[8], axis=2), [1024, 1024,3])
+  clearcoat_loss = tf.where(ground_truth==grey, zeros, clearcoat_loss)
+  clearcoat_loss = (tf.reduce_sum(clearcoat_loss) / total).numpy() / 3.0
 
-  clearcoat_loss = tf.where(tf.math.is_nan(loss_radiance[8]), zeros, loss_radiance[8])
-  clearcoat_loss = tf.where(tf.math.is_inf(clearcoat_loss), infinity_jump, clearcoat_loss)
-  clearcoat_loss = (tf.reduce_sum(clearcoat_loss) / total).numpy()
-
-  clearcoatGloss_loss = tf.where(tf.math.is_nan(loss_radiance[9]), zeros, loss_radiance[9])
-  clearcoatGloss_loss = tf.where(tf.math.is_inf(clearcoatGloss_loss), infinity_jump, clearcoatGloss_loss)
-  clearcoatGloss_loss = (tf.reduce_sum(clearcoatGloss_loss) / total).numpy()
+  clearcoatGloss_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[9], axis=2), [1024, 1024,3])
+  clearcoatGloss_loss = tf.where(ground_truth==grey, zeros, clearcoatGloss_loss)
+  clearcoatGloss_loss = (tf.reduce_sum(clearcoatGloss_loss) / total).numpy() / 3.0
 
   loss_gradients = [metallic_loss,\
     subsurface_loss,specular_loss,\
