@@ -641,7 +641,7 @@ def render( diffuse_colors,
   # save image if desired
   if file_path:
     print("Rendered {}".format(file_path))
-    # save_image(image_data=radiance, background_color=background_color, image_shape=image_shape, is_not_background=is_not_background, pixel_indices_to_render=pixel_indices_to_render, file_path=file_path)
+    save_image(image_data=radiance, background_color=background_color, image_shape=image_shape, is_not_background=is_not_background, pixel_indices_to_render=pixel_indices_to_render, file_path=file_path)
 
   return radiance
 
