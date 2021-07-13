@@ -8,9 +8,11 @@ import os, sys
 import copy
 import time
 
+
 @tf.function(jit_compile=True)
 def sqr(x):
   return tf.math.square(x)
+
 
 @tf.function(jit_compile=True)
 def clamp(x, a, b):
@@ -19,6 +21,7 @@ def clamp(x, a, b):
   x = tf.math.minimum(x, absolute_max)
   x = tf.math.maximum(absolute_min, x)
   return x
+
 
 @tf.function(jit_compile=True)
 def normalize(x):
@@ -30,14 +33,17 @@ def normalize(x):
   result = tf.cast(result, dtype=tf.float64)
   return result
 
+
 @tf.function(jit_compile=True)
 def mix(x, y, a):
   return x * (1 - a) + y * a
+
 
 @tf.function(jit_compile=True)
 def SchlickFresnel(u):
   m = clamp(1-u, 0, 1)
   return tf.pow(m, 5)
+
 
 @tf.function(jit_compile=True)
 def GTR1(NdotH, a):
@@ -50,11 +56,13 @@ def GTR1(NdotH, a):
   t = tf.cast(1 + (a2-1)*NdotH*NdotH, dtype=tf.float64)
   return (a2-1) / (pi*tf.math.log(a2)*t)
 
+
 @tf.function(jit_compile=True)
 def GTR2_aniso(NdotH, HdotX, HdotY, ax, ay):
   shape = tf.shape(NdotH)
   ones = tf.ones(shape, dtype=tf.float64)
   return ones / ( pi * ax * ay * sqr( sqr(HdotX/ax) + sqr(HdotY/ay) + sqr(NdotH)))
+
 
 @tf.function(jit_compile=True)
 def smithG_GGX(Ndotv, alphaG):
@@ -65,19 +73,23 @@ def smithG_GGX(Ndotv, alphaG):
   teller = tf.constant(1, dtype=tf.float64)
   return teller / noemer
 
+
 @tf.function(jit_compile=True)
 def d_GGX_aG(NdotA, aG):
   k = tf.math.sqrt( sqr(aG) + sqr(NdotA) - sqr(aG) * sqr(NdotA) )
   return aG * (sqr(NdotA) - 1.0) / (k * sqr((NdotA + k)))
 
+
 @tf.function(jit_compile=True)
 def smithG_GGX_aniso(NdotV, VdotX, VdotY, ax, ay):
   return 1 / (NdotV + tf.math.sqrt( sqr(VdotX*ax) + sqr(VdotY*ay) + sqr(NdotV) ))
+
 
 @tf.function(jit_compile=True)
 def mon2lin(x):
   x = tf.math.pow(x, 2.2)
   return x
+
 
 def mask_data(data, condition, replace_to="zeros"):  
   original_data_shape = data.shape
@@ -93,311 +105,394 @@ def mask_data(data, condition, replace_to="zeros"):
     masked_data = masked_data[:,:,0]
   return masked_data
 
+
 @tf.function(jit_compile=True)
-def brdf_gradient( L, V, N, X, Y, diffuse, metallic = 0, subsurface = 0, specular = 0.5,
-roughness = 0.5, specularTint = 0, anisotropic = 0, sheen = 0, sheenTint = 0.5, clearcoat = 0, clearcoatGloss = 1.0 ):
+def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_constant_in_optimization):
+  number_of_pixels = brdf_metadata.shape[0]
 
-  L, V, N, X, Y, NdotL, NdotV, NdotH, LdotH, C_d, Cdlum, C_tint, C_spec0,\
-     C_sheen, F_L, F_V, F_d90, F_d, F_ss90, F_ss, ss, anisotropic, aspect, ax, ay,\
-       D_s, F_H, F_s, aG, G_s, F_sheen, D_r, F_r, G_r, brdf = BRDF(L, V, N, X, Y, diffuse, metallic, subsurface, specular,
-	roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)  
+  # unwrap previously computed BRDF representations
+  NdotL = brdf_metadata[:,0]
+  NdotV = brdf_metadata[:,1]
+  NdotH = brdf_metadata[:,2]
+  LdotH = brdf_metadata[:,3]
+  Cdlin = brdf_metadata[:,4:7]
+  Ctint = brdf_metadata[:,7:10]
+  Csheen = brdf_metadata[:,10:13]
+  FL = brdf_metadata[:,13]
+  FV = brdf_metadata[:,14]
+  Fd90 = brdf_metadata[:,15]
+  Fd = brdf_metadata[:,16]
+  ss = brdf_metadata[:,17]
+  Ds = brdf_metadata[:,18]
+  FH = brdf_metadata[:,19]
+  Fs = brdf_metadata[:,20:23]
+  Gs = brdf_metadata[:,23]
+  Fsheen = brdf_metadata[:,24:27]
+  Dr = brdf_metadata[:,27]
+  Fr = brdf_metadata[:,28]
+  Gr = brdf_metadata[:,29]
+  aspect = brdf_metadata[:,30]
+  ax = brdf_metadata[:,31]
+  ay = brdf_metadata[:,32]
+  aG = brdf_metadata[:,33]
+  L = brdf_metadata[:,34:37]
+  V = brdf_metadata[:,37:40] 
+  N = brdf_metadata[:,40:43]
+  X = brdf_metadata[:,43:46]
+  Y = brdf_metadata[:,46:49]
 
-  # L, V, N, X, Y, NdotL, NdotV, NdotH, LdotH, C_d, Cdlum, C_tint, C_spec0,\
-  #    C_sheen, F_L, F_V, F_d90, F_d, F_ss90, F_ss, ss, anisotropic, aspect, ax, ay,\
-  #      D_s, F_H, F_s, aG, G_s, F_sheen, D_r, F_r, G_r, brdf = BRDF(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular,
-	# roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)
+  # unwrap current hypothesis BRDF parameters
+  metallic = brdf_parameters[0]
+  subsurface = brdf_parameters[1] 
+  specular = brdf_parameters[2]
+  roughness = brdf_parameters[3]
+  specularTint = brdf_parameters[4]
+  anisotropic = brdf_parameters[5]
+  sheen = brdf_parameters[6]
+  sheenTint = brdf_parameters[7]
+  clearcoat = brdf_parameters[8]
+  clearcoatGloss = brdf_parameters[9] 
 
-  H = normalize(L+V)
-  HdotX = tf.reduce_sum(tf.math.multiply(H, X), axis=2)
-  HdotY = tf.reduce_sum(tf.math.multiply(H, Y), axis=2)
+  # Note the following, with respect to potential to pre-cache as many inverse rendering optimization computations as possible:
+  # - values which are unchanged with respect to everything but BRDF parameters are marked with a *
+  # - values which change with respect to one or more BRDF parameters are marked with a f( ) and those parameters inside, e.g. f(parameter_1, parameter_2, ...)
+
+  # halfway vector
+  H = normalize(L+V) # *
+  HdotX = tf.reduce_sum(tf.math.multiply(H, X), axis=1) # *
+  HdotY = tf.reduce_sum(tf.math.multiply(H, Y), axis=1) # *
   
-  ## metallic ## 
-  right_d_Fs_metallic = tf.expand_dims((1.0 - F_H), axis=2)
-  right_d_Fs_metallic = tf.broadcast_to(right_d_Fs_metallic, [1024, 1024, 3])
-  d_Fs_metallic = C_d - 0.08 * specular * mix(tf.ones((1024, 1024, 3), dtype=tf.float64), C_tint, specularTint) * right_d_Fs_metallic
+  # metallic gradient
+  if "metallic" not in brdf_parameters_to_hold_constant_in_optimization:
+    right_d_Fs_metallic = tf.expand_dims((1.0 - FH), axis=1) # *
+    right_d_Fs_metallic = tf.broadcast_to(right_d_Fs_metallic, [number_of_pixels, 3]) # *
+    d_Fs_metallic = Cdlin - 0.08 * specular * mix(tf.ones((number_of_pixels, 3), dtype=tf.float64), Ctint, specularTint) * right_d_Fs_metallic # f(specular, specularTint)
+    NdotL3d = tf.broadcast_to(tf.expand_dims(NdotL, axis=1), [number_of_pixels, 3]) # *
+    mix_Fd_ss_subsurface = tf.broadcast_to(tf.expand_dims(mix(Fd, ss, subsurface), axis=1), [number_of_pixels, 3]) # f(subsurface)
+    Gs_Ds = tf.broadcast_to(tf.expand_dims(Gs * Ds, axis=1), [number_of_pixels, 3]) # *
+    df_metallic = NdotL3d * ((-1.0 / pi) * mix_Fd_ss_subsurface * Cdlin + Fsheen + Gs_Ds * d_Fs_metallic) # f(specular, specularTint, subsurface)
+  else:
+    df_metallic = tf.constant(0.0, dtype=tf.float64)
+    
+  # subsurface gradient 
+  if "subsurface" not in brdf_parameters_to_hold_constant_in_optimization:
+    left = tf.broadcast_to(tf.expand_dims(NdotL * (1.0 / pi) * (1.0 - metallic) * (ss - Fd), axis=1), [number_of_pixels, 3]) # f(metallic)
+    df_subsurface = left * Cdlin # f(metallic)
+  else:
+    df_subsurface = tf.constant(0.0, dtype=tf.float64)
 
-  #print(d_Fs_metallic)
+  # specular gradient
+  if "specular" not in brdf_parameters_to_hold_constant_in_optimization:
+    left = tf.broadcast_to(tf.expand_dims(NdotL * Gs * Ds * (1.0 - FH) * (1.0 - metallic) * 0.08, axis=1), [number_of_pixels, 3]) # f(metallic)
+    df_specular = left * mix(tf.ones(3, dtype=tf.float64), Ctint, specularTint) # f(metallic, specularTint)
+  else:
+    df_specular = tf.constant(0.0, dtype=tf.float64)
 
-  NdotL3d = tf.broadcast_to(tf.expand_dims(NdotL, axis=2), [1024, 1024, 3])
-  mix_f_d_ss_subsurface = tf.broadcast_to(tf.expand_dims(mix(F_d, ss, subsurface), axis=2), [1024, 1024, 3])
-  G_s_D_s = tf.broadcast_to(tf.expand_dims(G_s * D_s, axis=2), [1024, 1024, 3])
+  # roughness gradient
+  if "roughness" not in brdf_parameters_to_hold_constant_in_optimization:
+    d_ss_roughness = 1.25 * LdotH * LdotH * (FV - 2.0 * FL * FV + FL + 2.0 * LdotH * LdotH * FL * FV * roughness) # f(roughness)
+    d_Fd_roughness = 2.0 * LdotH ** 2 * (FV + FL + 2.0 * FL * FV * (Fd90 - 1.0)) # * 
+    d_Gs_roughness = 0.5 * (roughness + 1.0) * (d_GGX_aG(NdotL, aG) * smithG_GGX(NdotV, aG) + d_GGX_aG(NdotV, aG) * smithG_GGX(NdotL, aG)) # f(roughness)
+    roughness = tf.cond(roughness <= 0, lambda: 0.001, lambda: roughness) # f(roughness)
+    Ds_expand = tf.broadcast_to(tf.expand_dims(Ds, axis=1), [number_of_pixels, 3]) # *
+    Gs_expand = tf.broadcast_to(tf.expand_dims(Gs, axis=1), [number_of_pixels, 3]) # *
+    c = tf.convert_to_tensor(sqr(HdotX) / sqr(ax) + sqr(HdotY) / sqr(ay) + sqr(NdotH), dtype=tf.float64) # *
+    d_Ds_roughness = 4.0 * ((2.0 *  (HdotX**2 * aspect**4 + HdotY ** 2) / (aspect**2 * roughness)) - c * roughness**3) / (pi * ax**2 * ay**2 * c**3) # f(roughness)
+    left = tf.broadcast_to(tf.expand_dims(NdotL * (1.0 - metallic) * (1.0 / pi) * mix(d_Fd_roughness, d_ss_roughness, subsurface), axis=1), [number_of_pixels, 3]) # f(metallic, roughness, subsurface)
+    right = tf.broadcast_to(tf.expand_dims((d_Gs_roughness * Ds + d_Ds_roughness * Gs), axis=1), [number_of_pixels, 3]) # f(roughness)
+    df_roughness = left * Cdlin + Fs * right #  f(metallic, roughness, subsurface)
+  else:
+    df_roughness = tf.constant(0.0, dtype=tf.float64)
 
-  d_f_metallic = NdotL3d * ((-1.0 / pi) * mix_f_d_ss_subsurface * C_d + F_sheen + G_s_D_s * d_Fs_metallic)
-  ## metallic ## 
+  # specularTint gradient 
+  if "specularTint" not in brdf_parameters_to_hold_constant_in_optimization:
+    middle = tf.broadcast_to(tf.expand_dims((1.0 - FH) * specular * 0.08 * (1.0 - metallic), axis=1), [number_of_pixels, 3]) # f(specular, metallic)
+    df_specularTint = NdotL3d * Gs_expand * Ds_expand * middle * (Ctint - 1.0) # f(specular, metallic)
+  else:
+    df_specularTint = tf.constant(0.0, dtype=tf.float64)
+
+  # anisotropic gradient
+  if "anisotropic" not in brdf_parameters_to_hold_constant_in_optimization:
+    d_GTR2aniso_aspect = 4.0 * (sqr(HdotY) - sqr(HdotX) * tf.math.pow(aspect,4)) / (pi * sqr(ax) * sqr(ay) * tf.math.pow(c,3) * tf.math.pow(aspect,3)) # *
+    d_Ds_anisotropic = (-0.45 / aspect) * (d_GTR2aniso_aspect) # *
+    aniso_left = tf.broadcast_to(tf.expand_dims(NdotL * Gs * d_Ds_anisotropic, axis=1), [number_of_pixels, 3]) # *
+    df_anisotropic = aniso_left * Fs # *
+  else:
+    df_anisotropic = tf.constant(0.0, dtype=tf.float64)
+
+  # sheen gradient
+  if "sheen" not in brdf_parameters_to_hold_constant_in_optimization:
+    FH_expand = tf.broadcast_to(tf.expand_dims(FH, axis=1), [number_of_pixels, 3]) # *
+    df_sheen = NdotL3d * (1.0 - metallic) * FH_expand * Csheen # f(metallic)
+  else:
+    df_sheen = tf.constant(0.0, dtype=tf.float64)
+
+  # sheenTint gradient
+  if "sheenTint" not in brdf_parameters_to_hold_constant_in_optimization:
+    df_sheenTint = NdotL3d * (1.0 - metallic) * FH_expand * sheen * (Ctint - 1.0) # f(metallic, sheen)
+  else:
+    df_sheenTint = tf.constant(0.0, dtype=tf.float64)
+
+  # clearcoat gradient
+  if "clearcoat" not in brdf_parameters_to_hold_constant_in_optimization:    
+    df_clearcoat = NdotL * 0.25 * Gr * Fr * Dr * 1.0 # *
+    df_clearcoat = tf.broadcast_to(tf.expand_dims(df_clearcoat, axis=1), [number_of_pixels, 3]) # *
+    df_clearcoat= tf.ones((number_of_pixels, 3), dtype=tf.float64) * df_clearcoat
+  else:
+    df_clearcoat = tf.constant(0.0, dtype=tf.float64)
+
+  # clearcoatGloss gradient
+  if "clearcoatGloss" not in brdf_parameters_to_hold_constant_in_optimization:    
+    a = mix(0.1, 0.001, clearcoatGloss) # f(clearcoatGloss)
+    t = 1.0 + (sqr(a) - 1.0) * sqr(NdotH) # *
+    d_GTR1_a = 2.0 * a * ( tf.math.log(sqr(a)) * t - (sqr(a) - 1.0) * (t/(sqr(a)) + tf.math.log(sqr(a)) * sqr(NdotH))) / (pi * sqr((tf.math.log(sqr(a)) * t))) # f(clearcoatGloss)  
+    df_clearcoatGloss = NdotL * 0.25 * clearcoat * -0.099 * Gr * Fr * d_GTR1_a # f(clearcoat, clearcoatGloss)
+    df_clearcoatGloss = tf.broadcast_to(tf.expand_dims(df_clearcoatGloss, axis=1), [number_of_pixels, 3])
+    df_clearcoatGloss = tf.ones((number_of_pixels, 3), dtype=tf.float64) * df_clearcoatGloss
+  else:
+    df_clearcoatGloss = tf.constant(0.0, dtype=tf.float64)
   
-  ## subsurface ## 
-  left = tf.broadcast_to(tf.expand_dims(NdotL * (1.0 / pi) * (1.0 - metallic) * (ss - F_d), axis=2), [1024, 1024, 3])
-  d_f_subsurface = left * C_d
-  ## subsurface ##
+  gradients = [df_metallic, df_subsurface, df_specular, df_roughness, df_specularTint, df_anisotropic, df_sheen, df_sheenTint, df_clearcoat, df_clearcoatGloss]
+  #gradients = [tf.expand_dims(gradient, axis=2) for gradient in gradients]
+  #brdf_gradients = tf.concat(gradients, axis=2)
 
-  ## specular ##  
-  left = tf.broadcast_to(tf.expand_dims(NdotL * G_s * D_s * (1.0 - F_H) * (1.0 - metallic) * 0.08, axis=2), [1024, 1024, 3])
-  d_f_specular = left * mix(tf.ones(3, dtype=tf.float64), C_tint, specularTint)
-  ## specular ##  
+  return gradients
 
-  ## roughness ##  
-  d_ss_roughness = 1.25 * LdotH * LdotH * (F_V - 2.0*F_L*F_V + F_L + 2.0 * LdotH * LdotH * F_L * F_V * roughness )
-
-  d_Fd_roughness = 2.0 * LdotH ** 2 * (F_V + F_L + 2.0 * F_L * F_V * (F_d90 - 1.0))
-  
-  d_Gs_roughness = 0.5 * (roughness + 1.0) * (d_GGX_aG(NdotL, aG) * smithG_GGX(NdotV, aG) + d_GGX_aG(NdotV, aG) * smithG_GGX(NdotL, aG) )    
-
-  roughness = tf.cond(roughness <= 0, lambda: 0.001, lambda: roughness)
-  
-  D_s_expand = tf.broadcast_to(tf.expand_dims(D_s, axis=2), [1024, 1024, 3])
-  G_s_expand = tf.broadcast_to(tf.expand_dims(G_s, axis=2), [1024, 1024, 3])
-  c = tf.convert_to_tensor(sqr(HdotX) / sqr(ax) + sqr(HdotY) / sqr(ay) + sqr(NdotH), dtype=tf.float64)
-
-  d_Ds_roughness = 4.0 * ( (2.0 *  (HdotX**2 * aspect**4 + HdotY ** 2) / (aspect**2 * roughness)) - c * roughness**3) / (pi * ax**2 * ay**2 * c**3)
-  left = tf.broadcast_to(tf.expand_dims(NdotL * (1.0 - metallic) * (1.0 / pi) * mix(d_Fd_roughness, d_ss_roughness, subsurface), axis=2), [1024, 1024, 3])
-  right = tf.broadcast_to(tf.expand_dims((d_Gs_roughness * D_s + d_Ds_roughness * G_s), axis=2), [1024, 1024, 3])
-  d_f_roughness = left * C_d + F_s * right
-  ## roughness ##  
-
-  ## specularTint ##  
-  middle = tf.broadcast_to(tf.expand_dims((1.0 - F_H) * specular * 0.08 * (1.0 - metallic), axis=2), [1024, 1024, 3])
-  d_f_specularTint = NdotL3d * G_s_expand * D_s_expand * middle * (C_tint - 1.0)
-  ## specularTint ## 
-
-  ## anisotropic ## 
-  d_GTR2aniso_aspect = 4.0 * (sqr(HdotY) - sqr(HdotX) * tf.math.pow(aspect,4)) / (pi * sqr(ax) * sqr(ay) * tf.math.pow(c,3) * tf.math.pow(aspect,3))
-  d_Ds_anisotropic = (-0.45 / aspect) * (d_GTR2aniso_aspect)
-  aniso_left = tf.broadcast_to(tf.expand_dims(NdotL * G_s * d_Ds_anisotropic, axis=2), [1024, 1024, 3])
-  d_f_anisotropic = aniso_left * F_s
-  ## anisotropic ## 
-
-  ## sheen ## 
-  F_H_expand = tf.broadcast_to(tf.expand_dims(F_H, axis=2), [1024, 1024, 3])
-  d_f_sheen = NdotL3d * (1.0 - metallic) * F_H_expand * C_sheen
-  ## sheen ## 
-
-  ## sheenTint ## 
-  d_f_sheenTint = NdotL3d * (1.0 - metallic) * F_H_expand * sheen * (C_tint - 1.0)
-  ## sheenTint ##   
-
-  ## clearcoat ##   
-  d_f_clearcoat = NdotL * 0.25 * G_r * F_r * D_r * 1.0
-  d_f_clearcoat = tf.broadcast_to(tf.expand_dims(d_f_clearcoat, axis=2), [1024, 1024, 3])
-  ## clearcoat ##   
-
-  ## clearcoatGloss ##   
-  a = mix(0.1,.001,clearcoatGloss)
-  t = 1.0 + (sqr(a) - 1.0) * sqr(NdotH)
-  d_GTR1_a = 2.0 * a * ( tf.math.log(sqr(a)) * t - (sqr(a) - 1.0) * (t/(sqr(a)) + tf.math.log(sqr(a)) * sqr(NdotH))) / (pi * sqr((tf.math.log(sqr(a)) * t))  )  
-  d_f_clearcoatGloss = NdotL * 0.25 * clearcoat * -0.099 * G_r * F_r * d_GTR1_a
-  d_f_clearcoatGloss = tf.broadcast_to(tf.expand_dims(d_f_clearcoatGloss, axis=2), [1024, 1024, 3])
-  d_f_clearcoat= tf.ones((1024, 1024, 3), dtype=tf.float64) * d_f_clearcoat
-  d_f_clearcoatGloss = tf.ones((1024, 1024, 3), dtype=tf.float64) * d_f_clearcoatGloss
-  ## clearcoatGloss ##   
-
-  a, b, c = tf.zeros((1024, 1024, 3), dtype=tf.float64), tf.zeros((1024, 1024, 3), dtype=tf.float64), tf.zeros((1024, 1024, 3), dtype=tf.float64)
-  
-  # names = ['metallic_loss','subsurface_loss','specular_loss','roughness_loss','specularTint_loss','anisotropic_loss','sheen_loss','sheenTint_loss','clearcoat_loss','clearcoatGloss_loss']
-  # for i,(name,thing) in enumerate(zip(names, [d_f_metallic, d_f_subsurface, d_f_specular,d_f_roughness, d_f_specularTint, d_f_anisotropic, d_f_sheen, d_f_sheenTint,d_f_clearcoat, d_f_clearcoatGloss])):
-  #   loss = np.array(thing * 255.0, dtype=np.float32)
-  #   loss = cv2.cvtColor(loss, cv2.COLOR_RGB2BGR)
-  #   cv2.imwrite(f'models/toucan_0.5/def_brdf_gradient/{name}.png', loss)
-
-  return [d_f_metallic, d_f_subsurface, d_f_specular,d_f_roughness, d_f_specularTint, d_f_anisotropic, d_f_sheen, d_f_sheenTint,d_f_clearcoat, d_f_clearcoatGloss]
-
-def brdf_gradient_wrapper(L,V,N,X,Y, diffuse, brdf_params):
-  # baseColor = np.asarray([brdf_params['red'], brdf_params['green'], brdf_params['blue']])
-  metallic = brdf_params['metallic']
-  subsurface = brdf_params['subsurface'] 
-  specular = brdf_params['specular'] 
-  roughness = brdf_params['roughness'] 
-  specularTint = brdf_params['specularTint'] 
-  anisotropic = brdf_params['anisotropic'] 
-  sheen = brdf_params['sheen'] 
-  sheenTint = brdf_params['sheenTint']
-  clearcoat = brdf_params['clearcoat'] 
-  clearcoatGloss = brdf_params['clearcoatGloss']  
-  # return brdf_gradient(L, V, N, X, Y, diffuse, baseColor, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)  
-  return brdf_gradient(L, V, N, X, Y, diffuse, metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss)  
 
 @tf.function(jit_compile=True)
 def photometric_error(ground_truth, hypothesis):
   error = (hypothesis - ground_truth)
-
-  # visualize_image_condition(data=error, label="loss_function_error", condition="is_nan", is_true="white", is_false="black")
-  # visualize_image_condition(data=error, label="loss_function_error", condition="is_inf", is_true="white", is_false="black")
-
-  return error # tf.abs(ground_truth - hypothesis)
+  return error
 
 
-def visualize_image_condition(data, label, condition="is_nan", is_true="white", is_false="black"):
-  global iteration_number
-
+def visualize_image_condition(data, label, condition="is_nan", is_true="white", is_false="black", iteration_number=0):
   if len(data.shape) == 2:
     data = tf.broadcast_to(tf.expand_dims(data, axis=2), [1024, 1024,3])
-
   elif len(data.shape) == 0:
     return
-
   if is_true == "white":
     is_true_color = tf.fill(dims=[1024, 1024, 3], value=tf.constant(255.0, tf.float64))
-
   if is_false == "black":
     is_false_color = tf.zeros([1024, 1024, 3], dtype=tf.float64)
-
   if condition == "is_nan":
     conditional_data = tf.where(tf.math.is_nan(data), is_true_color, is_false_color)
   elif condition == "is_inf":
     conditional_data = tf.where(tf.math.is_inf(data), is_true_color, is_false_color)
-
   conditional_data = np.array(conditional_data, dtype=np.float32)
   conditional_data = cv2.cvtColor(conditional_data, cv2.COLOR_RGB2BGR)
   cv2.imwrite('models/toucan_0.5/def_brdf_gradient/{}_{}_{}.png'.format(iteration_number,label,condition), conditional_data)
 
 
-# https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Optimizer#example_2  
 @tf.function(jit_compile=True)
-def lossgradient_hypothesis(scene):
+def apply_gradients_from_inverse_rendering_loss(  ground_truth_radiance, 
+                                                  hypothesis_radiance,
+                                                  hypothesis_irradiance,
+                                                  hypothesis_brdf,
+                                                  hypothesis_brdf_parameters,
+                                                  hypothesis_brdf_metadata,
+                                                  ground_truth_brdf_parameters,
+                                                  brdf_parameters_to_hold_constant_in_optimization,
+                                                  report_results_on_this_iteration):
 
-  [width, height, _] = tf.shape(diffuse_colors)
-  total = tf.cast(width * height, dtype=tf.float64)
-  brdf_params = brdf_hypothesis
-  
-  scene = render(scene)
+  number_of_pixels = ground_truth_radiance.shape[0]
+  number_of_colors = ground_truth_radiance.shape[1]
 
-  # gradient loss attributable to gamma encoding 
-  loss_radiance = tf.math.divide(tf.math.pow(scene["brdf"] * scene["irradiance"], -1.2 / 2.2), 2.2) * scene["irradiance"]
-  scene_data["loss_radiance"] = tf.where(background_mask, surface_diffuse_colors, loss_radiance)                        
+  # gradients of the BRDF equation for each parameter, with respect to the loss function
+  brdf_gradients = compute_gradients( brdf_metadata=hypothesis_brdf_metadata, 
+                                      brdf_parameters=hypothesis_brdf_parameters,
+                                      brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization)
+
+  df_metallic, df_subsurface, df_specular, df_roughness, df_specularTint, df_anisotropic, df_sheen, df_sheenTint, df_clearcoat, df_clearcoatGloss = brdf_gradients
+
+  # pixelwise difference across RGB channels                         
+  photometric_loss = photometric_error(ground_truth_radiance, hypothesis_radiance)
+
+  # gradient loss attributable to gamma encoding
+  gamma_encoding_loss = tf.math.divide(tf.math.pow(hypothesis_brdf * hypothesis_irradiance, -1.2 / 2.2), 2.2) * hypothesis_irradiance
+
+  # compute update to each BRDF parameter
+  delta_metallic = tf.reduce_sum(df_metallic * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_subsurface = tf.reduce_sum(df_subsurface * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_specular = tf.reduce_sum(df_specular * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_roughness = tf.reduce_sum(df_roughness * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_specularTint = tf.reduce_sum(df_specularTint * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_anisotropic = tf.reduce_sum(df_anisotropic * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_sheen = tf.reduce_sum(df_sheen * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_sheenTint = tf.reduce_sum(df_sheenTint * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors) 
+  delta_clearcoat = tf.reduce_sum(df_clearcoat * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_clearcoatGloss = tf.reduce_sum(df_clearcoatGloss * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+
+  # get the previous BRDF parameters
+  metallic = hypothesis_brdf_parameters[0]
+  subsurface = hypothesis_brdf_parameters[1]
+  specular = hypothesis_brdf_parameters[2]
+  roughness = hypothesis_brdf_parameters[3]
+  specularTint = hypothesis_brdf_parameters[4]
+  anisotropic = hypothesis_brdf_parameters[5]
+  sheen = hypothesis_brdf_parameters[6]
+  sheenTint = hypothesis_brdf_parameters[7]
+  clearcoat = hypothesis_brdf_parameters[8]
+  clearcoatGloss = hypothesis_brdf_parameters[9]
+
+  # get the ground truth BRDF parameters for showing to human
+  true_metallic = ground_truth_brdf_parameters[0]
+  true_subsurface = ground_truth_brdf_parameters[1]
+  true_specular = ground_truth_brdf_parameters[2]
+  true_roughness = ground_truth_brdf_parameters[3]
+  true_specularTint = ground_truth_brdf_parameters[4]
+  true_anisotropic = ground_truth_brdf_parameters[5]
+  true_sheen = ground_truth_brdf_parameters[6]
+  true_sheenTint = ground_truth_brdf_parameters[7]
+  true_clearcoat = ground_truth_brdf_parameters[8]
+  true_clearcoatGloss = ground_truth_brdf_parameters[9]
+
+  # compute the new BRDF parameter with clamping in the update
+  new_metallic = clamp(metallic - delta_metallic, 0, 1)
+  new_subsurface = clamp(subsurface - delta_subsurface, 0, 1)
+  new_specular = clamp(specular - delta_specular, 0, 1)
+  new_roughness = clamp(roughness - delta_roughness, 0, 1)
+  new_specularTint = clamp(specularTint - delta_specularTint, 0, 1)
+  new_anisotropic = clamp(anisotropic - delta_anisotropic, 0, 1)
+  new_sheen = clamp(sheen - delta_sheen, 0, 1)
+  new_sheenTint = clamp(sheenTint - delta_sheenTint, 0, 1)
+  new_clearcoat = clamp(clearcoat - delta_clearcoat, 0, 1)
+  new_clearcoatGloss = clamp(clearcoatGloss - delta_clearcoatGloss, 0, 1)
+
+  if report_results_on_this_iteration:
+    print(":::::::::::: BRDF Truth vs. Hypothesis (Δ Update) ::::::::::::")
+    print("Metallic:        {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_metallic, new_metallic, -1 * delta_metallic))
+    print("Subsurface:      {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_subsurface, new_subsurface, -1 * delta_subsurface))
+    print("Specular:        {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_specular, new_specular, -1 * delta_specular))
+    print("Roughness:       {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_roughness, new_roughness, -1 * delta_roughness))
+    print("Specular Tint:   {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_specularTint, new_specularTint, -1 * delta_specularTint))
+    print("Anisotropic:     {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_anisotropic, new_anisotropic, -1 * delta_anisotropic))
+    print("Sheen:           {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_sheen, new_sheen, -1 * delta_sheen))
+    print("Sheen Tint:      {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_sheenTint, new_sheenTint, -1 * delta_sheenTint))
+    print("Clearcoat:       {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_clearcoat, new_clearcoat, -1 * delta_clearcoat))
+    print("Clearcoat Gloss: {:.5f} vs. {:.5f} (Δ {:+5f})\n".format(true_clearcoatGloss, new_clearcoatGloss, -1 * delta_clearcoatGloss))
+
+  new_hypothesis_brdf_parameters = tf.concat([  new_metallic, 
+                                                new_subsurface, 
+                                                new_specular, 
+                                                new_roughness, 
+                                                new_specularTint, 
+                                                new_anisotropic, 
+                                                new_sheen, 
+                                                new_sheenTint, 
+                                                new_clearcoat, 
+                                                new_clearcoatGloss], axis=0)
+
+  return new_hypothesis_brdf_parameters
 
 
-  grey = tf.constant([70/255,70/255,70/255], tf.float64)
+def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization):
+  if "metallic" not in brdf_parameters_to_hold_constant_in_optimization:
+    metallic = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    metallic = tf.constant([0.0], dtype=tf.float64)
+  if "subsurface" not in brdf_parameters_to_hold_constant_in_optimization:
+    subsurface = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    subsurface = tf.constant([0.0], dtype=tf.float64)
+  if "specular" not in brdf_parameters_to_hold_constant_in_optimization:
+    specular = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    specular = tf.constant([0.5], dtype=tf.float64)
+  if "roughness" not in brdf_parameters_to_hold_constant_in_optimization:
+    roughness = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    roughness = tf.constant([0.5], dtype=tf.float64)
+  if "specularTint" not in brdf_parameters_to_hold_constant_in_optimization:
+    specularTint = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    specularTint = tf.constant([0.0], dtype=tf.float64)
+  if "anisotropic" not in brdf_parameters_to_hold_constant_in_optimization:
+    anisotropic = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    anisotropic = tf.constant([0.0], dtype=tf.float64)
+  if "sheen" not in brdf_parameters_to_hold_constant_in_optimization:
+    sheen = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    sheen = tf.constant([0.0], dtype=tf.float64)
+  if "sheenTint" not in brdf_parameters_to_hold_constant_in_optimization:
+    sheenTint = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    sheenTint = tf.constant([0.0], dtype=tf.float64)
+  if "clearcoat" not in brdf_parameters_to_hold_constant_in_optimization:
+    clearcoat = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    clearcoat = tf.constant([0.0], dtype=tf.float64)
+  if "clearcoatGloss" not in brdf_parameters_to_hold_constant_in_optimization:
+    clearcoatGloss = tf.random.uniform(shape=[1], dtype=tf.float64)
+  else:
+    clearcoatGloss = tf.constant([0.0], dtype=tf.float64)
 
-  # # pixelwise difference across rgb channels                         
-  loss = tf.reduce_sum(photometric_error(ground_truth, hypothesis), axis = 2)
+  brdf_parameters = tf.concat([metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss], axis=0)
+  return brdf_parameters
 
-  brdf_gradients = brdf_gradient_wrapper(L=L, V=V, N=N, X=X, Y=Y, diffuse=diffuse_colors, brdf_params=brdf_params)
 
-  loss_radiance = tf.reduce_sum(tf.math.multiply(brdf_gradients, loss_radiance), axis=3) #* loss
+def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 5000, frequency_of_human_output = 100):
+  # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
+  ground_truth_render_parameters, ground_truth_radiance, ground_truth_irradiance, ground_truth_brdf, ground_truth_brdf_metadata, brdf_parameters_to_hold_constant_in_optimization = load_scene(folder=project_directory)
 
-  red_color = tf.fill(dims=[1024, 1024, 3], value=tf.constant(255.0, tf.float64))
-  zeros=tf.zeros([width, height, 3], dtype=tf.float64)
+  # unwrap render parameters
+  diffuse, xyz, normals, camera_xyz, light_xyz, light_color, background_color, image_shape, ground_truth_brdf_parameters, pixel_indices_to_render, is_not_background = ground_truth_render_parameters
 
-  # # average gradient over all pixels
-  metallic_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[0], axis=2), [1024, 1024,3])
-  metallic_loss = tf.where(ground_truth==grey, zeros, metallic_loss)
-  # visualize_image_condition(data=metallic_loss, label="metallic_loss", condition="is_nan", is_true="white", is_false="black")
-  metallic_loss = (tf.reduce_sum(metallic_loss) / total) / 3.0
+  # initialize hypothesis for BRDF parameters
+  if random_hypothesis_brdf_parameters:
+    # get random hypothesis values with some parameters that are held fixed at reasonable defaults
+    hypothesis_brdf_parameters = initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization)
+  else:
+    # manually set brdf ground truth parameters as tensor constants
+    metallic = tf.constant(0.5, dtype=tf.float64)
+    subsurface = tf.constant(0.5, dtype=tf.float64)
+    specular = tf.constant(0.5, dtype=tf.float64)
+    roughness = tf.constant(0.7, dtype=tf.float64)
+    specularTint = tf.constant(0.0, dtype=tf.float64)
+    anisotropic = tf.constant(0.0, dtype=tf.float64)
+    sheen = tf.constant(0.0, dtype=tf.float64)
+    sheenTint = tf.constant(0.0, dtype=tf.float64)
+    clearcoat = tf.constant(0.0, dtype=tf.float64)
+    clearcoatGloss = tf.constant(0.0, dtype=tf.float64)
+    hypothesis_brdf_parameters = tf.concat([metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss], axis=0)
 
-  subsurface_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[1], axis=2), [1024, 1024,3])
-  subsurface_loss = tf.where(ground_truth==grey, zeros, subsurface_loss)
-  # visualize_image_condition(data=subsurface_loss, label="subsurface_loss", condition="is_nan", is_true="white", is_false="black")
-  subsurface_loss = (tf.reduce_sum(subsurface_loss) / total) / 3.0
-
-  specular_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[2], axis=2), [1024, 1024,3])
-  specular_loss = tf.where(ground_truth==grey, zeros, specular_loss)
-  # visualize_image_condition(data=specular_loss, label="specular_loss", condition="is_nan", is_true="white", is_false="black")
-  specular_loss = (tf.reduce_sum(specular_loss) / total) / 3.0
-
-  roughness_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[3], axis=2), [1024, 1024,3])
-  roughness_loss = tf.where(ground_truth==grey, zeros, roughness_loss)
-  # visualize_image_condition(data=roughness_loss, label="roughness_loss", condition="is_nan", is_true="white", is_false="black")
-  roughness_loss = (tf.reduce_sum(roughness_loss) / total) / 3.0
-
-  specularTint_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[4], axis=2), [1024, 1024,3])
-  specularTint_loss = tf.where(ground_truth==grey, zeros, specularTint_loss)
-  # visualize_image_condition(data=specularTint_loss, label="specularTint_loss", condition="is_nan", is_true="white", is_false="black")
-  specularTint_loss = (tf.reduce_sum(specularTint_loss) / total) / 3.0
-
-  anisotropic_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[5], axis=2), [1024, 1024,3])
-  anisotropic_loss = tf.where(ground_truth==grey, zeros, anisotropic_loss)
-  # visualize_image_condition(data=anisotropic_loss, label="anisotropic_loss", condition="is_nan", is_true="white", is_false="black")
-  anisotropic_loss = (tf.reduce_sum(anisotropic_loss) / total) / 3.0
-
-  sheen_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[6], axis=2), [1024, 1024,3])
-  sheen_loss = tf.where(ground_truth==grey, zeros, sheen_loss)
-  # visualize_image_condition(data=sheen_loss, label="sheen_loss", condition="is_nan", is_true="white", is_false="black")
-  sheen_loss = (tf.reduce_sum(sheen_loss) / total) / 3.0
-
-  sheenTint_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[7], axis=2), [1024, 1024,3])
-  sheenTint_loss = tf.where(ground_truth==grey, zeros, sheenTint_loss)
-  # visualize_image_condition(data=sheenTint_loss, label="sheenTint_loss", condition="is_nan", is_true="white", is_false="black")
-  sheenTint_loss = (tf.reduce_sum(sheenTint_loss) / total) / 3.0
-
-  clearcoat_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[8], axis=2), [1024, 1024,3])
-  clearcoat_loss = tf.where(ground_truth==grey, zeros, clearcoat_loss)
-  # visualize_image_condition(data=clearcoat_loss, label="clearcoat_loss", condition="is_nan", is_true="white", is_false="black")
-  clearcoat_loss = (tf.reduce_sum(clearcoat_loss) / total) / 3.0
-
-  clearcoatGloss_loss = tf.broadcast_to(tf.expand_dims(loss_radiance[9], axis=2), [1024, 1024,3])
-  clearcoatGloss_loss = tf.where(ground_truth==grey, zeros, clearcoatGloss_loss)
-  # visualize_image_condition(data=clearcoatGloss_loss, label="clearcoatGloss_loss", condition="is_nan", is_true="white", is_false="black")
-  clearcoatGloss_loss = (tf.reduce_sum(clearcoatGloss_loss) / total) / 3.0
-
-  loss_gradients = [metallic_loss,\
-    subsurface_loss,specular_loss,\
-    roughness_loss,specularTint_loss,\
-    anisotropic_loss,sheen_loss,sheenTint_loss,\
-    clearcoat_loss,clearcoatGloss_loss]
-
-  return loss_gradients, hypothesis
-
-@tf.function(jit_compile=True)
-def inverse_render_optimization(render_parameters):
-  
   # initialize output directories
   Path("{}/inverse_render_hypotheses".format(folder)).mkdir(parents=True, exist_ok=True)
   Path("{}/debugging_visualizations".format(folder)).mkdir(parents=True, exist_ok=True)
 
-  number_of_iterations = 1000
-  exponential_decay_learning = [1.0 * (1.0**i) for i in range(number_of_iterations)]
-  brdf_hypothesis = {}
-  brdf_hypothesis['metallic'] = 0.00
-  brdf_hypothesis['subsurface'] = 0.00
-  brdf_hypothesis['specular'] = 0.5
-  brdf_hypothesis['roughness'] = 0.9
-  brdf_hypothesis['specularTint'] = 0.0
-  brdf_hypothesis['anisotropic'] = 0.0
-  brdf_hypothesis['sheen'] = 0.0
-  brdf_hypothesis['sheenTint'] = 0.0
-  brdf_hypothesis['clearcoat'] = 0.0
-  brdf_hypothesis['clearcoatGloss'] = 0.0
-  
-  print("\nInitial hypothesis:")
-  for parameter in brdf_hypothesis:
-    print("{}: {:.6f}".format(parameter, brdf_hypothesis[parameter]))
-    # print(f'{parameter}: {brdf_hypothesis[parameter]} (Loss: {loss_gradient})')
-
-
+  # optimize BRDF parameters through inverse rendering loss, for a number of iterations
   for iteration in range(number_of_iterations):
-    global iteration_number
-    iteration_number = iteration
+    report_results_on_this_iteration = iteration % frequency_of_human_output == 0
+    if report_results_on_this_iteration:
+      print("\n\nITERATION {}:".format(iteration))
+      render_file_path = tf.constant("{}/inverse_render_hypotheses/inverse_render_hypothesis_{}.png".format(folder, iteration))
+    else:
+      render_file_path = None
 
-    print('-----------------------------------')
-    print(f'         Iteration {iteration}     ')
-    loss_gradients, hypothesis = lossgradient_hypothesis(diffuse_colors, xyz_coordinates, normals, camera_pos, brdf_hypothesis, ground_truth)
+    hypothesis_radiance, hypothesis_irradiance, hypothesis_brdf, hypothesis_brdf_metadata = render( diffuse_colors=diffuse, 
+                                                                                                    surface_xyz=xyz,
+                                                                                                    normals=normals, 
+                                                                                                    camera_xyz=camera_xyz, 
+                                                                                                    light_xyz=light_xyz, 
+                                                                                                    light_color=light_color,
+                                                                                                    background_color=background_color,
+                                                                                                    image_shape=image_shape,
+                                                                                                    brdf_parameters=hypothesis_brdf_parameters,
+                                                                                                    pixel_indices_to_render=pixel_indices_to_render,
+                                                                                                    is_not_background=is_not_background,
+                                                                                                    file_path=render_file_path)
 
+    hypothesis_brdf_parameters = apply_gradients_from_inverse_rendering_loss( ground_truth_radiance=ground_truth_radiance, 
+                                                                              hypothesis_radiance=hypothesis_radiance,
+                                                                              hypothesis_irradiance=hypothesis_irradiance,
+                                                                              hypothesis_brdf=hypothesis_brdf,
+                                                                              hypothesis_brdf_parameters=hypothesis_brdf_parameters,
+                                                                              hypothesis_brdf_metadata=hypothesis_brdf_metadata,
+                                                                              brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization,
+                                                                              ground_truth_brdf_parameters=ground_truth_brdf_parameters, # for human eyes only
+                                                                              report_results_on_this_iteration=report_results_on_this_iteration
+                                                                              )
 
-
-    #render = np.array(hypothesis * 255.0, dtype=np.float32)
-    #render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)
-    #cv2.imwrite(f'outputs/optimization/optimization_iter_{iteration}.png', render)
-
-
-    [metallic_loss,subsurface_loss,specular_loss,roughness_loss,\
-      specularTint_loss,anisotropic_loss,sheen_loss,sheenTint_loss,\
-        clearcoat_loss,clearcoatGloss_loss] = loss_gradients
-
-    brdf_hypothesis['metallic'] = clamp(brdf_hypothesis['metallic'] - exponential_decay_learning[iteration] * metallic_loss, 0, 1) ## clamp to keep brdf params in [0,1]
-    brdf_hypothesis['subsurface'] = clamp(brdf_hypothesis['subsurface'] - exponential_decay_learning[iteration] *  subsurface_loss, 0, 1)
-    brdf_hypothesis['specular'] = clamp(brdf_hypothesis['specular'] - exponential_decay_learning[iteration] * specular_loss, 0, 1)
-    brdf_hypothesis['roughness'] = clamp(brdf_hypothesis['roughness'] - exponential_decay_learning[iteration] * roughness_loss, 0, 1)
-    brdf_hypothesis['specularTint'] = clamp(brdf_hypothesis['specularTint'] - exponential_decay_learning[iteration] * specularTint_loss, 0, 1)
-    brdf_hypothesis['anisotropic'] = clamp(brdf_hypothesis['anisotropic'] - exponential_decay_learning[iteration] * anisotropic_loss, 0, 1)
-    brdf_hypothesis['sheen'] = clamp(brdf_hypothesis['sheen'] - exponential_decay_learning[iteration] * sheen_loss, 0, 1)
-    brdf_hypothesis['sheenTint'] = clamp(brdf_hypothesis['sheenTint'] - exponential_decay_learning[iteration] * sheenTint_loss, 0, 1)
-    brdf_hypothesis['clearcoat'] = clamp(brdf_hypothesis['clearcoat'] - exponential_decay_learning[iteration] * clearcoat_loss, 0, 1)
-    brdf_hypothesis['clearcoatGloss'] = clamp(brdf_hypothesis['clearcoatGloss'] - exponential_decay_learning[iteration] * clearcoatGloss_loss, 0, 1)
-
-    print("\nLearning rate multiplier: {}\n".format(exponential_decay_learning[iteration]))
-    for parameter, loss_gradient in zip(brdf_hypothesis, loss_gradients):
-      print("{}: {:.6f} (Loss Gradient: {:.6f})".format(parameter, brdf_hypothesis[parameter], -1*loss_gradient))
-      # print(f'{parameter}: {brdf_hypothesis[parameter]} (Loss: {loss_gradient})')
-    print('-----------------------------------')
 
 @tf.function(jit_compile=True)
 def BRDF( diffuse_colors,
@@ -407,16 +502,7 @@ def BRDF( diffuse_colors,
           surface_bitangents,
           light_angles,
           view_angles,
-          metallic,
-          subsurface,
-          specular, 
-          roughness,
-          specularTint,
-          anisotropic,
-          sheen,
-          sheenTint,
-          clearcoat,
-          clearcoatGloss):
+          brdf_parameters):
 
   # Moving to mathematical notation used by Innmann et al. 2020: https://openaccess.thecvf.com/content_WACV_2020/papers/Innmann_BRDF-Reconstruction_in_Photogrammetry_Studio_Setups_WACV_2020_paper.pdf
   L = normalize(light_angles)
@@ -426,6 +512,19 @@ def BRDF( diffuse_colors,
   Y = normalize(surface_bitangents)
 
   number_of_pixels = diffuse_colors.shape[0]
+
+  # unpack BRDF parameters
+  metallic = brdf_parameters[0]
+  subsurface = brdf_parameters[1]
+  specular = brdf_parameters[2]
+  roughness = brdf_parameters[3]
+  specularTint = brdf_parameters[4]
+  anisotropic = brdf_parameters[5]
+  sheen = brdf_parameters[6]
+  sheenTint = brdf_parameters[7]
+  clearcoat = brdf_parameters[8]
+  clearcoatGloss = brdf_parameters[9]
+
 
   # compute dot products between surface normals and lighting, as well as surface normals and viewing angles
   NdotL = tf.reduce_sum(tf.math.multiply(N, L), axis=1)
@@ -490,45 +589,43 @@ def BRDF( diffuse_colors,
 
   brdf = ((1/pi) * Cdlin_mix_fd + Fsheen) * (1-metallic) + clearcoat_gr_fr_dr + Gs_exp*Fs*Ds_exp
 
-  # outputs = { "NdotL": NdotL, 
-  #             "NdotV": NdotV, 
-  #             "NdotH": NdotH, 
-  #             "LdotH": LdotH, 
-  #             "Cdlin": Cdlin, 
-  #             "Cdlum": Cdlum, 
-  #             "Ctint": Ctint, 
-  #             "Cspec0": Cspec0, 
-  #             "Csheen": Csheen, 
-  #             "FL": FL, 
-  #             "FV": FV, 
-  #             "Fd90": Fd90, 
-  #             "Fd": Fd, 
-  #             "Fss90": Fss90, 
-  #             "Fss": Fss, 
-  #             "ss": ss, 
-  #             "anisotropic": anisotropic, 
-  #             "aspect": aspect, 
-  #             "ax": ax, 
-  #             "ay": ay,
-  #             "Ds": Ds, 
-  #             "FH": FH, 
-  #             "Fs": Fs, 
-  #             "aG": aG, 
-  #             "Gs": Gs, 
-  #             "Fsheen": Fsheen, 
-  #             "Dr": Dr, 
-  #             "Fr": Fr, 
-  #             "Gr": Gr, 
-  #             "brdf": brdf }
+  # saturated minimum BRDF to 0.0
+  brdf = tf.math.maximum(brdf, 0.001)
 
-  # for output_name, output_value in outputs.items():
-  #   scene[output_name] = output_value
-  #   #output_value = mask_data(data=output_value, condition=diffuse==background, replace_to="zeros")
-  #   # visualize_image_condition(data=output_value, condition="is_inf", label=output_name)
-  #   # visualize_image_condition(data=output_value, condition="is_nan", label=output_name)
-  #   # scene[output_name] = output_value
+  # pack up per-pixel BRDF representations for future computational access
+  brdf_metadata = tf.concat([ tf.expand_dims(NdotL, axis=1), 
+                              tf.expand_dims(NdotV, axis=1),
+                              tf.expand_dims(NdotH, axis=1),
+                              tf.expand_dims(LdotH, axis=1),
+                              Cdlin,
+                              Ctint,
+                              Csheen,
+                              tf.expand_dims(FL, axis=1),
+                              tf.expand_dims(FV, axis=1),
+                              tf.expand_dims(Fd90, axis=1),
+                              tf.expand_dims(Fd, axis=1),
+                              tf.expand_dims(ss, axis=1),
+                              tf.expand_dims(Ds, axis=1),
+                              tf.expand_dims(FH, axis=1),
+                              Fs,
+                              tf.expand_dims(Gs, axis=1),
+                              Fsheen,
+                              tf.expand_dims(Dr, axis=1),
+                              tf.expand_dims(Fr, axis=1),
+                              tf.expand_dims(Gr, axis=1),
+                              tf.expand_dims(tf.broadcast_to(aspect, [number_of_pixels]), axis=1),
+                              tf.expand_dims(tf.broadcast_to(ax, [number_of_pixels]), axis=1),
+                              tf.expand_dims(tf.broadcast_to(ay, [number_of_pixels]), axis=1),
+                              tf.expand_dims(tf.broadcast_to(aG, [number_of_pixels]), axis=1),
+                              L,
+                              V,
+                              N,
+                              X,
+                              Y
+                             ], axis=1)
 
-  return brdf
+  return brdf, brdf_metadata
+
 
 @tf.function(jit_compile=True)
 def compute_radiance(surface_xyz, normals, light_angles, light_xyz, light_color, brdf):
@@ -537,27 +634,38 @@ def compute_radiance(surface_xyz, normals, light_angles, light_xyz, light_color,
   light_distance_metric = light_xyz - tf.constant([1, 1, 0], dtype=tf.float64)
   light_intensity_scale = tf.reduce_sum(tf.multiply(light_distance_metric, light_distance_metric))
   light_intensity = light_color * light_intensity_scale
+
   # compute angles between surface normal geometry and lighting incidence
   cosine_term = tf.reduce_sum(tf.math.multiply(normals, light_angles), axis=1)
   cosine_term = tf.math.maximum(tf.cast(0.5, dtype=tf.float64), tf.cast(cosine_term, dtype=tf.float64))  # hack!
+
   # compute orientations from lighting to surface positions
   vector_light_to_surface = light_xyz - surface_xyz
   light_to_surface_distance_squared = tf.reduce_sum(tf.math.multiply(vector_light_to_surface, vector_light_to_surface), axis=1)
   light_intensity = tf.fill(dims=[number_of_pixels], value=tf.cast(light_intensity, dtype=tf.float64))
+
   irradiance = light_intensity / light_to_surface_distance_squared * cosine_term
   # compute irradiance for all points on surface
   irradiance =  tf.broadcast_to(tf.expand_dims(irradiance, axis=1), [number_of_pixels, 3])
-  # "apply the rendering equation
+
+  # apply the rendering equation
   radiance = brdf * irradiance  
+
   # saturate radiance at 1 for rendering purposes
   radiance = tf.math.minimum(radiance, 1.0)
+
+  # saturated minimum radiance to 0.001
+  radiance = tf.math.maximum(radiance, 0.001)
+
   # gamma correction
   radiance = tf.math.pow(radiance, 1.0 / 2.2)
+
   # discretization in 0-255 pixel space
   radiance = tf.math.round(radiance * 255.0) / 255.0   
+
   return irradiance, radiance
 
-# @tf.function(jit_compile=True)
+
 def render( diffuse_colors, 
             surface_xyz,
             normals, 
@@ -566,16 +674,7 @@ def render( diffuse_colors,
             light_color,
             background_color,
             image_shape,
-            metallic,
-            subsurface,
-            specular, 
-            roughness,
-            specularTint,
-            anisotropic,
-            sheen,
-            sheenTint,
-            clearcoat,
-            clearcoatGloss,
+            brdf_parameters,
             is_not_background,
             pixel_indices_to_render,
             file_path=None):
@@ -588,15 +687,7 @@ def render( diffuse_colors,
   light_color :: RGB color value for the light projected into the scene, in the form of a 64 bit float tensor of dimensions (3)
   background_color :: RGB color value for the background (pixels where no information was available), in the form of a 64 bit float tensor of dimensions (3)
   image_shape :: width, height, and color channels for the image to be rendered, in the form of a .shape output from TensorFlow on the original image
-  metallic :: BRDF parameter, in the form of a 64 bit float tensor of dimension (1), defined in 2012 by Disney: https://www.disneyanimation.com/publications/physically-based-shading-at-disney/
-  subsurface :: (same)
-  roughness :: (same)
-  specularTint :: (same)
-  anisotropic :: (same)
-  sheen :: (same)
-  sheenTint :: (same)
-  clearcoat :: (same)
-  clearcoatGloss :: (same)
+  brdf_parameters :: 10 BRDF parameter, in the form of a 64 bit float tensor of dimension (10), defined in 2012 by Disney: https://www.disneyanimation.com/publications/physically-based-shading-at-disney/
   is_not_background :: a tensor of conditional values for whether a pixel is active or not, in the shape of [image_width, image_height, 3], where every pixel has its indices in the original saved here 
   pixel_indices_to_render :: a tensor of the indices in (pixel row, pixel column) of dimensions [number_of_pixels, 2]
   file_path :: optionally, user may specify a global file_path for an output .png of the render.
@@ -617,33 +708,24 @@ def render( diffuse_colors,
   light_angles = normalize(light_xyz - surface_xyz)
 
   # compute the bidirectional reflectance distribution function (https://en.wikipedia.org/wiki/Bidirectional_reflectance_distribution_function)
-  brdf = BRDF(  diffuse_colors=diffuse_colors,
-                surface_xyz=surface_xyz,
-                normals=normals, 
-                surface_tangents=surface_tangents,
-                surface_bitangents=surface_bitangents,
-                light_angles=light_angles,
-                view_angles=view_angles,
-                metallic=metallic,
-                subsurface=subsurface,
-                specular=specular, 
-                roughness=roughness,
-                specularTint=specularTint,
-                anisotropic=anisotropic,
-                sheen=sheen,
-                sheenTint=sheenTint,
-                clearcoat=clearcoat,
-                clearcoatGloss=clearcoatGloss)
+  brdf, brdf_metadata = BRDF(   diffuse_colors=diffuse_colors,
+                                surface_xyz=surface_xyz,
+                                normals=normals, 
+                                surface_tangents=surface_tangents,
+                                surface_bitangents=surface_bitangents,
+                                light_angles=light_angles,
+                                view_angles=view_angles,
+                                brdf_parameters=brdf_parameters)
 
   # compute irradiance (incident light on surface)
   irradiance, radiance = compute_radiance(surface_xyz, normals, light_angles, light_xyz, light_color, brdf)
-  
+
   # save image if desired
   if file_path:
     print("Rendered {}".format(file_path))
     save_image(image_data=radiance, background_color=background_color, image_shape=image_shape, is_not_background=is_not_background, pixel_indices_to_render=pixel_indices_to_render, file_path=file_path)
 
-  return radiance
+  return radiance, irradiance, brdf, brdf_metadata
 
 
 def load_data(filepath):
@@ -718,7 +800,13 @@ def get_pixel_indices_to_render(diffuse_color, background_color):
   return tf.where(not_background), not_background
 
 
-def load_scene(folder):
+def load_scene( folder, 
+                random_ground_truth_brdf_parameters = True,
+                light_color = tf.constant(1.0, tf.float64),
+                background_color = tf.constant([70/255,70/255,70/255], tf.float64),
+                camera_xyz = tf.constant([1.7, 0.11, 0.7], dtype=tf.float64),
+                light_xyz = tf.constant([1.7, 0.11, 0.7], dtype=tf.float64)):
+
   # load data on surface textures and geometry of object 
   diffuse = load_data(filepath="{}/diffuse.png".format(folder))
   normals = load_data(filepath="{}/normals.exr".format(folder))
@@ -726,10 +814,6 @@ def load_scene(folder):
 
   # save image shape, which will be used when reformatting computations back into an image
   image_shape = tf.constant([diffuse.shape[0], diffuse.shape[1], diffuse.shape[2]], dtype=tf.int64) 
-
-  # set background color to ignore
-  light_color = tf.constant(1.0, tf.float64)
-  background_color = tf.constant([70/255,70/255,70/255], tf.float64)
 
   # get a mask for selecting only pixels that are not background values (eventually, this could be saved in production as .png with alpha channel = 0.0)
   pixel_indices_to_render, is_not_background = get_pixel_indices_to_render(diffuse_color=diffuse, background_color=background_color)
@@ -739,53 +823,46 @@ def load_scene(folder):
   normals = tf.gather_nd(params=normals, indices=pixel_indices_to_render)
   xyz = tf.gather_nd(params=xyz, indices=pixel_indices_to_render)
 
-  # set camera and light (x,y,z) positions
-  camera_xyz = tf.constant([1.7, 0.11, 0.7], dtype=tf.float64)
-  light_xyz = tf.constant([1.7, 0.11, 0.7], dtype=tf.float64)
+  # experimentally, and algebraically, the following parameters are found to destabilize the optimization
+  brdf_parameters_to_hold_constant_in_optimization = ["specularTint", "anisotropic", "sheen", "sheenTint", "clearcoat", "clearcoatGloss"]
 
-  # set brdf ground truth parameters as tensor constants
-  metallic = tf.constant(0.0, dtype=tf.float64)
-  subsurface = tf.constant(0.0, dtype=tf.float64)
-  specular = tf.constant(0.5, dtype=tf.float64)
-  roughness = tf.constant(0.3, dtype=tf.float64)
-  specularTint = tf.constant(0.0, dtype=tf.float64)
-  anisotropic = tf.constant(0.0, dtype=tf.float64)
-  sheen = tf.constant(0.0, dtype=tf.float64)
-  sheenTint = tf.constant(0.0, dtype=tf.float64)
-  clearcoat = tf.constant(0.0, dtype=tf.float64)
-  clearcoatGloss = tf.constant(0.0, dtype=tf.float64)
+  if random_ground_truth_brdf_parameters:
+    ground_truth_brdf_parameters = initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization)
+  else:
+    # manually set brdf ground truth parameters as tensor constants
+    metallic = tf.constant(0.5, dtype=tf.float64)
+    subsurface = tf.constant(0.5, dtype=tf.float64)
+    specular = tf.constant(0.5, dtype=tf.float64)
+    roughness = tf.constant(0.7, dtype=tf.float64)
+    specularTint = tf.constant(0.0, dtype=tf.float64)
+    anisotropic = tf.constant(0.0, dtype=tf.float64)
+    sheen = tf.constant(0.0, dtype=tf.float64)
+    sheenTint = tf.constant(0.0, dtype=tf.float64)
+    clearcoat = tf.constant(0.0, dtype=tf.float64)
+    clearcoatGloss = tf.constant(0.0, dtype=tf.float64)
+    ground_truth_brdf_parameters = tf.concat([metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss], axis=0)
 
-  start_time = time.time()
-  number_of_renders = 100
-  for i in range(number_of_renders):
-    file_path = tf.constant("{}/ground_truth_{}.png".format(folder, i))
-    scene = render( diffuse_colors=diffuse, 
-                    surface_xyz=xyz,
-                    normals=normals, 
-                    camera_xyz=camera_xyz, 
-                    light_xyz=light_xyz, 
-                    light_color=light_color,
-                    background_color=background_color,
-                    image_shape=image_shape,
-                    metallic=metallic,
-                    subsurface=subsurface,
-                    specular=specular, 
-                    roughness=roughness,
-                    specularTint=specularTint,
-                    anisotropic=anisotropic,
-                    sheen=sheen,
-                    sheenTint=sheenTint,
-                    clearcoat=clearcoat,
-                    clearcoatGloss=clearcoatGloss,
-                    pixel_indices_to_render=pixel_indices_to_render,
-                    is_not_background=is_not_background,
-                    file_path=file_path)
+  file_path = tf.constant("{}/ground_truth.png".format(folder))
+  radiance, irradiance, brdf, brdf_metadata = render( diffuse_colors=diffuse, 
+                                                      surface_xyz=xyz,
+                                                      normals=normals, 
+                                                      camera_xyz=camera_xyz, 
+                                                      light_xyz=light_xyz, 
+                                                      light_color=light_color,
+                                                      background_color=background_color,
+                                                      image_shape=image_shape,
+                                                      brdf_parameters=ground_truth_brdf_parameters,
+                                                      pixel_indices_to_render=pixel_indices_to_render,
+                                                      is_not_background=is_not_background,
+                                                      file_path=file_path)
 
+  # wrap up scene parameters
+  render_parameters = [diffuse, xyz, normals, camera_xyz, light_xyz, light_color, background_color, image_shape, ground_truth_brdf_parameters, pixel_indices_to_render, is_not_background]
+  scene = [render_parameters, radiance, irradiance, brdf, brdf_metadata, brdf_parameters_to_hold_constant_in_optimization]
 
-  end_time = time.time()
-  print("Produced {} renders in {} seconds ({} seconds per render)".format(number_of_renders, end_time - start_time, (end_time - start_time) / number_of_renders))
+  return scene
+
 
 if __name__ == "__main__":
   project_directory = "{}/inverse_renders/toucan".format(os.getcwd())
-  load_scene(folder=project_directory)
-  # inverse_render_optimization(scene)
+  inverse_render_optimization(folder=project_directory)
