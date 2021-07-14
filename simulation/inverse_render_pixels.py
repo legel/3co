@@ -284,7 +284,8 @@ def visualize_image_condition(data, label, condition="is_nan", is_true="white", 
 
 
 @tf.function(jit_compile=True)
-def apply_gradients_from_inverse_rendering_loss(  ground_truth_radiance, 
+def apply_gradients_from_inverse_rendering_loss(  optimizer,
+                                                  ground_truth_radiance, 
                                                   hypothesis_radiance,
                                                   hypothesis_irradiance,
                                                   hypothesis_brdf,
@@ -323,16 +324,16 @@ def apply_gradients_from_inverse_rendering_loss(  ground_truth_radiance,
   delta_clearcoatGloss = tf.reduce_sum(df_clearcoatGloss * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
 
   # get the previous BRDF parameters
-  metallic = hypothesis_brdf_parameters[0]
-  subsurface = hypothesis_brdf_parameters[1]
-  specular = hypothesis_brdf_parameters[2]
-  roughness = hypothesis_brdf_parameters[3]
-  specularTint = hypothesis_brdf_parameters[4]
-  anisotropic = hypothesis_brdf_parameters[5]
-  sheen = hypothesis_brdf_parameters[6]
-  sheenTint = hypothesis_brdf_parameters[7]
-  clearcoat = hypothesis_brdf_parameters[8]
-  clearcoatGloss = hypothesis_brdf_parameters[9]
+  metallic = tf.Variable(hypothesis_brdf_parameters[0])
+  subsurface = tf.Variable(hypothesis_brdf_parameters[1])
+  specular = tf.Variable(hypothesis_brdf_parameters[2])
+  roughness = tf.Variable(hypothesis_brdf_parameters[3])
+  specularTint = tf.Variable(hypothesis_brdf_parameters[4])
+  anisotropic = tf.Variable(hypothesis_brdf_parameters[5])
+  sheen = tf.Variable(hypothesis_brdf_parameters[6])
+  sheenTint = tf.Variable(hypothesis_brdf_parameters[7])
+  clearcoat = tf.Variable(hypothesis_brdf_parameters[8])
+  clearcoatGloss = tf.Variable(hypothesis_brdf_parameters[9])
 
   # get the ground truth BRDF parameters for showing to human
   true_metallic = ground_truth_brdf_parameters[0]
@@ -358,6 +359,18 @@ def apply_gradients_from_inverse_rendering_loss(  ground_truth_radiance,
   new_clearcoat = clamp(clearcoat - delta_clearcoat, 0, 1)
   new_clearcoatGloss = clamp(clearcoatGloss - delta_clearcoatGloss, 0, 1)
 
+  # compute clipped gradient for optimizer
+  metallic_grad = metallic - new_metallic
+  subsurface_grad = subsurface -  new_subsurface
+  specular_grad = specular - new_specular 
+  roughness_grad = roughness - new_roughness 
+  specularTint_grad = specularTint - new_specularTint
+  anisotropic_grad = anisotropic - new_anisotropic 
+  sheen_grad = sheen - new_sheen
+  sheenTint_grad = sheenTint - new_sheenTint
+  clearcoat_grad = clearcoat - new_clearcoat
+  clearcoatGloss_grad = clearcoatGloss - new_clearcoatGloss
+
   if report_results_on_this_iteration:
     print(":::::::::::: BRDF Truth vs. Hypothesis (Δ Update) ::::::::::::")
     print("Metallic:        {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_metallic, new_metallic, -1 * delta_metallic))
@@ -371,16 +384,23 @@ def apply_gradients_from_inverse_rendering_loss(  ground_truth_radiance,
     print("Clearcoat:       {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_clearcoat, new_clearcoat, -1 * delta_clearcoat))
     print("Clearcoat Gloss: {:.5f} vs. {:.5f} (Δ {:+5f})\n".format(true_clearcoatGloss, new_clearcoatGloss, -1 * delta_clearcoatGloss))
 
-  new_hypothesis_brdf_parameters = tf.concat([  new_metallic, 
-                                                new_subsurface, 
-                                                new_specular, 
-                                                new_roughness, 
-                                                new_specularTint, 
-                                                new_anisotropic, 
-                                                new_sheen, 
-                                                new_sheenTint, 
-                                                new_clearcoat, 
-                                                new_clearcoatGloss], axis=0)
+  clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
+  parameters_to_update = [metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss]
+
+  # apply gradients with the power of a TensorFlow optimizer to tune learning rate automatically
+  optimizer.apply_gradients(zip(clipped_gradients, parameters_to_update))
+
+  # variables were updated by above operation, now we wrap it up and send it back for rendering...
+  new_hypothesis_brdf_parameters = tf.concat([  metallic, 
+                                                subsurface, 
+                                                specular, 
+                                                roughness, 
+                                                specularTint, 
+                                                anisotropic, 
+                                                sheen, 
+                                                sheenTint, 
+                                                clearcoat, 
+                                                clearcoatGloss], axis=0)
 
   return new_hypothesis_brdf_parameters
 
@@ -431,7 +451,8 @@ def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimi
   return brdf_parameters
 
 
-def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 5000, frequency_of_human_output = 100):
+# @tf.function(jit_compile=True)
+def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 750, frequency_of_human_output = 25):
   # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
   ground_truth_render_parameters, ground_truth_radiance, ground_truth_irradiance, ground_truth_brdf, ground_truth_brdf_metadata, brdf_parameters_to_hold_constant_in_optimization = load_scene(folder=project_directory)
 
@@ -460,6 +481,19 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
   Path("{}/inverse_render_hypotheses".format(folder)).mkdir(parents=True, exist_ok=True)
   Path("{}/debugging_visualizations".format(folder)).mkdir(parents=True, exist_ok=True)
 
+
+  #learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=1.0, decay_steps=500, end_learning_rate=0.01, power=2.0, cycle=False)
+  #optimizer = tf.keras.optimizers.Adadelta(learning_rate = 0.1, rho = 0.95, epsilon=1e-05)
+  #optimizer = tf.keras.optimizers.Adagrad(learning_rate = learning_rate_schedule, initial_accumulator_value=0.1, epsilon=1e-05)
+  #optimizer = tf.keras.optimizers.SGD(learning_rate = learning_rate_schedule, momentum = 0.99, nesterov=True)
+  #optimizer = tf.keras.optimizers.Nadam(learning_rate = 0.001, epsilon = 1e-3, beta_1 = 0.9, beta_2 = 0.999)
+  #optimizer = tf.keras.optimizers.Adamax(learning_rate = 0.01, epsilon = 1e-5, beta_1 = 0.9, beta_2 = 0.999)
+  #optimizer = tf.keras.optimizers.RMSprop(learning_rate=0.001, rho=0.9, momentum=0.9, epsilon=1e-07, centered=False)
+  
+  optimizer = tf.keras.optimizers.SGD(learning_rate = 1.0, momentum = 0.0, nesterov=False)
+  #optimizer = tf.keras.optimizers.Adam(learning_rate = 0.01, epsilon =  1e-9, beta_1 = 0.999, beta_2 = 0.999, amsgrad = True)
+
+
   # optimize BRDF parameters through inverse rendering loss, for a number of iterations
   for iteration in range(number_of_iterations):
     report_results_on_this_iteration = iteration % frequency_of_human_output == 0
@@ -482,7 +516,8 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
                                                                                                     is_not_background=is_not_background,
                                                                                                     file_path=render_file_path)
 
-    hypothesis_brdf_parameters = apply_gradients_from_inverse_rendering_loss( ground_truth_radiance=ground_truth_radiance, 
+    hypothesis_brdf_parameters = apply_gradients_from_inverse_rendering_loss( optimizer=optimizer,
+                                                                              ground_truth_radiance=ground_truth_radiance, 
                                                                               hypothesis_radiance=hypothesis_radiance,
                                                                               hypothesis_irradiance=hypothesis_irradiance,
                                                                               hypothesis_brdf=hypothesis_brdf,
@@ -695,7 +730,7 @@ def render( diffuse_colors,
   
   # save image dimensions
   number_of_pixels, color_channels = diffuse_colors.shape
-  
+
   # compute orthogonal vectors in surface tangent plane; any two orthogonal vectors on the plane will do; choose the first one arbitrarily
   random_normals = normalize(tf.random.uniform(shape=(number_of_pixels, 3), dtype=tf.float64))
   surface_tangents = normalize(tf.linalg.cross(normals, random_normals))
