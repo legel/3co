@@ -7,14 +7,21 @@ from pathlib import Path
 import os, sys
 import copy
 import time
+import os
+
+# dont_use_gpu = True
+
+# if dont_use_gpu:
+#   os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+#   os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def sqr(x):
   return tf.math.square(x)
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def clamp(x, a, b):
   absolute_min = tf.constant(a, dtype=tf.float64)
   absolute_max = tf.constant(b, dtype=tf.float64)
@@ -23,7 +30,7 @@ def clamp(x, a, b):
   return x
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def normalize(x):
   norm = tf.linalg.norm(x, axis=1)
   ones = tf.ones(x.shape[0], dtype=tf.float64)
@@ -34,18 +41,18 @@ def normalize(x):
   return result
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def mix(x, y, a):
   return x * (1 - a) + y * a
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def SchlickFresnel(u):
   m = clamp(1-u, 0, 1)
   return tf.pow(m, 5)
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def GTR1(NdotH, a):
   number_of_pixels = NdotH.shape[0]
   if (a >= 1): 
@@ -57,14 +64,14 @@ def GTR1(NdotH, a):
   return (a2-1) / (pi*tf.math.log(a2)*t)
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def GTR2_aniso(NdotH, HdotX, HdotY, ax, ay):
   shape = tf.shape(NdotH)
   ones = tf.ones(shape, dtype=tf.float64)
   return ones / ( pi * ax * ay * sqr( sqr(HdotX/ax) + sqr(HdotY/ay) + sqr(NdotH)))
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def smithG_GGX(Ndotv, alphaG):
   a = tf.cast(sqr(alphaG), dtype=tf.float64)
   b = tf.cast(sqr(Ndotv), dtype=tf.float64)
@@ -74,18 +81,18 @@ def smithG_GGX(Ndotv, alphaG):
   return teller / noemer
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def d_GGX_aG(NdotA, aG):
   k = tf.math.sqrt( sqr(aG) + sqr(NdotA) - sqr(aG) * sqr(NdotA) )
   return aG * (sqr(NdotA) - 1.0) / (k * sqr((NdotA + k)))
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def smithG_GGX_aniso(NdotV, VdotX, VdotY, ax, ay):
   return 1 / (NdotV + tf.math.sqrt( sqr(VdotX*ax) + sqr(VdotY*ay) + sqr(NdotV) ))
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def mon2lin(x):
   x = tf.math.pow(x, 2.2)
   return x
@@ -106,7 +113,7 @@ def mask_data(data, condition, replace_to="zeros"):
   return masked_data
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_constant_in_optimization):
   number_of_pixels = brdf_metadata.shape[0]
 
@@ -259,7 +266,7 @@ def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_co
   return gradients
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def photometric_error(ground_truth, hypothesis):
   error = (hypothesis - ground_truth)
   return error
@@ -283,7 +290,7 @@ def visualize_image_condition(data, label, condition="is_nan", is_true="white", 
   cv2.imwrite('models/toucan_0.5/def_brdf_gradient/{}_{}_{}.png'.format(iteration_number,label,condition), conditional_data)
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def apply_gradients_from_inverse_rendering_loss(  optimizer,
                                                   ground_truth_radiance, 
                                                   hypothesis_radiance,
@@ -451,7 +458,7 @@ def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimi
   return brdf_parameters
 
 
-# @tf.function(jit_compile=True)
+# @tf.function(experimental_compile=True)
 def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 750, frequency_of_human_output = 25):
   # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
   ground_truth_render_parameters, ground_truth_radiance, ground_truth_irradiance, ground_truth_brdf, ground_truth_brdf_metadata, brdf_parameters_to_hold_constant_in_optimization = load_scene(folder=project_directory)
@@ -529,7 +536,7 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
                                                                               )
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def BRDF( diffuse_colors,
           surface_xyz,
           normals, 
@@ -662,7 +669,7 @@ def BRDF( diffuse_colors,
   return brdf, brdf_metadata
 
 
-@tf.function(jit_compile=True)
+@tf.function(experimental_compile=True)
 def compute_radiance(surface_xyz, normals, light_angles, light_xyz, light_color, brdf):
   number_of_pixels = surface_xyz.shape[0]
   # approximate light intensity requirements
@@ -901,3 +908,7 @@ def load_scene( folder,
 if __name__ == "__main__":
   project_directory = "{}/inverse_renders/toucan".format(os.getcwd())
   inverse_render_optimization(folder=project_directory)
+
+
+
+
