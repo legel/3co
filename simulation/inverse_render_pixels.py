@@ -1,5 +1,6 @@
 import tensorflow as tf
-import tensorflow.experimental.numpy as tnp
+from tensorflow_graphics.math.optimizer import levenberg_marquardt
+import tensorflow_probability as tfp
 import numpy as np
 import cv2
 from math import pi
@@ -9,12 +10,13 @@ import copy
 import time
 import os
 
-# dont_use_gpu = True
+dont_use_gpu = True
 
-# if dont_use_gpu:
-#   os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-#   os.environ["CUDA_VISIBLE_DEVICES"]="0"
+if dont_use_gpu:
+  os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+  os.environ["CUDA_VISIBLE_DEVICES"]=""
 
+iteration = 0
 
 @tf.function(experimental_compile=True)
 def sqr(x):
@@ -268,8 +270,10 @@ def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_co
 
 @tf.function(experimental_compile=True)
 def photometric_error(ground_truth, hypothesis):
-  error = (hypothesis - ground_truth)
-  return error
+  # # number_of_pixels = ground_truth.shape[0]
+  # pixelwise_squared_error = hypothesis - ground_truth
+  # # average_pixel_error = tf.reduce_sum(pixelwise_squared_error) / number_of_pixels
+  return hypothesis - ground_truth
 
 
 def visualize_image_condition(data, label, condition="is_nan", is_true="white", is_false="black", iteration_number=0):
@@ -291,16 +295,16 @@ def visualize_image_condition(data, label, condition="is_nan", is_true="white", 
 
 
 @tf.function(experimental_compile=True)
-def apply_gradients_from_inverse_rendering_loss(  optimizer,
-                                                  ground_truth_radiance, 
-                                                  hypothesis_radiance,
-                                                  hypothesis_irradiance,
-                                                  hypothesis_brdf,
-                                                  hypothesis_brdf_parameters,
-                                                  hypothesis_brdf_metadata,
-                                                  ground_truth_brdf_parameters,
-                                                  brdf_parameters_to_hold_constant_in_optimization,
-                                                  report_results_on_this_iteration):
+def apply_gradients_from_inverse_rendering_loss(optimizer,
+                                                ground_truth_radiance, 
+                                                hypothesis_radiance,
+                                                hypothesis_irradiance,
+                                                hypothesis_brdf,
+                                                hypothesis_brdf_parameters,
+                                                hypothesis_brdf_metadata,
+                                                ground_truth_brdf_parameters,
+                                                brdf_parameters_to_hold_constant_in_optimization,
+                                                report_results_on_this_iteration):
 
   number_of_pixels = ground_truth_radiance.shape[0]
   number_of_colors = ground_truth_radiance.shape[1]
@@ -391,25 +395,38 @@ def apply_gradients_from_inverse_rendering_loss(  optimizer,
     print("Clearcoat:       {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_clearcoat, new_clearcoat, -1 * delta_clearcoat))
     print("Clearcoat Gloss: {:.5f} vs. {:.5f} (Δ {:+5f})\n".format(true_clearcoatGloss, new_clearcoatGloss, -1 * delta_clearcoatGloss))
 
-  clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
-  parameters_to_update = [metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss]
+  if optimizer != "L-BFGS":
+    clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
+    parameters_to_update = [metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss]
 
-  # apply gradients with the power of a TensorFlow optimizer to tune learning rate automatically
-  optimizer.apply_gradients(zip(clipped_gradients, parameters_to_update))
 
-  # variables were updated by above operation, now we wrap it up and send it back for rendering...
-  new_hypothesis_brdf_parameters = tf.concat([  metallic, 
-                                                subsurface, 
-                                                specular, 
-                                                roughness, 
-                                                specularTint, 
-                                                anisotropic, 
-                                                sheen, 
-                                                sheenTint, 
-                                                clearcoat, 
-                                                clearcoatGloss], axis=0)
+    # apply gradients with the power of a TensorFlow optimizer to tune learning rate automatically
+    optimizer.apply_gradients(zip(clipped_gradients, parameters_to_update))
 
-  return new_hypothesis_brdf_parameters
+    # variables were updated by above operation, now we wrap it up and send it back for rendering...
+    new_hypothesis_brdf_parameters = tf.concat([  metallic, 
+                                                  subsurface, 
+                                                  specular, 
+                                                  roughness, 
+                                                  specularTint, 
+                                                  anisotropic, 
+                                                  sheen, 
+                                                  sheenTint, 
+                                                  clearcoat, 
+                                                  clearcoatGloss], axis=0)
+
+    return parameters_to_update, clipped_gradients
+
+  else:
+    clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
+
+    gradients_as_tensor = tf.stack(clipped_gradients)
+    photometric_loss = tf.reduce_sum(photometric_loss) / (number_of_pixels * number_of_colors)
+
+    print(photometric_loss)
+    print(gradients_as_tensor)
+
+    return photometric_loss, gradients_as_tensor
 
 
 def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization):
@@ -459,7 +476,7 @@ def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimi
 
 
 # @tf.function(experimental_compile=True)
-def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 750, frequency_of_human_output = 25):
+def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 750, frequency_of_human_output = 1):
   # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
   ground_truth_render_parameters, ground_truth_radiance, ground_truth_irradiance, ground_truth_brdf, ground_truth_brdf_metadata, brdf_parameters_to_hold_constant_in_optimization = load_scene(folder=project_directory)
 
@@ -490,19 +507,28 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
 
 
   #learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=1.0, decay_steps=500, end_learning_rate=0.01, power=2.0, cycle=False)
-  #optimizer = tf.keras.optimizers.Adadelta(learning_rate = 0.1, rho = 0.95, epsilon=1e-05)
-  #optimizer = tf.keras.optimizers.Adagrad(learning_rate = learning_rate_schedule, initial_accumulator_value=0.1, epsilon=1e-05)
-  #optimizer = tf.keras.optimizers.SGD(learning_rate = learning_rate_schedule, momentum = 0.99, nesterov=True)
-  #optimizer = tf.keras.optimizers.Nadam(learning_rate = 0.001, epsilon = 1e-3, beta_1 = 0.9, beta_2 = 0.999)
-  #optimizer = tf.keras.optimizers.Adamax(learning_rate = 0.01, epsilon = 1e-5, beta_1 = 0.9, beta_2 = 0.999)
-  #optimizer = tf.keras.optimizers.RMSprop(learning_rate=0.001, rho=0.9, momentum=0.9, epsilon=1e-07, centered=False)
+
+  # TESTED, NOT HIGHEST PERFORMERS:
+  # optimizer = tf.keras.optimizers.Adadelta(learning_rate = 0.1, rho = 0.95, epsilon=1e-05)
+  # optimizer = tf.keras.optimizers.Adagrad(learning_rate = learning_rate_schedule, initial_accumulator_value=0.1, epsilon=1e-05)
+  # optimizer = tf.keras.optimizers.SGD(learning_rate = learning_rate_schedule, momentum = 0.99, nesterov=True)
+  # optimizer = tf.keras.optimizers.Nadam(learning_rate = 0.001, epsilon = 1e-3, beta_1 = 0.9, beta_2 = 0.999)
+  # optimizer = tf.keras.optimizers.Adamax(learning_rate = 0.01, epsilon = 1e-5, beta_1 = 0.9, beta_2 = 0.999)
+  # optimizer = tf.keras.optimizers.RMSprop(learning_rate=0.001, rho=0.9, momentum=0.9, epsilon=1e-07, centered=False)
+  # optimizer = tf.keras.optimizers.SGD(learning_rate = 1.0, momentum = 0.0, nesterov=False)
+
+  # MOST RELIABLE THUS FAR IS ADAM, FASTEST SOMETIMES IS L-BFGS BUT IT IS NOT RELIABLE
+  optimizer = tf.keras.optimizers.Adam(learning_rate = 0.025, epsilon =  1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
+  # optimizer = "L-BFGS"
   
-  optimizer = tf.keras.optimizers.SGD(learning_rate = 1.0, momentum = 0.0, nesterov=False)
-  #optimizer = tf.keras.optimizers.Adam(learning_rate = 0.01, epsilon =  1e-9, beta_1 = 0.999, beta_2 = 0.999, amsgrad = True)
+
+  # NOT YET IMPLEMENTED:  
+  # optimizer = tf.math.optimizer.levenberg_marquardt() # TO DO: Levenberg Marquardt, requires manually constructing jacobian from partial gradients, editing source code in TFG API
 
 
-  # optimize BRDF parameters through inverse rendering loss, for a number of iterations
-  for iteration in range(number_of_iterations):
+  def compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters):
+    global iteration
+
     report_results_on_this_iteration = iteration % frequency_of_human_output == 0
     if report_results_on_this_iteration:
       print("\n\nITERATION {}:".format(iteration))
@@ -523,17 +549,43 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
                                                                                                     is_not_background=is_not_background,
                                                                                                     file_path=render_file_path)
 
-    hypothesis_brdf_parameters = apply_gradients_from_inverse_rendering_loss( optimizer=optimizer,
-                                                                              ground_truth_radiance=ground_truth_radiance, 
-                                                                              hypothesis_radiance=hypothesis_radiance,
-                                                                              hypothesis_irradiance=hypothesis_irradiance,
-                                                                              hypothesis_brdf=hypothesis_brdf,
-                                                                              hypothesis_brdf_parameters=hypothesis_brdf_parameters,
-                                                                              hypothesis_brdf_metadata=hypothesis_brdf_metadata,
-                                                                              brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization,
-                                                                              ground_truth_brdf_parameters=ground_truth_brdf_parameters, # for human eyes only
-                                                                              report_results_on_this_iteration=report_results_on_this_iteration
-                                                                              )
+    hypothesis_brdf_parameters, gradients = apply_gradients_from_inverse_rendering_loss(optimizer=optimizer,
+                                                                                        ground_truth_radiance=ground_truth_radiance, 
+                                                                                        hypothesis_radiance=hypothesis_radiance,
+                                                                                        hypothesis_irradiance=hypothesis_irradiance,
+                                                                                        hypothesis_brdf=hypothesis_brdf,
+                                                                                        hypothesis_brdf_parameters=hypothesis_brdf_parameters,
+                                                                                        hypothesis_brdf_metadata=hypothesis_brdf_metadata,
+                                                                                        brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization,
+                                                                                        ground_truth_brdf_parameters=ground_truth_brdf_parameters, # for human eyes only
+                                                                                        report_results_on_this_iteration=report_results_on_this_iteration
+                                                                                        )
+
+    iteration += 1
+    return hypothesis_brdf_parameters, gradients
+
+
+  if optimizer != "L-BFGS":
+    for i in range(number_of_iterations):
+      hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
+
+  else:
+
+    tfp.optimizer.lbfgs_minimize(
+      value_and_gradients_function=compute_inverse_rendering_loss_and_gradients,
+      initial_position=hypothesis_brdf_parameters,
+      # previous_optimizer_results=None,
+      # num_correction_pairs=100, 
+      # tolerance=1e-07, 
+      # x_tolerance=0, 
+      # f_relative_tolerance=0,
+      # initial_inverse_hessian_estimate=None, 
+      # max_iterations=50, 
+      # parallel_iterations=1,
+      # stopping_condition=None, 
+      # max_line_search_iterations=100, 
+      # name=None
+    )
 
 
 @tf.function(experimental_compile=True)
