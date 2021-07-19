@@ -1,5 +1,6 @@
 import tensorflow as tf
-from tensorflow_graphics.math.optimizer import levenberg_marquardt
+#from tensorflow_graphics.math.optimizer import levenberg_marquardt
+import levenberg_marquardt
 import tensorflow_probability as tfp
 import numpy as np
 import cv2
@@ -319,20 +320,20 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
   # pixelwise difference across RGB channels                         
   photometric_loss = photometric_error(ground_truth_radiance, hypothesis_radiance)
 
-  # gradient loss attributable to gamma encoding
-  gamma_encoding_loss = tf.math.divide(tf.math.pow(hypothesis_brdf * hypothesis_irradiance, -1.2 / 2.2), 2.2) * hypothesis_irradiance
+  # gradient of gamma encoding
+  df_gamma_encoding = tf.math.divide(tf.math.pow(hypothesis_brdf * hypothesis_irradiance, -1.2 / 2.2), 2.2) * hypothesis_irradiance
 
   # compute update to each BRDF parameter
-  delta_metallic = tf.reduce_sum(df_metallic * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_subsurface = tf.reduce_sum(df_subsurface * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_specular = tf.reduce_sum(df_specular * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_roughness = tf.reduce_sum(df_roughness * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_specularTint = tf.reduce_sum(df_specularTint * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_anisotropic = tf.reduce_sum(df_anisotropic * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_sheen = tf.reduce_sum(df_sheen * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_sheenTint = tf.reduce_sum(df_sheenTint * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors) 
-  delta_clearcoat = tf.reduce_sum(df_clearcoat * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
-  delta_clearcoatGloss = tf.reduce_sum(df_clearcoatGloss * gamma_encoding_loss * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_metallic = tf.reduce_sum(df_metallic * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_subsurface = tf.reduce_sum(df_subsurface * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_specular = tf.reduce_sum(df_specular * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_roughness = tf.reduce_sum(df_roughness * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_specularTint = tf.reduce_sum(df_specularTint * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_anisotropic = tf.reduce_sum(df_anisotropic * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_sheen = tf.reduce_sum(df_sheen * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_sheenTint = tf.reduce_sum(df_sheenTint * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors) 
+  delta_clearcoat = tf.reduce_sum(df_clearcoat * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
+  delta_clearcoatGloss = tf.reduce_sum(df_clearcoatGloss * df_gamma_encoding * photometric_loss) / (number_of_pixels * number_of_colors)
 
   # get the previous BRDF parameters
   metallic = tf.Variable(hypothesis_brdf_parameters[0])
@@ -395,11 +396,15 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
     print("Clearcoat:       {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_clearcoat, new_clearcoat, -1 * delta_clearcoat))
     print("Clearcoat Gloss: {:.5f} vs. {:.5f} (Δ {:+5f})\n".format(true_clearcoatGloss, new_clearcoatGloss, -1 * delta_clearcoatGloss))
 
-  if optimizer != "L-BFGS":
-    clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
-    parameters_to_update = [metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss]
+  parameters_to_update = [metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss]
+  clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
+  gradients_as_tensor = tf.stack(clipped_gradients)
+  photometric_loss = tf.reduce_sum(photometric_loss) / (number_of_pixels * number_of_colors)
 
+  if optimizer == "L-BFGS" or optimizer == "levenberg_marquardt":
+    return parameters_to_update, gradients_as_tensor, photometric_loss
 
+  else:
     # apply gradients with the power of a TensorFlow optimizer to tune learning rate automatically
     optimizer.apply_gradients(zip(clipped_gradients, parameters_to_update))
 
@@ -415,18 +420,7 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
                                                   clearcoat, 
                                                   clearcoatGloss], axis=0)
 
-    return parameters_to_update, clipped_gradients
-
-  else:
-    clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
-
-    gradients_as_tensor = tf.stack(clipped_gradients)
-    photometric_loss = tf.reduce_sum(photometric_loss) / (number_of_pixels * number_of_colors)
-
-    print(photometric_loss)
-    print(gradients_as_tensor)
-
-    return photometric_loss, gradients_as_tensor
+    return new_hypothesis_brdf_parameters, gradients_as_tensor, photometric_loss
 
 
 def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization):
@@ -476,7 +470,7 @@ def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimi
 
 
 # @tf.function(experimental_compile=True)
-def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 750, frequency_of_human_output = 1):
+def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 100, frequency_of_human_output = 1):
   # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
   ground_truth_render_parameters, ground_truth_radiance, ground_truth_irradiance, ground_truth_brdf, ground_truth_brdf_metadata, brdf_parameters_to_hold_constant_in_optimization = load_scene(folder=project_directory)
 
@@ -511,19 +505,20 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
   # TESTED, NOT HIGHEST PERFORMERS:
   # optimizer = tf.keras.optimizers.Adadelta(learning_rate = 0.1, rho = 0.95, epsilon=1e-05)
   # optimizer = tf.keras.optimizers.Adagrad(learning_rate = learning_rate_schedule, initial_accumulator_value=0.1, epsilon=1e-05)
+  # learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=1.0, decay_steps=500, end_learning_rate=0.01, power=2.0, cycle=False)
   # optimizer = tf.keras.optimizers.SGD(learning_rate = learning_rate_schedule, momentum = 0.99, nesterov=True)
   # optimizer = tf.keras.optimizers.Nadam(learning_rate = 0.001, epsilon = 1e-3, beta_1 = 0.9, beta_2 = 0.999)
   # optimizer = tf.keras.optimizers.Adamax(learning_rate = 0.01, epsilon = 1e-5, beta_1 = 0.9, beta_2 = 0.999)
   # optimizer = tf.keras.optimizers.RMSprop(learning_rate=0.001, rho=0.9, momentum=0.9, epsilon=1e-07, centered=False)
   # optimizer = tf.keras.optimizers.SGD(learning_rate = 1.0, momentum = 0.0, nesterov=False)
 
-  # MOST RELIABLE THUS FAR IS ADAM, FASTEST SOMETIMES IS L-BFGS BUT IT IS NOT RELIABLE
-  optimizer = tf.keras.optimizers.Adam(learning_rate = 0.025, epsilon =  1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
+  # DEVELOPED, BUT NOT RELIABLE / NOT FULLY DEBUGGED:
   # optimizer = "L-BFGS"
-  
+  # optimizer = "levenberg_marquardt"
 
-  # NOT YET IMPLEMENTED:  
-  # optimizer = tf.math.optimizer.levenberg_marquardt() # TO DO: Levenberg Marquardt, requires manually constructing jacobian from partial gradients, editing source code in TFG API
+  # MOST RELIABLE THUS FAR IS ADAM
+  learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=0.2, decay_steps=number_of_iterations, end_learning_rate=0.001, power=3.0, cycle=False)
+  optimizer = tf.keras.optimizers.Adam(learning_rate = learning_rate_schedule, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = True)
 
 
   def compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters):
@@ -531,7 +526,7 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
 
     report_results_on_this_iteration = iteration % frequency_of_human_output == 0
     if report_results_on_this_iteration:
-      print("\n\nITERATION {}:".format(iteration))
+      print("\n:::::::::::::::::::::::: ITERATION {} :::::::::::::::::::::::: ".format(iteration))
       render_file_path = tf.constant("{}/inverse_render_hypotheses/inverse_render_hypothesis_{}.png".format(folder, iteration))
     else:
       render_file_path = None
@@ -549,43 +544,63 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
                                                                                                     is_not_background=is_not_background,
                                                                                                     file_path=render_file_path)
 
-    hypothesis_brdf_parameters, gradients = apply_gradients_from_inverse_rendering_loss(optimizer=optimizer,
-                                                                                        ground_truth_radiance=ground_truth_radiance, 
-                                                                                        hypothesis_radiance=hypothesis_radiance,
-                                                                                        hypothesis_irradiance=hypothesis_irradiance,
-                                                                                        hypothesis_brdf=hypothesis_brdf,
-                                                                                        hypothesis_brdf_parameters=hypothesis_brdf_parameters,
-                                                                                        hypothesis_brdf_metadata=hypothesis_brdf_metadata,
-                                                                                        brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization,
-                                                                                        ground_truth_brdf_parameters=ground_truth_brdf_parameters, # for human eyes only
-                                                                                        report_results_on_this_iteration=report_results_on_this_iteration
-                                                                                        )
+    hypothesis_brdf_parameters, gradients, inverse_rendering_loss = apply_gradients_from_inverse_rendering_loss(optimizer=optimizer,
+                                                                                                                ground_truth_radiance=ground_truth_radiance, 
+                                                                                                                hypothesis_radiance=hypothesis_radiance,
+                                                                                                                hypothesis_irradiance=hypothesis_irradiance,
+                                                                                                                hypothesis_brdf=hypothesis_brdf,
+                                                                                                                hypothesis_brdf_parameters=hypothesis_brdf_parameters,
+                                                                                                                hypothesis_brdf_metadata=hypothesis_brdf_metadata,
+                                                                                                                brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization,
+                                                                                                                ground_truth_brdf_parameters=ground_truth_brdf_parameters, # for human eyes only
+                                                                                                                report_results_on_this_iteration=report_results_on_this_iteration
+                                                                                                                )
 
     iteration += 1
-    return hypothesis_brdf_parameters, gradients
 
+    # return a different set of values depending on type of optimization
+    if type(optimizer) == type(""):
+      if optimizer == "levenberg_marquardt" or "L-BFGS":
+        return inverse_rendering_loss, gradients
+    else:
+      return hypothesis_brdf_parameters, gradients
 
-  if optimizer != "L-BFGS":
+  # proceed to format optimization as needed by different libraries
+  if type(optimizer) == type(""):
+    if optimizer == "L-BFGS":
+      tfp.optimizer.lbfgs_minimize(
+        value_and_gradients_function=compute_inverse_rendering_loss_and_gradients,
+        initial_position=hypothesis_brdf_parameters,
+      )
+    elif optimizer == "levenberg_marquardt":
+        minimize_op = levenberg_marquardt.minimize( loss_functions=compute_inverse_rendering_loss_and_gradients,
+                                                    variables=hypothesis_brdf_parameters,
+                                                    max_iterations=100)
+
+  # else we are in manual control of the optimization, with an optimizer such as ADAM
+  else:
+
     for i in range(number_of_iterations):
       hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
 
-  else:
+    # optimizer = tf.keras.optimizers.Adam(learning_rate = 0.01, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
+    # for i in range(25):
+    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
 
-    tfp.optimizer.lbfgs_minimize(
-      value_and_gradients_function=compute_inverse_rendering_loss_and_gradients,
-      initial_position=hypothesis_brdf_parameters,
-      # previous_optimizer_results=None,
-      # num_correction_pairs=100, 
-      # tolerance=1e-07, 
-      # x_tolerance=0, 
-      # f_relative_tolerance=0,
-      # initial_inverse_hessian_estimate=None, 
-      # max_iterations=50, 
-      # parallel_iterations=1,
-      # stopping_condition=None, 
-      # max_line_search_iterations=100, 
-      # name=None
-    )
+    # optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
+    # for i in range(25):
+    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
+
+    # optimizer = tf.keras.optimizers.Adam(learning_rate = 0.0001, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
+    # for i in range(25):
+    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
+
+    # learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=100.0, decay_steps=number_of_iterations, end_learning_rate=1.0, power=3.0, cycle=False)
+    # optimizer = tf.keras.optimizers.SGD(learning_rate = learning_rate_schedule, momentum = 0.99, nesterov=True)
+
+    # for i in range(number_of_iterations):
+    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
+
 
 
 @tf.function(experimental_compile=True)
@@ -816,7 +831,7 @@ def render( diffuse_colors,
 
   # save image if desired
   if file_path:
-    print("Rendered {}".format(file_path))
+    # print("Rendered {}".format(file_path))
     save_image(image_data=radiance, background_color=background_color, image_shape=image_shape, is_not_background=is_not_background, pixel_indices_to_render=pixel_indices_to_render, file_path=file_path)
 
   return radiance, irradiance, brdf, brdf_metadata
@@ -958,6 +973,28 @@ def load_scene( folder,
 
 
 if __name__ == "__main__":
+#   x = tf.constant(np.random.random_sample(size=(1)), dtype=tf.float32)
+#   y = tf.constant(np.random.random_sample(size=(1)), dtype=tf.float32)
+#   z = tf.constant(np.random.random_sample(size=(1)), dtype=tf.float32)
+
+#   def f1(x, y, z):
+#     return (x + y) * z**2 - 1
+
+#   def callback(iteration, objective_value, variables):
+#     def print_output(iteration, objective_value, *variables):
+#       print("Iteration:", iteration, "Objective Value:", objective_value, "Variables: ",  variables)
+#     inp = [iteration, objective_value] + variables
+#     return tf.py_function(print_output, inp, [])
+
+#   minimize_op = levenberg_marquardt.minimize(residuals=(f1),
+#                                              variables=(x, y, z),
+#                                              max_iterations=100,
+#                                              callback=callback)
+
+#   if not tf.executing_eagerly():
+#     with tf.Session() as sess:
+#       sess.run(tf.global_variables_initializer())
+#       sess.run(minimize_op)
   project_directory = "{}/inverse_renders/toucan".format(os.getcwd())
   inverse_render_optimization(folder=project_directory)
 
