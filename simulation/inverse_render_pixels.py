@@ -1,7 +1,7 @@
 import tensorflow as tf
 #from tensorflow_graphics.math.optimizer import levenberg_marquardt
-import levenberg_marquardt
-import tensorflow_probability as tfp
+# import levenberg_marquardt
+# import tensorflow_probability as tfp
 import numpy as np
 import cv2
 from math import pi
@@ -11,13 +11,14 @@ import copy
 import time
 import os
 
-dont_use_gpu = True
+dont_use_gpu = False
 
 if dont_use_gpu:
   os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
   os.environ["CUDA_VISIBLE_DEVICES"]=""
 
-iteration = 0
+iteration = 1
+explorer = 1
 
 @tf.function(experimental_compile=True)
 def sqr(x):
@@ -233,6 +234,8 @@ def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_co
   # sheen gradient
   if "sheen" not in brdf_parameters_to_hold_constant_in_optimization:
     FH_expand = tf.broadcast_to(tf.expand_dims(FH, axis=1), [number_of_pixels, 3]) # *
+    if "metallic" in brdf_parameters_to_hold_constant_in_optimization:
+      NdotL3d = tf.broadcast_to(tf.expand_dims(NdotL, axis=1), [number_of_pixels, 3]) # *
     df_sheen = NdotL3d * (1.0 - metallic) * FH_expand * Csheen # f(metallic)
   else:
     df_sheen = tf.constant(0.0, dtype=tf.float64)
@@ -394,7 +397,7 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
     print("Sheen:           {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_sheen, new_sheen, -1 * delta_sheen))
     print("Sheen Tint:      {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_sheenTint, new_sheenTint, -1 * delta_sheenTint))
     print("Clearcoat:       {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_clearcoat, new_clearcoat, -1 * delta_clearcoat))
-    print("Clearcoat Gloss: {:.5f} vs. {:.5f} (Δ {:+5f})\n".format(true_clearcoatGloss, new_clearcoatGloss, -1 * delta_clearcoatGloss))
+    print("Clearcoat Gloss: {:.5f} vs. {:.5f} (Δ {:+5f})".format(true_clearcoatGloss, new_clearcoatGloss, -1 * delta_clearcoatGloss))
 
   parameters_to_update = [metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss]
   clipped_gradients = [metallic_grad, subsurface_grad, specular_grad, roughness_grad, specularTint_grad, anisotropic_grad, sheen_grad, sheenTint_grad, clearcoat_grad, clearcoatGloss_grad]
@@ -470,35 +473,34 @@ def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimi
 
 
 # @tf.function(experimental_compile=True)
-def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 100, frequency_of_human_output = 1):
+def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 100, frequency_of_human_output = 100, maximum_parallel_explorers = 10, pixel_error_termination_threshold = 0.1):
   # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
   ground_truth_render_parameters, ground_truth_radiance, ground_truth_irradiance, ground_truth_brdf, ground_truth_brdf_metadata, brdf_parameters_to_hold_constant_in_optimization = load_scene(folder=project_directory)
 
   # unwrap render parameters
   diffuse, xyz, normals, camera_xyz, light_xyz, light_color, background_color, image_shape, ground_truth_brdf_parameters, pixel_indices_to_render, is_not_background = ground_truth_render_parameters
 
-  # initialize hypothesis for BRDF parameters
-  if random_hypothesis_brdf_parameters:
-    # get random hypothesis values with some parameters that are held fixed at reasonable defaults
-    hypothesis_brdf_parameters = initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization)
-  else:
-    # manually set brdf ground truth parameters as tensor constants
-    metallic = tf.constant(0.5, dtype=tf.float64)
-    subsurface = tf.constant(0.5, dtype=tf.float64)
-    specular = tf.constant(0.5, dtype=tf.float64)
-    roughness = tf.constant(0.7, dtype=tf.float64)
-    specularTint = tf.constant(0.0, dtype=tf.float64)
-    anisotropic = tf.constant(0.0, dtype=tf.float64)
-    sheen = tf.constant(0.0, dtype=tf.float64)
-    sheenTint = tf.constant(0.0, dtype=tf.float64)
-    clearcoat = tf.constant(0.0, dtype=tf.float64)
-    clearcoatGloss = tf.constant(0.0, dtype=tf.float64)
-    hypothesis_brdf_parameters = tf.concat([metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss], axis=0)
+  # # initialize hypothesis for BRDF parameters
+  # if random_hypothesis_brdf_parameters:
+  #   # get random hypothesis values with some parameters that are held fixed at reasonable defaults
+  #   hypothesis_brdf_parameters = initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization)
+  # else:
+  #   # manually set brdf ground truth parameters as tensor constants
+  #   metallic = tf.constant(0.5, dtype=tf.float64)
+  #   subsurface = tf.constant(0.5, dtype=tf.float64)
+  #   specular = tf.constant(0.5, dtype=tf.float64)
+  #   roughness = tf.constant(0.7, dtype=tf.float64)
+  #   specularTint = tf.constant(0.0, dtype=tf.float64)
+  #   anisotropic = tf.constant(0.0, dtype=tf.float64)
+  #   sheen = tf.constant(0.0, dtype=tf.float64)
+  #   sheenTint = tf.constant(0.0, dtype=tf.float64)
+  #   clearcoat = tf.constant(0.0, dtype=tf.float64)
+  #   clearcoatGloss = tf.constant(0.0, dtype=tf.float64)
+  #   hypothesis_brdf_parameters = tf.concat([metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss], axis=0)
 
   # initialize output directories
   Path("{}/inverse_render_hypotheses".format(folder)).mkdir(parents=True, exist_ok=True)
   Path("{}/debugging_visualizations".format(folder)).mkdir(parents=True, exist_ok=True)
-
 
   #learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=1.0, decay_steps=500, end_learning_rate=0.01, power=2.0, cycle=False)
 
@@ -512,24 +514,26 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
   # optimizer = tf.keras.optimizers.RMSprop(learning_rate=0.001, rho=0.9, momentum=0.9, epsilon=1e-07, centered=False)
   # optimizer = tf.keras.optimizers.SGD(learning_rate = 1.0, momentum = 0.0, nesterov=False)
 
+  # learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=0.35, decay_steps=number_of_iterations, end_learning_rate=0.0005, power=3.0, cycle=False)
+  # optimizer = tf.keras.optimizers.Adam(learning_rate = learning_rate_schedule, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = True)
+
   # DEVELOPED, BUT NOT RELIABLE / NOT FULLY DEBUGGED:
   # optimizer = "L-BFGS"
   # optimizer = "levenberg_marquardt"
 
-  # MOST RELIABLE THUS FAR IS ADAM
-  learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=0.2, decay_steps=number_of_iterations, end_learning_rate=0.001, power=3.0, cycle=False)
-  optimizer = tf.keras.optimizers.Adam(learning_rate = learning_rate_schedule, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = True)
-
-
-  def compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters):
+  def compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters, optimizer):
     global iteration
+    global explorer
 
     report_results_on_this_iteration = iteration % frequency_of_human_output == 0
+    # if iteration == number_of_iterations:
+    #   render_file_path = tf.constant("{}/inverse_render_hypotheses/inverse_render_hypothesis_{}.png".format(folder, iteration))
+    # else:
+    render_file_path = None
+
     if report_results_on_this_iteration:
-      print("\n:::::::::::::::::::::::: ITERATION {} :::::::::::::::::::::::: ".format(iteration))
-      render_file_path = tf.constant("{}/inverse_render_hypotheses/inverse_render_hypothesis_{}.png".format(folder, iteration))
-    else:
-      render_file_path = None
+      print("\n\n                EXPLORER {}, ITERATION {}               ".format(explorer, iteration))
+
 
     hypothesis_radiance, hypothesis_irradiance, hypothesis_brdf, hypothesis_brdf_metadata = render( diffuse_colors=diffuse, 
                                                                                                     surface_xyz=xyz,
@@ -555,51 +559,51 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
                                                                                                                 ground_truth_brdf_parameters=ground_truth_brdf_parameters, # for human eyes only
                                                                                                                 report_results_on_this_iteration=report_results_on_this_iteration
                                                                                                                 )
+    if report_results_on_this_iteration:
+      print("::::::::::::::::: AVERAGE PIXEL ERROR: {:.2f} :::::::::::::::::".format(tf.math.abs(inverse_rendering_loss*tf.constant(255, dtype=tf.float64))))
 
     iteration += 1
+    return inverse_rendering_loss, gradients, hypothesis_brdf_parameters
 
-    # return a different set of values depending on type of optimization
-    if type(optimizer) == type(""):
-      if optimizer == "levenberg_marquardt" or "L-BFGS":
-        return inverse_rendering_loss, gradients
-    else:
-      return hypothesis_brdf_parameters, gradients
+  # # proceed to format optimization as needed by different libraries
+  # if type(optimizer) == type(""):
+  #   if optimizer == "L-BFGS":
+  #     tfp.optimizer.lbfgs_minimize(
+  #       value_and_gradients_function=compute_inverse_rendering_loss_and_gradients,
+  #       initial_position=hypothesis_brdf_parameters,
+  #     )
+  #   elif optimizer == "levenberg_marquardt":
+  #       minimize_op = levenberg_marquardt.minimize( loss_functions=compute_inverse_rendering_loss_and_gradients,
+  #                                                   variables=hypothesis_brdf_parameters,
+  #                                                   max_iterations=100)
 
-  # proceed to format optimization as needed by different libraries
-  if type(optimizer) == type(""):
-    if optimizer == "L-BFGS":
-      tfp.optimizer.lbfgs_minimize(
-        value_and_gradients_function=compute_inverse_rendering_loss_and_gradients,
-        initial_position=hypothesis_brdf_parameters,
-      )
-    elif optimizer == "levenberg_marquardt":
-        minimize_op = levenberg_marquardt.minimize( loss_functions=compute_inverse_rendering_loss_and_gradients,
-                                                    variables=hypothesis_brdf_parameters,
-                                                    max_iterations=100)
+  # # else we are in manual control of the optimization, with an optimizer such as ADAM
+  # else:
 
-  # else we are in manual control of the optimization, with an optimizer such as ADAM
-  else:
+  final_inverse_rendering_losses = []
+  final_hypothesis_brdf_parameters = []
+  initial_hypothesis_brdf_parameters = []
+  for parallel_explorer in range(1, maximum_parallel_explorers+1):
+    global iteration
+    global explorer
 
+    explorer = parallel_explorer
+    iteration = 1
+
+    learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=0.35, decay_steps=number_of_iterations, end_learning_rate=0.0005, power=3.0, cycle=False)
+    optimizer = tf.keras.optimizers.Adam(learning_rate = learning_rate_schedule, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = True)
+
+    hypothesis_brdf_parameters = initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization)
+    initial_hypothesis_brdf_parameters.append(hypothesis_brdf_parameters)
     for i in range(number_of_iterations):
-      hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
+      inverse_rendering_loss, gradients, hypothesis_brdf_parameters = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters, optimizer=optimizer)
+    final_inverse_rendering_losses.append(inverse_rendering_loss*tf.constant(255, dtype=tf.float64))
+    final_hypothesis_brdf_parameters.append(hypothesis_brdf_parameters)
 
-    # optimizer = tf.keras.optimizers.Adam(learning_rate = 0.01, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
-    # for i in range(25):
-    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
+    if tf.math.abs(inverse_rendering_loss) * tf.constant(255, dtype=tf.float64) < pixel_error_termination_threshold:
+      break
 
-    # optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
-    # for i in range(25):
-    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
-
-    # optimizer = tf.keras.optimizers.Adam(learning_rate = 0.0001, epsilon = 1e-9, beta_1 = 0.9, beta_2 = 0.999, amsgrad = False)
-    # for i in range(25):
-    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
-
-    # learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=100.0, decay_steps=number_of_iterations, end_learning_rate=1.0, power=3.0, cycle=False)
-    # optimizer = tf.keras.optimizers.SGD(learning_rate = learning_rate_schedule, momentum = 0.99, nesterov=True)
-
-    # for i in range(number_of_iterations):
-    #   hypothesis_brdf_parameters, _ = compute_inverse_rendering_loss_and_gradients(hypothesis_brdf_parameters)
+  return final_inverse_rendering_losses, final_hypothesis_brdf_parameters, initial_hypothesis_brdf_parameters, ground_truth_brdf_parameters
 
 
 
@@ -939,16 +943,22 @@ def load_scene( folder,
     ground_truth_brdf_parameters = initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization=brdf_parameters_to_hold_constant_in_optimization)
   else:
     # manually set brdf ground truth parameters as tensor constants
-    metallic = tf.constant(0.5, dtype=tf.float64)
-    subsurface = tf.constant(0.5, dtype=tf.float64)
-    specular = tf.constant(0.5, dtype=tf.float64)
-    roughness = tf.constant(0.7, dtype=tf.float64)
+    metallic = tf.constant(0.95497, dtype=tf.float64)
+    subsurface = tf.constant(0.44956, dtype=tf.float64)
+    specular = tf.constant(0.35499, dtype=tf.float64)
+    roughness = tf.constant(0.00693, dtype=tf.float64)
     specularTint = tf.constant(0.0, dtype=tf.float64)
     anisotropic = tf.constant(0.0, dtype=tf.float64)
     sheen = tf.constant(0.0, dtype=tf.float64)
     sheenTint = tf.constant(0.0, dtype=tf.float64)
     clearcoat = tf.constant(0.0, dtype=tf.float64)
     clearcoatGloss = tf.constant(0.0, dtype=tf.float64)
+
+    # metallic = tf.constant(0.0000, dtype=tf.float64)
+    # subsurface = tf.constant(0.35470, dtype=tf.float64)
+    # specular = tf.constant(0.82463, dtype=tf.float64)
+    # roughness = tf.constant(0.01165, dtype=tf.float64)
+
     ground_truth_brdf_parameters = tf.concat([metallic, subsurface, specular, roughness, specularTint, anisotropic, sheen, sheenTint, clearcoat, clearcoatGloss], axis=0)
 
   file_path = tf.constant("{}/ground_truth.png".format(folder))
@@ -973,31 +983,28 @@ def load_scene( folder,
 
 
 if __name__ == "__main__":
-#   x = tf.constant(np.random.random_sample(size=(1)), dtype=tf.float32)
-#   y = tf.constant(np.random.random_sample(size=(1)), dtype=tf.float32)
-#   z = tf.constant(np.random.random_sample(size=(1)), dtype=tf.float32)
-
-#   def f1(x, y, z):
-#     return (x + y) * z**2 - 1
-
-#   def callback(iteration, objective_value, variables):
-#     def print_output(iteration, objective_value, *variables):
-#       print("Iteration:", iteration, "Objective Value:", objective_value, "Variables: ",  variables)
-#     inp = [iteration, objective_value] + variables
-#     return tf.py_function(print_output, inp, [])
-
-#   minimize_op = levenberg_marquardt.minimize(residuals=(f1),
-#                                              variables=(x, y, z),
-#                                              max_iterations=100,
-#                                              callback=callback)
-
-#   if not tf.executing_eagerly():
-#     with tf.Session() as sess:
-#       sess.run(tf.global_variables_initializer())
-#       sess.run(minimize_op)
   project_directory = "{}/inverse_renders/toucan".format(os.getcwd())
-  inverse_render_optimization(folder=project_directory)
 
+  total_experiments = 25
 
+  minimum_pixel_errors = np.zeros(shape=total_experiments, dtype=np.float64)
+  number_of_trials_per_experiment = np.zeros(shape=total_experiments, dtype=np.float64)
+
+  for experiment in range(total_experiments):
+    final_inverse_rendering_losses, final_hypothesis_brdf_parameters, initial_hypothesis_brdf_parameters, true_brdf_parameters = inverse_render_optimization(folder=project_directory)
+
+    number_of_trials_per_experiment[experiment] = len(final_inverse_rendering_losses)
+    minimum_pixel_errors[experiment] = min(final_inverse_rendering_losses)
+
+    print("\n\n***************************************** EXPERIMENT {} ******************************************".format(experiment+1))
+    print("                  PER_PIXEL_ERROR      METALLIC          SUBSURFACE        SPECULAR          ROUGHNESS ")
+    print("GROUND TRUTH:    {:6.3f}                {:.3f}             {:.3f}             {:.3f}             {:.3f}    ".format(0.0, true_brdf_parameters[0], true_brdf_parameters[1], true_brdf_parameters[2], true_brdf_parameters[3]))
+
+    for optimization_number, (loss, final_brdf, initial_brdf) in enumerate(zip(final_inverse_rendering_losses, final_hypothesis_brdf_parameters, initial_hypothesis_brdf_parameters)):
+      print("OPTIMIZATION {}:  {:6.3f}                {:.3f} to {:.3f}    {:.3f} to {:.3f}    {:.3f} to {:.3f}    {:.3f} to {:.3f}".format(optimization_number, tf.math.abs(loss), initial_brdf[0], final_brdf[0], initial_brdf[1], final_brdf[1], initial_brdf[2], final_brdf[2], initial_brdf[3], final_brdf[3]))
+
+  print("\n\nFINAL EXPERIMENT RESULTS:")
+  print("    Average # of Trials Per Experiment:      {:.3f}".format(np.average(number_of_trials_per_experiment)))
+  print("    Average Pixel Error for Best Experiment: {:.3f}".format(np.average(np.abs(minimum_pixel_errors))))
 
 
