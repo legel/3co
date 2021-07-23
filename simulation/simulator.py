@@ -595,6 +595,8 @@ class Model():
     bpy.context.object.name = "Model"
     bpy.context.object.location = (1.0, 1.0, 0)
 
+
+
     def single_value_brdf_maker(self, brdf_node, render_config):
       with open(render_config) as json_file:
         data = json.load(json_file)
@@ -616,6 +618,12 @@ class Model():
 
 
     else:
+      bpy.context.scene.render.film_transparent = True
+      bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+
+      # bpy.context.scene.view_settings.view_transform = 'Filmic'
+
+
       resolution_bake = self.resolution * 2048
       for m in bpy.context.object.material_slots:
         links = m.material.node_tree.links
@@ -654,14 +662,14 @@ class Model():
 
         links.new(roughness_bake_node.outputs[0], emission_node.inputs[0])
 
-      # nodes.active = roughness_bake_node
-      # print("---------------------------------")
-      # print('Start baking of {}...'.format('roughness_bake'))
-      # print("---------------------------------\n")
-      # bpy.ops.object.bake(type='ROUGHNESS', width=resolution_bake, height=resolution_bake)
-      # print("---------------------------------")
-      # print('Bake ready.')
-      # print("---------------------------------\n")
+      nodes.active = roughness_bake_node
+      print("---------------------------------")
+      print('Start baking of {}...'.format('roughness_bake'))
+      print("---------------------------------\n")
+      bpy.ops.object.bake(type='ROUGHNESS', width=resolution_bake, height=resolution_bake)
+      print("---------------------------------")
+      print('Bake ready.')
+      print("---------------------------------\n")
 
 
 class Iris():
@@ -990,13 +998,40 @@ def startOfflineSimulation(iris, exposure_time, path):
 if __name__ == "__main__":  
   # path = path_planning.get_pillow_path_small()
 
-  # iris = Iris(model="/pillow/pillow.glb", resolution=1.0)
+  iris = Iris(model="/pillow/pillow.glb", resolution=0.5)
   # startOfflineSimulation(iris=iris, exposure_time=0.015, path=path)
 
-  iris = Iris(model="flamingo.glb", resolution=0.1)
-  iris.view(x=1.62, y=0.07, z=0.62, rotation_x=71, rotation_y=0, rotation_z=56.4)
-  iris.scan(exposure_time=0.01, scan_id=1)
-  
+  # 0: iris.view(x=1.7, y=0.11, z=1.5, rotation_x=35, rotation_y=0, rotation_z=38)
+  # iris.scan(exposure_time=0.001, scan_id=0)
+
+  # 1: iris.view(x=2.4351, y=0.13966, z=0.88328, rotation_x=61.8, rotation_y=0, rotation_z=60.4)
+  # iris.scan(exposure_time=0.001, scan_id=1)
+
+  iris.view(x=1.3383, y=0.98713, z=2.4275, rotation_x=13.4, rotation_y=0, rotation_z=78.8)
+  iris.scan(exposure_time=0.001, scan_id=2)
+
+  iris.view(x=1.0206, y=-0.15027, z=1.6226, rotation_x=35.8, rotation_y=0, rotation_z=1.2)
+  iris.scan(exposure_time=0.001, scan_id=3)
+
+  iris.view(x=1.0754, y=-0.52705, z=0.60267, rotation_x=65, rotation_y=0, rotation_z=2.8)
+  iris.scan(exposure_time=0.001, scan_id=4)
+
+  iris.view(x=2.5675, y=0.35445, z=0.38611, rotation_x=72.2, rotation_y=0, rotation_z=63.2)
+  iris.scan(exposure_time=0.001, scan_id=5)
+
+  iris.view(x=2.3819, y=0.52547, z=0.083027, rotation_x=82.6, rotation_y=0, rotation_z=66)
+  iris.scan(exposure_time=0.001, scan_id=6)
+
+  iris.view(x=1.8188, y=-0.48727, z=0.13453, rotation_x=82.2, rotation_y=0, rotation_z=28)
+  iris.scan(exposure_time=0.001, scan_id=7)
+
+  iris.view(x=2.3694, y=0.77204, z=0.43237, rotation_x=67.8, rotation_y=0, rotation_z=79.2)
+  iris.scan(exposure_time=0.001, scan_id=8)
+
+  iris.view(x=0.39382, y=0.11025, z=0.94058, rotation_x=45, rotation_y=0, rotation_z=-31.6)
+  iris.scan(exposure_time=0.001, scan_id=9)
+
+
   # iris = Iris(model="toucan.glb", resolution=0.1)
   # iris.view(x=1.7, y=0.11, z=0.7, rotation_x=71, rotation_y=0, rotation_z=55)
   # iris.scan(exposure_time=0.01, scan_id=1)
