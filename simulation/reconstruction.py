@@ -3,9 +3,10 @@ import sys
 import math
 import numpy as np
 from scipy.spatial import ConvexHull
-import csv2ply
 import open3d as o3d
 import os
+import cv2
+from numpy.linalg import inv
 
 class Point3D:
   def __init__(self, x, y, z, r=0, g=0, b=0, valid=True):
@@ -30,10 +31,10 @@ class Point3D:
 
 
 class GridCloud:
-  #vertical_pixels = 2048
-  #horizantal_pixels = 2048
-  vertical_pixels = 2280
-  horizantal_pixels = 1824
+  vertical_pixels = 2048
+  horizantal_pixels = 2048
+  #vertical_pixels = 2280
+  #horizantal_pixels = 1824
 
   def __init__(self, sensor_resolution):
     self.sensor_resolution = sensor_resolution
@@ -214,8 +215,53 @@ def mergeMeshes(mesh1, mesh2):
 
   return Mesh(V,faces)
 
+
+# create grid cloud from .exr (geometry), .png (rgb), .exr (normals)
+def getGridCloudFromImgs(fname, sensor_resolution):
+
+  gc = GridCloud(sensor_resolution)
+
+  geom_fname = fname + "_geometry.exr"
+  geom_img = cv2.imread(geom_fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  geom_img = cv2.cvtColor(geom_img, cv2.COLOR_BGR2RGB)  
+
+  rgb_fname = fname + "_render.png"
+  rgb_img = cv2.imread(rgb_fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)    
+  rgb_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2RGB) 
+
+  normals_fname = fname + "_render.png"
+  normals_img = cv2.imread(normals_fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)    
+  normals_img = cv2.cvtColor(normals_img, cv2.COLOR_BGR2RGB) 
+
+  for i in range( int(sensor_resolution * 2048) ):
+    for j in range( int(sensor_resolution * 2048) ):
+
+      x = geom_img[i,j,0]
+      y = geom_img[i,j,0]
+      z = geom_img[i,j,0]
+
+      r = rgb_img[i,j,0]
+      g = rgb_img[i,j,1]
+      b = rgb_img[i,j,2]
+
+      nx = normals_img[i,j,0]
+      ny = normals_img[i,j,1]
+      nz = normals_img[i,j,2]
+
+      # NOTE: normals not currently used as input to surface reconstruction!
+
+
+      gc.set(i, j, Point3D(x,y,z,r,g,b))
+
+    gc.computeValidBounds()
+
+  return gc
+
+
+
+
 # create grid cloud from .csv
-def getGridCloud(fname, sensor_resolution):
+def getGridCloudFromCsv(fname, sensor_resolution):
 
   gc = GridCloud(sensor_resolution)
   with open(fname, "r") as fin:
@@ -491,10 +537,9 @@ def localSurfaceReconstruction(gc, d_thresh):
           ij_points[1].orphan = False
           ij_points[2].orphan = False
 
-      # if p1 hasn't found a family by this point, he or she never will :(
+      # if p1 hasn't found a family by this point, they never will :(
       if p1.orphan == True:
         p1.valid = False
-        #print(V[P[pindex(i,j,max_col)]][0])
         orphaned[P[pindex(i,j,cols)]] = True
   
 
@@ -526,25 +571,26 @@ def localSurfaceReconstruction(gc, d_thresh):
 
   return Mesh(V_pruned, faces)
 
+"""
+  # create a single mesh from a set of meshes, specified as .csv files, and write as .ply
+  def mergeRawMeshes(files, fdir, dataset, resolution, thresh):
+    meshes = []
 
-# create a single mesh from a set of meshes, specified as .csv files, and write as .ply
-def mergeRawMeshes(files, fdir, dataset, resolution, thresh):
-  meshes = []
+    for f in files:
+      f_in_name = "simulated_scanner_outputs/{}/{}_{}.csv".format(dataset,dataset,f)
+      gc = getGridCloud(f_in_name, resolution)
+      mesh = localSurfaceReconstruction(gc, thresh)
+      mesh.writeAsPLY("{}/{}_raw_mesh_{}.ply".format(fdir, dataset,f))
+      meshes.append(mesh)
 
-  for f in files:
-    f_in_name = "simulated_scanner_outputs/{}/{}_{}.csv".format(dataset,dataset,f)
-    gc = getGridCloud(f_in_name, resolution)
-    mesh = localSurfaceReconstruction(gc, thresh)
-    mesh.writeAsPLY("{}/{}_raw_mesh_{}.ply".format(fdir, dataset,f))
-    meshes.append(mesh)
-
-  
-  merged = meshes[0].copy()
-  for mesh in meshes[1:]:
-    merged = mergeMeshes(merged,mesh)
+    
+    merged = meshes[0].copy()
+    for mesh in meshes[1:]:
+      merged = mergeMeshes(merged,mesh)
 
 
-  merged.writeAsPLY("{}/{}_raw_meshes_merged.ply".format(fdir, dataset))
+    merged.writeAsPLY("{}/{}_raw_meshes_merged.ply".format(fdir, dataset))
+"""
 
 # create a single point cloud from a set of point clouds, specified as .ply files,
 # and write as .ply
@@ -587,16 +633,15 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
   meshes = []
 
   print("Performing local reconstruction for each point cloud...")
-  for f in files:
-    f_in_name = "{}.csv".format(f)
-    gc = getGridCloud(f_in_name, resolution)
+  for f in files:    
+    gc = getGridCloudFromImgs(f, resolution)
     mesh = localSurfaceReconstruction(gc, thresh)
     mesh.writeAsPLY("{}_mesh.ply".format(f))
 
 
   print("Reconstructing without overlapping faces with MeshLab VCG algorithm...")
 
-  f_in = open("meshlab_script_template.mlx", "r")
+  f_in = open("../utilities/meshlab_script_template.mlx", "r")
   f_out = open("meshlab_script.mlx", "w")
   for line in f_in:
     f_out.write(line.replace("voxel_size", str(voxel_size)))
@@ -604,7 +649,7 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
   f_out.close()
   f_in.close()
 
-  command = "../meshlab/distrib/meshlabserver -s meshlab_script.mlx -i"
+  command = "../../meshlab/distrib/meshlabserver -s meshlab_script.mlx -i"
   for f in files:
     command = command + " {}_mesh.ply".format(f)
   command = command + " -o {}/{}_{}_reconstructed_vcg.ply".format(fdir,dataset,resolution)
@@ -619,45 +664,49 @@ def reconstruction(files, fdir, dataset, resolution, thresh, voxel_size, use_im_
   if use_im_remesh == True:
     print("Remeshing with Instant Meshes...")
     target_face_count = int(len(mesh.faces)/10)
-    command = "../instant-meshes/InstantMeshes {}/{}_{}_reconstructed_vcg.ply -f {} -d -S 0 -r 6 -p 6 -o {}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution , target_face_count, fdir,dataset,resolution)    
+    command = "../../instant-meshes/InstantMeshes {}/{}_{}_reconstructed_vcg.ply -f {} -d -S 0 -r 6 -p 6 -o {}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution , target_face_count, fdir,dataset,resolution)    
     os.system(command)
 
   mesh = readMesh("{}/{}_{}_reconstructed_vcg_im.ply".format(fdir,dataset,resolution))
 
-  print("Remapping colors from original points to mesh...")
-  print("--> merging original point clouds...")
-  for f in files:
-    f_in_name = "{}.csv".format(f)
-    csv2ply.csv2ply(f_in_name, "{}.ply".format(f))
+  """ No longer merging colors, leaving this code here in case it's useful later
 
-  mergeRawPointClouds(files, "{}/{}_{}_merged.ply".format(fdir,dataset,resolution))
-  print("--> loading merged point cloud into o3d...")
-  pc = o3d.io.read_point_cloud("{}/{}_{}_merged.ply".format(fdir,dataset,resolution))
-  pc_tree = o3d.geometry.KDTreeFlann(pc)
+    print("Remapping colors from original points to mesh...")
+    print("--> merging original point clouds...")
+    for f in files:
+      f_in_name = "{}.csv".format(f)
+      csv2ply.csv2ply(f_in_name, "{}.ply".format(f))
 
-  print("--> mapping and coloring mesh vertices...")
-  for v in mesh.V:
-    p = np.asarray([v[0], v[1], v[2]])
-    n_neighbors = 8
-    [k, idx, _] = pc_tree.search_knn_vector_3d(p, n_neighbors)
-    c = np.asarray(pc.colors)
-    colors = c[idx[0:]]    
-    r = 0.0
-    g = 0.0
-    b = 0.0
-    for i in range(n_neighbors):
-      r = r + colors[i][0]
-      g = g + colors[i][1]
-      b = b + colors[i][2]
 
-    r = r / float(n_neighbors)
-    g = g / float(n_neighbors)
-    b = b / float(n_neighbors)
-    
-    v[3] = int( float(r)*255.0 )
-    v[4] = int( float(g)*255.0 )
-    v[5] = int( float(b)*255.0 )
+    mergeRawPointClouds(files, "{}/{}_{}_merged.ply".format(fdir,dataset,resolution))
+    print("--> loading merged point cloud into o3d...")
+    pc = o3d.io.read_point_cloud("{}/{}_{}_merged.ply".format(fdir,dataset,resolution))
+    pc_tree = o3d.geometry.KDTreeFlann(pc)
 
+    print("--> mapping and coloring mesh vertices...")
+    for v in mesh.V:
+      p = np.asarray([v[0], v[1], v[2]])
+      n_neighbors = 8
+      [k, idx, _] = pc_tree.search_knn_vector_3d(p, n_neighbors)
+      c = np.asarray(pc.colors)
+      colors = c[idx[0:]]    
+      r = 0.0
+      g = 0.0
+      b = 0.0
+      for i in range(n_neighbors):
+        r = r + colors[i][0]
+        g = g + colors[i][1]
+        b = b + colors[i][2]
+
+      r = r / float(n_neighbors)
+      g = g / float(n_neighbors)
+      b = b / float(n_neighbors)
+      
+      v[3] = int( float(r)*255.0 )
+      v[4] = int( float(g)*255.0 )
+      v[5] = int( float(b)*255.0 )
+
+  """
 
   return mesh
 
@@ -676,14 +725,14 @@ def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, vo
 # Usage:
 # This script makes use of MeshLab and, optionally, Instant Meshes. The following directory
 # structure must be used to make them accessible:
-# -- This script is located in research/
-# -- Complete MeshLab installation (built from source) must be located one directory above
-#    so that meshlabserver is located in ../meshlab/distrib/
-# -- Similarly, InstantMeshes executable must be located in ../instant-meshes/
+# -- This script is located in research/simulation
+# -- Complete MeshLab installation (built from source) must be located two directories above
+#    so that meshlabserver is located in ../../meshlab/distrib/
+# -- Similarly, InstantMeshes executable must be located in ../../instant-meshes/
 #
 # Parameters are as follows:
-# --resolution: same as resolution used in optics.py. Use 1.0 for full resolution
-# --fname: each .csv to be included in reconstruction needs to be accessible from this
+# --resolution: E.g. use 1.0 for full resolution (2048x2048), 0.5 for half (1024x1024)
+# --fname: each scan to be included in reconstruction needs to be accessible from this
 #          directory by <fname>_<x>.csv, with <x> ranging from 0 to the total number of
 #          files
 # --n_files: total number of files to be included in reconstruction
@@ -701,15 +750,13 @@ def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, vo
 
 def main():
 
-
-
-  resolution = 0.2 
-  dataset = "balustervase"
-  fdir = "simulated_scanner_outputs/{}_{}".format(dataset, resolution)
-  fname = "simulated_scanner_outputs/{}_{}/{}_{}".format(dataset, resolution, dataset, resolution)
-  n_files = 13 
+  resolution = 0.5 
+  dataset = "pillow"
+  fdir = "models/{}_{}".format(dataset, resolution)
+  fname = "models/{}_{}/{}".format(dataset, resolution, dataset)
+  n_files = 2
   max_edge_len = 0.04
-  voxel_size = 0.005
+  voxel_size = 0.02
   use_im_remesh = True 
 
   print("Reconstruction initiated.")
