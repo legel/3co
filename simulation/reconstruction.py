@@ -237,8 +237,8 @@ def getGridCloudFromImgs(fname, sensor_resolution):
     for j in range( int(sensor_resolution * 2048) ):
 
       x = geom_img[i,j,0]
-      y = geom_img[i,j,0]
-      z = geom_img[i,j,0]
+      y = geom_img[i,j,1]
+      z = geom_img[i,j,2]
 
       r = rgb_img[i,j,0]
       g = rgb_img[i,j,1]
