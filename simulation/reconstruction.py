@@ -732,9 +732,6 @@ def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, vo
 #
 # Parameters are as follows:
 # --resolution: E.g. use 1.0 for full resolution (2048x2048), 0.5 for half (1024x1024)
-# --fname: each scan to be included in reconstruction needs to be accessible from this
-#          directory by <fname>_<x>.csv, with <x> ranging from 0 to the total number of
-#          files
 # --n_files: total number of files to be included in reconstruction
 # --max_edge_len: maximum edge length of triangles constructed in the local phase of
 #                 reconstruction
@@ -744,8 +741,6 @@ def doReconstruction(fname, fdir, dataset, n_files, resolution, max_edge_len, vo
 #                  the mesh produced by VCG. Smooths the result and reduces the number of
 #                  faces by 90%.
 #
-#
-# expected .csv data format: h,v,x,y,z,r,g,b
 #
 
 def main():
