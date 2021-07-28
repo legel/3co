@@ -1,3 +1,4 @@
+from numpy.lib.function_base import diff
 import tensorflow as tf
 #from tensorflow_graphics.math.optimizer import levenberg_marquardt
 # import levenberg_marquardt
@@ -163,6 +164,7 @@ def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_co
   N = brdf_metadata[:,:,26]
   X = brdf_metadata[:,:,27]
   Y = brdf_metadata[:,:,28]
+  diffuse_colors = brdf_metadata[:,:,29]
 
   broadcaster = lambda x: tf.broadcast_to(tf.expand_dims(x, axis=1), shape=(number_of_pixels,3))
 
@@ -280,6 +282,25 @@ def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_co
   else:
     df_clearcoatGloss = tf.constant(0.0, dtype=tf.float32)
   
+
+  # diffuse colors (C_d) gradient 
+  #if "diffuseColors" not in brdf_parameters_to_hold_constant_in_optimization:
+
+  t = mix(Fd, ss, subsurface) / pi
+  xi = 0.3 * diffuse_colors[0] + 0.6 * diffuse_colors[1] + 0.1 * diffuse_colors[2]
+  dCtint_dCd = [
+    (xi - diffuse_colors[0]) / (xi*xi),
+    (xi - diffuse_colors[1]) / (xi*xi),
+    (xi - diffuse_colors[2]) / (xi*xi)
+  ]
+  
+  df_diffuse_colors = NdotL * (  (t + FH * sheen * sheenTint) * dCtint_dCd * (1.0 - metallic) + Gs * Ds * (1.0 - FH) * metallic )
+
+
+
+
+
+
   gradients = [df_metallic, df_subsurface, df_specular, df_roughness, df_specularTint, df_anisotropic, df_sheen, df_sheenTint, df_clearcoat, df_clearcoatGloss]
   #gradients = [tf.expand_dims(gradient, axis=2) for gradient in gradients]
   #brdf_gradients = tf.concat(gradients, axis=2)
@@ -783,6 +804,7 @@ def BRDF( diffuse_colors,
                               tf.expand_dims(N, axis=2),
                               tf.expand_dims(X, axis=2),
                               tf.expand_dims(Y, axis=2),
+                              tf.expand_dims(diffuse_colors, axis=2)
                              ], axis=2)
 
   return brdf, brdf_metadata
