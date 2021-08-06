@@ -1,8 +1,5 @@
 from numpy.lib.function_base import diff
 import tensorflow as tf
-#from tensorflow_graphics.math.optimizer import levenberg_marquardt
-# import levenberg_marquardt
-# import tensorflow_probability as tfp
 import numpy as np
 import cv2
 from math import pi
@@ -12,33 +9,28 @@ import copy
 import time
 import os
 
-dont_use_gpu = False
-
-if dont_use_gpu:
-  os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-  os.environ["CUDA_VISIBLE_DEVICES"]=""
-else:
-  # print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-  gpus = tf.config.list_physical_devices('GPU')
-  for gpu in gpus:
-    tf.config.experimental.set_virtual_device_configuration(  gpus[0],
-                                                              [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=3000)]) 
- #os.environ["TF_GPU_ALLOCATOR"]="cuda_malloc_async"
-
+# initialize global variables for optimization
+use_gpu = True
 iteration = 1
 explorer = 1
 
-#@tf.function(experimental_compile=True)
-#@tf.function(jit_compile=True)
+if use_gpu:
+  print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+else:
+  os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+  os.environ["CUDA_VISIBLE_DEVICES"]=""
+
+
+@tf.function(jit_compile=True)
 def avg(x):
   return tf.math.reduce_mean(x)
 
-#@tf.function(experimental_compile=True)
+
 @tf.function(jit_compile=True)
 def sqr(x):
   return tf.math.square(x)
 
-#@tf.function(experimental_compile=True)
+
 @tf.function(jit_compile=True)
 def clamp(x, a, b):
   absolute_min = tf.cast(a, dtype=tf.float32) #tf.constant(a, dtype=tf.float32)
@@ -48,7 +40,6 @@ def clamp(x, a, b):
   return x
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def normalize(x):
   norm = tf.linalg.norm(x, axis=1)
@@ -61,37 +52,27 @@ def normalize(x):
   return result
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def mix(x, y, a):
   return x * (1 - a) + y * a
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def SchlickFresnel(u):
   m = clamp(1-u, 0, 1)
   return tf.pow(m, 5)
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def GTR1(NdotH, a):
-
   number_of_pixels = tf.shape(NdotH)[0]
-
-  # conditional a
   greater_than_value = tf.fill(dims=[number_of_pixels, 3], value=tf.constant(1/pi, tf.float32))
-
-  # conditional b
   a2 = tf.cast(a*a, dtype=tf.float32)
   t = tf.cast(1 + (a2-1)*NdotH*NdotH, dtype=tf.float32)
   less_than_value = (a2-1) / (pi*tf.math.log(a2)*t)
-
   return tf.where(a >= 1, greater_than_value, less_than_value)
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def GTR2_aniso(NdotH, HdotX, HdotY, ax, ay):
   shape = tf.shape(NdotH)
@@ -99,7 +80,6 @@ def GTR2_aniso(NdotH, HdotX, HdotY, ax, ay):
   return ones / ( pi * ax * ay * sqr( sqr(HdotX/ax) + sqr(HdotY/ay) + sqr(NdotH)))
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def smithG_GGX(Ndotv, alphaG):
   a = tf.cast(sqr(alphaG), dtype=tf.float32)
@@ -110,27 +90,23 @@ def smithG_GGX(Ndotv, alphaG):
   return teller / noemer
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def d_GGX_aG(NdotA, aG):
   k = tf.math.sqrt( sqr(aG) + sqr(NdotA) - sqr(aG) * sqr(NdotA) )
   return aG * (sqr(NdotA) - 1.0) / (k * sqr((NdotA + k)))
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def smithG_GGX_aniso(NdotV, VdotX, VdotY, ax, ay):
   return 1 / (NdotV + tf.math.sqrt( sqr(VdotX*ax) + sqr(VdotY*ay) + sqr(NdotV) ))
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def mon2lin(x):
   x = tf.math.pow(x, 2.2)
   return x
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_constant_in_optimization):
   number_of_pixels = tf.shape(brdf_metadata)[0]
@@ -283,23 +259,18 @@ def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_co
     df_clearcoatGloss = tf.constant(0.0, dtype=tf.float32)
   
 
-  # diffuse colors (C_d) gradient 
-  #if "diffuseColors" not in brdf_parameters_to_hold_constant_in_optimization:
+  # # diffuse colors (C_d) gradient 
+  # #if "diffuseColors" not in brdf_parameters_to_hold_constant_in_optimization:
 
-  t = mix(Fd, ss, subsurface) / pi
-  xi = 0.3 * diffuse_colors[0] + 0.6 * diffuse_colors[1] + 0.1 * diffuse_colors[2]
-  dCtint_dCd = [
-    (xi - diffuse_colors[0]) / (xi*xi),
-    (xi - diffuse_colors[1]) / (xi*xi),
-    (xi - diffuse_colors[2]) / (xi*xi)
-  ]
+  # t = mix(Fd, ss, subsurface) / pi
+  # xi = 0.3 * diffuse_colors[0] + 0.6 * diffuse_colors[1] + 0.1 * diffuse_colors[2]
+  # dCtint_dCd = [
+  #   (xi - diffuse_colors[0]) / (xi*xi),
+  #   (xi - diffuse_colors[1]) / (xi*xi),
+  #   (xi - diffuse_colors[2]) / (xi*xi)
+  # ]
   
-  df_diffuse_colors = NdotL * (  (t + FH * sheen * sheenTint) * dCtint_dCd * (1.0 - metallic) + Gs * Ds * (1.0 - FH) * metallic )
-
-
-
-
-
+  # df_diffuse_colors = NdotL * (  (t + FH * sheen * sheenTint) * dCtint_dCd * (1.0 - metallic) + Gs * Ds * (1.0 - FH) * metallic )
 
   gradients = [df_metallic, df_subsurface, df_specular, df_roughness, df_specularTint, df_anisotropic, df_sheen, df_sheenTint, df_clearcoat, df_clearcoatGloss]
   #gradients = [tf.expand_dims(gradient, axis=2) for gradient in gradients]
@@ -308,13 +279,11 @@ def compute_gradients(brdf_metadata, brdf_parameters, brdf_parameters_to_hold_co
   return gradients
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def photometric_error(ground_truth, hypothesis):
   return hypothesis - ground_truth
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def apply_gradients_from_inverse_rendering_loss(optimizer,
                                                 ground_truth_radiance, 
@@ -326,7 +295,6 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
                                                 ground_truth_brdf_parameters,
                                                 brdf_parameters_to_hold_constant_in_optimization,
                                                 report_results_on_this_iteration):
-
 
   number_of_pixels = tf.shape(ground_truth_radiance)[0]
   number_of_colors = tf.shape(ground_truth_radiance)[1]
@@ -357,7 +325,6 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
 
   # sum the loss of the color channels, only, on a per-pixel basis
   delta_roughness = tf.reduce_sum(df_roughness * df_gamma_encoding * photometric_loss, axis = 1)
-
 
   # get the previous BRDF parameters
   metallic = tf.Variable(hypothesis_brdf_parameters[:,0])
@@ -412,7 +379,6 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
   clearcoatGloss_grad = clearcoatGloss - new_clearcoatGloss
 
   # compute average values for report
-
   if report_results_on_this_iteration:
     print(":::::::::::: BRDF Truth vs. Hypothesis (Δ Update) ::::::::::::")
     print("Metallic:        {:.5f} vs. {:.5f} (Δ {:+5f})".format(avg(true_metallic), avg(new_metallic), tf.constant(-1.0, dtype=tf.float32) * avg(delta_metallic)))
@@ -431,26 +397,22 @@ def apply_gradients_from_inverse_rendering_loss(optimizer,
   gradients_as_tensor = tf.stack(clipped_gradients)
   total_photometric_loss = tf.reduce_sum(photometric_loss) / (tf.cast(number_of_pixels, dtype=tf.float32) * tf.cast(number_of_colors, dtype=tf.float32))
 
-  if optimizer == "L-BFGS" or optimizer == "levenberg_marquardt":
-    return parameters_to_update, gradients_as_tensor, total_photometric_loss
+  # apply gradients with the power of a TensorFlow optimizer to tune learning rate automatically
+  optimizer.apply_gradients(zip(clipped_gradients, parameters_to_update))
 
-  else:
-    # apply gradients with the power of a TensorFlow optimizer to tune learning rate automatically
-    optimizer.apply_gradients(zip(clipped_gradients, parameters_to_update))
+  # variables were updated by above operation, now we wrap it up and send it back for rendering...
+  new_hypothesis_brdf_parameters = tf.concat([  tf.expand_dims(metallic, axis=1), 
+                                                tf.expand_dims(subsurface, axis=1),  
+                                                tf.expand_dims(specular, axis=1),  
+                                                tf.expand_dims(roughness, axis=1),  
+                                                tf.expand_dims(specularTint, axis=1),  
+                                                tf.expand_dims(anisotropic, axis=1),  
+                                                tf.expand_dims(sheen, axis=1),  
+                                                tf.expand_dims(sheenTint, axis=1),  
+                                                tf.expand_dims(clearcoat, axis=1),  
+                                                tf.expand_dims(clearcoatGloss, axis=1)], axis=1)
 
-    # variables were updated by above operation, now we wrap it up and send it back for rendering...
-    new_hypothesis_brdf_parameters = tf.concat([  tf.expand_dims(metallic, axis=1), 
-                                                  tf.expand_dims(subsurface, axis=1),  
-                                                  tf.expand_dims(specular, axis=1),  
-                                                  tf.expand_dims(roughness, axis=1),  
-                                                  tf.expand_dims(specularTint, axis=1),  
-                                                  tf.expand_dims(anisotropic, axis=1),  
-                                                  tf.expand_dims(sheen, axis=1),  
-                                                  tf.expand_dims(sheenTint, axis=1),  
-                                                  tf.expand_dims(clearcoat, axis=1),  
-                                                  tf.expand_dims(clearcoatGloss, axis=1)], axis=1)
-
-    return new_hypothesis_brdf_parameters, gradients_as_tensor, total_photometric_loss, photometric_loss
+  return new_hypothesis_brdf_parameters, gradients_as_tensor, total_photometric_loss, photometric_loss
 
 
 def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimization, number_of_active_pixels):
@@ -471,7 +433,6 @@ def initialize_random_brdf_parameters(brdf_parameters_to_hold_constant_in_optimi
 
   if "roughness" not in brdf_parameters_to_hold_constant_in_optimization:
     roughness = tf.broadcast_to(tf.constant([[0.5]], dtype=tf.float32), shape=(number_of_active_pixels,1))
-
     #roughness = tf.random.uniform(shape=[number_of_active_pixels,1], dtype=tf.float32)
   else:
     roughness = tf.broadcast_to(tf.constant([[0.5]], dtype=tf.float32), shape=(number_of_active_pixels,1))
@@ -527,7 +488,6 @@ def compute_inverse_rendering_loss_and_gradients( hypothesis_brdf_parameters,
                                                   brdf_parameters_to_hold_constant_in_optimization,
                                                   ground_truth_brdf_parameters,
                                                   frequency_of_human_output):
-
   global iteration
   global explorer
 
@@ -575,8 +535,6 @@ def compute_inverse_rendering_loss_and_gradients( hypothesis_brdf_parameters,
   return inverse_rendering_loss, gradients, hypothesis_brdf_parameters
 
 
-
-#@tf.function(experimental_compile=True)
 # @tf.function(jit_compile=True)
 def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 270, frequency_of_human_output = 10, maximum_parallel_explorers = 10, pixel_error_termination_threshold = 0.01):
   # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
@@ -630,15 +588,8 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
                                                                                                                     frequency_of_human_output=frequency_of_human_output)
 
 
-
-      # PHOTOMETRIC LOSS = 0.0009 average pixel error
-      # >> The problem is underconstrained. Add Texels.
-
       # Below, memory issue tracked down to Keras state; resetting that solves the issue.
-
-
-
-
+      # TODO: Automate Below
       if state_iterations % 90 == 0:
         print("Resetting the GPU state to prevent memory overload by Keras")
         tf.keras.backend.clear_session()
@@ -651,29 +602,21 @@ def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, 
         learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=0.1, decay_steps=90, end_learning_rate=0.05, power=3.0, cycle=False)
         optimizer = tf.keras.optimizers.Adam(learning_rate = learning_rate_schedule, epsilon = 1e-8, beta_1 = 0.9, beta_2 = 0.999, amsgrad = True)
 
-
       if state_iterations % 270 == 0:
         print("Resetting the GPU state to prevent memory overload by Keras")
         tf.keras.backend.clear_session()
         learning_rate_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=0.05, decay_steps=90, end_learning_rate=0.01, power=3.0, cycle=False)
         optimizer = tf.keras.optimizers.Adam(learning_rate = learning_rate_schedule, epsilon = 1e-8, beta_1 = 0.9, beta_2 = 0.999, amsgrad = True)
-
         state_iterations = 0
 
       state_iterations += 1
 
-
     final_inverse_rendering_losses.append(inverse_rendering_loss*tf.constant(255, dtype=tf.float32))
     final_hypothesis_brdf_parameters.append(hypothesis_brdf_parameters)
-
-    # if tf.math.abs(inverse_rendering_loss) * tf.constant(255, dtype=tf.float32) < pixel_error_termination_threshold:
-    #   break
 
   return final_inverse_rendering_losses, final_hypothesis_brdf_parameters, initial_hypothesis_brdf_parameters, ground_truth_brdf_parameters
 
 
-
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def BRDF( diffuse_colors,
           surface_xyz,
@@ -810,7 +753,6 @@ def BRDF( diffuse_colors,
   return brdf, brdf_metadata
 
 
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def filmic( RGB,
             shoulder_strength=0.22,
@@ -840,8 +782,6 @@ def filmic( RGB,
     return RGB
 
 
-
-#@tf.function(experimental_compile=True)
 @tf.function(jit_compile=True)
 def compute_radiance(surface_xyz, normals, light_angles, light_xyz, light_color, brdf):
   number_of_pixels = tf.shape(surface_xyz)[0]
@@ -953,8 +893,6 @@ def render( diffuse_colors,
     new_file_path = tf.strings.regex_replace(input=file_path, pattern=".png", rewrite="_roughness.png")
     save_image(image_data=roughness, background_color=background_color, image_shape=image_shape, is_not_background=is_not_background, pixel_indices_to_render=pixel_indices_to_render, file_path=new_file_path)
 
-
-
   return radiance, irradiance, brdf, brdf_metadata
 
 
@@ -1055,7 +993,7 @@ def get_pixel_indices_to_render(diffuse_color, background_color):
 
   return tf.where(not_background), not_background
 
-#@tf.function(experimental_compile=True)
+
 # @tf.function(jit_compile=False)
 def load_scene( folder, 
                 random_ground_truth_brdf_parameters = False,
@@ -1134,7 +1072,6 @@ if __name__ == "__main__":
   project_directory = "{}/inverse_renders/pillow".format(os.getcwd())
 
   # project_directory = "{}/inverse_renders/toucan".format(os.getcwd())
-
   #project_directory = "{}/inverse_renders/flamingo".format(os.getcwd())
 
   total_experiments = 1
@@ -1144,7 +1081,6 @@ if __name__ == "__main__":
 
   for experiment in range(total_experiments):
     final_inverse_rendering_losses, final_hypothesis_brdf_parameters, initial_hypothesis_brdf_parameters, true_brdf_parameters = inverse_render_optimization(folder=project_directory)
-
     number_of_trials_per_experiment[experiment] = len(final_inverse_rendering_losses)
     minimum_pixel_errors[experiment] = min(final_inverse_rendering_losses)
 
@@ -1158,5 +1094,3 @@ if __name__ == "__main__":
   print("\n\nFINAL EXPERIMENT RESULTS:")
   print("    Average # of Trials Per Experiment:      {:.3f}".format(np.average(number_of_trials_per_experiment)))
   print("    Average Pixel Error for Best Experiment: {:.3f}".format(np.average(np.abs(minimum_pixel_errors))))
-
-
