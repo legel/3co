@@ -7,7 +7,7 @@ from pathlib import Path
 import os, sys
 import copy
 import time
-import os
+import json
 
 # initialize global variables for optimization
 use_gpu = True
@@ -924,7 +924,6 @@ def load_data(filepath):
   # print(image_tensor)
   return image_tensor
 
-
 def save_image(image_data, background_color, image_shape, is_not_background, pixel_indices_to_render, file_path):
   color_channels = 4 # alpha
   image_width = image_shape[0]
@@ -994,7 +993,34 @@ def get_pixel_indices_to_render(diffuse_color, background_color):
   return tf.where(not_background), not_background
 
 
-# @tf.function(jit_compile=False)
+def load_scene_metadata(scene_folder):
+  with open(metadata_file, "r") as input_file:
+    metadata = json.load(input_file)
+  return metadata
+
+
+def load_scenes(scenes_folder, number_of_scenes):
+  model_name = scenes_folder.split("models/")[1].split("scenes/")[0]
+
+  scenes = []
+  for scene_number in range(number_of_scenes):
+    scene_folder = "{}/scene_{}".format(scene_number)
+    metadata_file = "{}/{}_{}_data.json".format(scene_folder, model_name, scene_number)
+    metadata = load_scene_metadata(metadata_file)
+    print("Loaded metadata: {}".format(metadata))
+    print(metadata["x_pos"])
+
+    ### Very easy, loading in camera and light (x,y,z) position from metadata file.
+    ### Then, just load each scene with load_scene()
+    ### Then, combine the tensors for each scene into one big multi-scene tensor, for each variable
+    ### At that point, almost there! Load geometry in texels.ply
+    ### Pretty much ready to compute then?!
+
+
+    sys.exit(0)
+
+
+
 def load_scene( folder, 
                 random_ground_truth_brdf_parameters = False,
                 light_color = tf.constant(1.0, tf.float32),
@@ -1026,7 +1052,7 @@ def load_scene( folder,
   xyz = tf.gather_nd(params=xyz, indices=pixel_indices_to_render)
   roughness = tf.gather_nd(params=roughness, indices=pixel_indices_to_render)
 
-  # experimentally, and algebraically, the following parameters are found to destabilize the optimization
+  # experimentally, and algebraically, the following parameters are found to destabilize the optimization, or just may be not be currently of interest
   brdf_parameters_to_hold_constant_in_optimization = ["metallic", "subsurface", "specular", "specularTint", "anisotropic", "sheen", "sheenTint", "clearcoat", "clearcoatGloss"]
 
   number_of_active_pixels = tf.shape(diffuse)[0]
@@ -1068,14 +1094,8 @@ def load_scene( folder,
   return scene
 
 
-if __name__ == "__main__":
-  project_directory = "{}/inverse_renders/pillow".format(os.getcwd())
-
-  # project_directory = "{}/inverse_renders/toucan".format(os.getcwd())
-  #project_directory = "{}/inverse_renders/flamingo".format(os.getcwd())
-
-  total_experiments = 1
-
+def launch_inverse_render_optimization_experiments(project_directory, total_experiments = 1):
+  # Launch a number of experiments, which can be useful to study different outcomes for different initial random hypothesis / ground truth values
   minimum_pixel_errors = np.zeros(shape=total_experiments, dtype=np.float32)
   number_of_trials_per_experiment = np.zeros(shape=total_experiments, dtype=np.float32)
 
@@ -1094,3 +1114,9 @@ if __name__ == "__main__":
   print("\n\nFINAL EXPERIMENT RESULTS:")
   print("    Average # of Trials Per Experiment:      {:.3f}".format(np.average(number_of_trials_per_experiment)))
   print("    Average Pixel Error for Best Experiment: {:.3f}".format(np.average(np.abs(minimum_pixel_errors))))
+
+
+if __name__ == "__main__":
+  project_directory = "{}/inverse_renders/pillow".format(os.getcwd())
+  launch_inverse_render_optimization_experiments(project_directory)
+  
