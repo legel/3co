@@ -537,6 +537,8 @@ def compute_inverse_rendering_loss_and_gradients( hypothesis_brdf_parameters,
 
 # @tf.function(jit_compile=True)
 def inverse_render_optimization(folder, random_hypothesis_brdf_parameters=True, number_of_iterations = 270, frequency_of_human_output = 10, maximum_parallel_explorers = 10, pixel_error_termination_threshold = 0.01):
+  x = load_scenes(folder=project_directory)
+
   # compute ground truth scene parameters (namely, the radiance values from the render, used in the photometric loss function)
   ground_truth_render_parameters, ground_truth_radiance, ground_truth_irradiance, ground_truth_brdf, ground_truth_brdf_metadata, brdf_parameters_to_hold_constant_in_optimization = load_scene(folder=project_directory)
 
