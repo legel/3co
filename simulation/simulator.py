@@ -296,12 +296,12 @@ class Photonics():
     self.sensors.location = (self.focal_point.x, self.focal_point.y, self.focal_point.z)
     bpy.data.scenes["Scene"].render.resolution_x = self.horizontal_pixels
     bpy.data.scenes["Scene"].render.resolution_y = self.vertical_pixels
-    if gpu_or_cpu == "gpu":
-      bpy.data.scenes["Scene"].render.tile_x = 512
-      bpy.data.scenes["Scene"].render.tile_y = 512
-    elif gpu_or_cpu == "cpu":
-      bpy.data.scenes["Scene"].render.tile_x = 128
-      bpy.data.scenes["Scene"].render.tile_y = 128
+    #if gpu_or_cpu == "gpu":
+    #  bpy.data.scenes["Scene"].render.tile_x = 512
+    #  bpy.data.scenes["Scene"].render.tile_y = 512
+    #elif gpu_or_cpu == "cpu":
+    #  bpy.data.scenes["Scene"].render.tile_x = 128
+    #  bpy.data.scenes["Scene"].render.tile_y = 128
     self.set_exposure_time()
 
   def set_exposure_time(self, exposure_time=0.025):    
@@ -581,21 +581,28 @@ class Model():
     else:
       print("Unrecognized object extension: {}\nFeel free to implement in function \"import_object_to_scan()\"".format(ext))
       quit()
+
     for object_in_scene in bpy.context.scene.objects:
       if object_in_scene.type == 'MESH':
        obs.append(object_in_scene)
        bpy.context.view_layer.objects.active = object_in_scene
        self.object_name = object_in_scene.name
        object_in_scene.select_set(state=True)
+
     c = {} # override, see: https://blender.stackexchange.com/a/133024/72320
     c["object"] = c["active_object"] = bpy.context.object
     c["selected_objects"] = c["selected_editable_objects"] = obs
+
     bpy.ops.object.join(c)
     self.model_object = bpy.context.object
     bpy.context.object.name = "Model"
-    bpy.context.object.location = (1.0, 1.0, 0)
 
+    bpy.context.object.location = (0.8, 0.5, 0.8)
+    bpy.context.object.scale = (0.01, 0.01, 0.01)
 
+    # for image in bpy.data.images:
+    #   bpy.data.images[image.name].use_fake_user = True
+      #print(image.name)
 
     def single_value_brdf_maker(self, brdf_node, render_config):
       with open(render_config) as json_file:
@@ -618,14 +625,19 @@ class Model():
 
 
     else:
+
+
+
+
       bpy.context.scene.render.film_transparent = True
       bpy.context.scene.render.image_settings.color_mode = 'RGBA'
 
       # bpy.context.scene.view_settings.view_transform = 'Filmic'
 
-
-      resolution_bake = self.resolution * 2048
+      ### START COMMENT OUT
+      resolution_bake = int(self.resolution * 2048)
       for m in bpy.context.object.material_slots:
+
         links = m.material.node_tree.links
         nodes = m.material.node_tree.nodes
 
@@ -642,8 +654,6 @@ class Model():
         # single_color_node.inputs['Color'].default_value = (0.248636, 0.504908, 0.2400332, 1)
         # single_color_node.name = 'single_color_node'
 
-
-
         # diffuse_bsdf_shader = nodes.new(type="ShaderNodeBsdfDiffuse")
         # diffuse_bsdf_shader.name = 'diffuse_bsdf'
         # diffuse_bsdf_shader.inputs[1].default_value = 0.5   # adjust roughness for single color render here
@@ -658,11 +668,12 @@ class Model():
         # set up of bake file connected to an emission shader:
         emission_node = nodes.new("ShaderNodeEmission")
         emission_node.name = 'emission_node'
-        emission_node.inputs[1].default_value = 20.0
+        #emission_node.inputs[1].default_value = 20.0
 
         links.new(roughness_bake_node.outputs[0], emission_node.inputs[0])
 
-      nodes.active = roughness_bake_node
+        nodes.active = roughness_bake_node
+
       print("---------------------------------")
       print('Start baking of {}...'.format('roughness_bake'))
       print("---------------------------------\n")
@@ -670,6 +681,8 @@ class Model():
       print("---------------------------------")
       print('Bake ready.')
       print("---------------------------------\n")
+
+      ### END COMMENT OUT
 
 
 class Iris():
@@ -702,7 +715,7 @@ class Iris():
 
     directory_for_scan = '{}/outputs/{}'.format(cwd, scan_name)
 
-    view_layer = bpy.data.scenes["Scene"].view_layers["View Layer"]
+    view_layer = bpy.data.scenes["Scene"].view_layers["ViewLayer"]
     view_layer.use = True
     view_layer.use_pass_combined = True
     view_layer.use_pass_z = True
@@ -722,6 +735,7 @@ class Iris():
 
       for node in tree.nodes:
         tree.nodes.remove(node)
+
       render_layer = tree.nodes.new('CompositorNodeRLayers') 
       render_layer.name = 'compositor_node'
 
@@ -849,11 +863,19 @@ class Iris():
     bpy.context.scene.eevee.taa_render_samples = 1
 
     if (inverse_render_mode == False):
-      for (render_node, name) in [('Principled BSDF', 'render'), ('emission_node', 'roughness'), ('Image Texture', 'diffuse_colors'), ('mapping_node', 'geometry')]: #('diffuse_bsdf', 'single_color'),
+      for (render_node, name) in [('Principled BSDF', 'render'), ('emission_node', 'roughness'),  ('Image Texture', 'diffuse_colors'), ('mapping_node', 'geometry')]: #('diffuse_bsdf', 'single_color'),
+
+
+        if name == 'render':
+          bpy.context.scene.render.engine = 'CYCLES'
+        else:
+          bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+
+
         print("---------------------------------")
         print('Currently rendering: {}'.format(name))
         print("---------------------------------\n")
-        for m in bpy.context.object.material_slots:  
+        for material_slot_number, m in enumerate(bpy.context.object.material_slots):  
           image_settings = bpy.context.scene.render.image_settings
           image_settings.file_format = "PNG"
           print('start for loop engine: {} for scan {}'.format(bpy.context.scene.render.engine, scan_name))
@@ -879,6 +901,9 @@ class Iris():
           print("Current render samples: {}".format(bpy.context.scene.eevee.taa_render_samples))
           print("Current node: {}".format(render_node))
           print("---------------------------------\n") 
+
+
+
     else:
       time_start = time.time()
       render_filepath = "{}/{}_inv_render".format(directory_for_scan, scan_name)
@@ -888,9 +913,11 @@ class Iris():
       print("---------------------------------")
       print("--> Rendered inverse render image in {} seconds".format(round(time_end - time_start, 4)))
       print("---------------------------------\n") 
+
     bpy.context.scene.render.engine = 'CYCLES'
-      
-    # RENDER IMAGES #
+  
+
+
     if (inverse_render_mode == False):
       # RENAMING FILES BECAUSE BLENDER WON'T DO IT #
       for output in ['normal_output']:#, 'depth_output_gt_not_normalized']: #'diffuse_output_compositor', 
@@ -899,10 +926,9 @@ class Iris():
         output_file_current = os.listdir(current_file)[0]
         _, file_extension = os.path.splitext(output_file_current)
         output_file_new = '{}/{}{}'.format(directory_for_scan, output_path, file_extension)
-        output_file_old = '{}/{}/{}'.format(directory_for_scan, output_path,output_file_current)
+        output_file_old = '{}/{}/{}'.format(directory_for_scan, output_path, output_file_current)
         os.rename(output_file_old, output_file_new)
         os.rmdir(current_file)
-      # RENAMING FILES BECAUSE BLENDER WON'T DO IT #
 
           
       # blender_exr_depth_output = cv.imread('{}/{}_depth_output_gt_not_normalized.exr'.format(directory_for_scan, scan_name), cv.IMREAD_ANYCOLOR | cv.IMREAD_ANYDEPTH)
@@ -998,38 +1024,37 @@ def startOfflineSimulation(iris, exposure_time, path):
 if __name__ == "__main__":  
   # path = path_planning.get_pillow_path_small()
 
-  iris = Iris(model="/pillow/pillow.glb", resolution=0.5)
+  
+  #iris = Iris(model="/pillow/pillow.glb", resolution=0.5)
+  #iris = Iris(model="/pillow_2/pillow_2.glb", resolution=0.5)
+  
+  iris = Iris(model="monstera/monstera_with_pot.glb", resolution=0.5)
+
   # startOfflineSimulation(iris=iris, exposure_time=0.015, path=path)
 
-  # 0: iris.view(x=1.7, y=0.11, z=1.5, rotation_x=35, rotation_y=0, rotation_z=38)
-  # iris.scan(exposure_time=0.001, scan_id=0)
+  iris.view(x=1.6389, y=0.43556, z=1.662, rotation_x=52, rotation_y=0.65, rotation_z=98)
+  iris.scan(exposure_time=0.007, scan_id=0)
 
-  # 1: iris.view(x=2.4351, y=0.13966, z=0.88328, rotation_x=61.8, rotation_y=0, rotation_z=60.4)
-  # iris.scan(exposure_time=0.001, scan_id=1)
+  iris.view(x=1.5901, y=0.52353, z=1.7028, rotation_x=51, rotation_y=0.643, rotation_z=10)
+  iris.scan(exposure_time=0.007, scan_id=1)
 
-  iris.view(x=1.3383, y=0.98713, z=2.4275, rotation_x=13.4, rotation_y=0, rotation_z=78.8)
-  iris.scan(exposure_time=0.001, scan_id=2)
+  iris.view(x=1.732, y=0.34671, z=1.5556, rotation_x=57.4, rotation_y=0.686, rotation_z=94.8)
+  iris.scan(exposure_time=0.007, scan_id=2)
 
-  iris.view(x=1.0206, y=-0.15027, z=1.6226, rotation_x=35.8, rotation_y=0, rotation_z=1.2)
-  iris.scan(exposure_time=0.001, scan_id=3)
+  iris.view(x=1.9288, y=0.37064, z=1.2308, rotation_x=73.4, rotation_y=0.77, rotation_z=91.4)
+  iris.scan(exposure_time=0.007, scan_id=3)
 
-  iris.view(x=1.0754, y=-0.52705, z=0.60267, rotation_x=65, rotation_y=0, rotation_z=2.8)
-  iris.scan(exposure_time=0.001, scan_id=4)
+  iris.view(x=1.4933, y=0.18161, z=1.3969, rotation_x=65.8, rotation_y=0.735, rotation_z=86.1)
+  iris.scan(exposure_time=0.007, scan_id=4)
 
-  iris.view(x=2.5675, y=0.35445, z=0.38611, rotation_x=72.2, rotation_y=0, rotation_z=63.2)
-  iris.scan(exposure_time=0.001, scan_id=5)
+  iris.view(x=1.5473, y=0.48652, z=1.3058, rotation_x=67, rotation_y=0.741, rotation_z=103)
+  iris.scan(exposure_time=0.007, scan_id=5)
 
-  iris.view(x=2.3819, y=0.52547, z=0.083027, rotation_x=82.6, rotation_y=0, rotation_z=66)
-  iris.scan(exposure_time=0.001, scan_id=6)
+  iris.view(x=1.5932, y=0.76718, z=1.0338, rotation_x=79.8, rotation_y=0.79, rotation_z=116)
+  iris.scan(exposure_time=0.007, scan_id=6)
 
-  iris.view(x=1.8188, y=-0.48727, z=0.13453, rotation_x=82.2, rotation_y=0, rotation_z=28)
-  iris.scan(exposure_time=0.001, scan_id=7)
-
-  iris.view(x=2.3694, y=0.77204, z=0.43237, rotation_x=67.8, rotation_y=0, rotation_z=79.2)
-  iris.scan(exposure_time=0.001, scan_id=8)
-
-  iris.view(x=0.39382, y=0.11025, z=0.94058, rotation_x=45, rotation_y=0, rotation_z=-31.6)
-  iris.scan(exposure_time=0.001, scan_id=9)
+  iris.view(x=1.2142, y=0.5983, z=1.9175, rotation_x=21, rotation_y=0.437, rotation_z=116)
+  iris.scan(exposure_time=0.007, scan_id=7)
 
 
   # iris = Iris(model="toucan.glb", resolution=0.1)
