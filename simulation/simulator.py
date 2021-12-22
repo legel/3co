@@ -863,7 +863,7 @@ class Iris():
     bpy.context.scene.eevee.taa_render_samples = 1
 
     if (inverse_render_mode == False):
-      for (render_node, name) in [('Principled BSDF', 'render'), ('emission_node', 'roughness'),  ('Image Texture', 'diffuse_colors'), ('mapping_node', 'geometry')]: #('diffuse_bsdf', 'single_color'),
+      for (render_node, name) in [('Principled BSDF', 'render'), ('roughness_bake', 'roughness'),  ('Image Texture', 'diffuse_colors'), ('mapping_node', 'geometry')]: ###('diffuse_bsdf', 'single_color'),
 
 
         if name == 'render':
@@ -881,7 +881,23 @@ class Iris():
           print('start for loop engine: {} for scan {}'.format(bpy.context.scene.render.engine, scan_name))
           links = m.material.node_tree.links      # shader       
           nodes = m.material.node_tree.nodes
-          links.new(nodes[render_node].outputs[0], nodes['Material Output'].inputs[0])
+
+          # account for alpha channel in all but render
+          if name != 'render':
+            diffuse_shader_node = nodes.new(type = 'ShaderNodeBsdfDiffuse')
+            transparent_shader_node = nodes.new(type = 'ShaderNodeBsdfTransparent')
+            mix_shader_node = nodes.new(type = 'ShaderNodeMixShader')
+            alpha_node = nodes['Image Texture'].outputs['Alpha']
+            target_texture_node_to_save = nodes[render_node].outputs[0]
+
+            links.new(target_texture_node_to_save, diffuse_shader_node.inputs[0])
+            links.new(alpha_node, mix_shader_node.inputs[0])
+            links.new(transparent_shader_node.outputs[0], mix_shader_node.inputs[1])
+            links.new(diffuse_shader_node.outputs[0], mix_shader_node.inputs[2])
+            links.new(mix_shader_node.outputs[0], nodes['Material Output'].inputs[0])
+          else:
+            links.new(nodes[render_node].outputs[0], nodes['Material Output'].inputs[0])
+
           render_filepath = "{}/{}_{}".format(directory_for_scan, scan_name, name)
           print("Rendering image to {}.png".format(render_filepath))
 
@@ -1033,28 +1049,28 @@ if __name__ == "__main__":
   # startOfflineSimulation(iris=iris, exposure_time=0.015, path=path)
 
   iris.view(x=1.6389, y=0.43556, z=1.662, rotation_x=52, rotation_y=0.65, rotation_z=98)
-  iris.scan(exposure_time=0.007, scan_id=0)
+  iris.scan(exposure_time=0.006, scan_id=0)
 
   iris.view(x=1.5901, y=0.52353, z=1.7028, rotation_x=51, rotation_y=0.643, rotation_z=10)
-  iris.scan(exposure_time=0.007, scan_id=1)
+  iris.scan(exposure_time=0.006, scan_id=1)
 
   iris.view(x=1.732, y=0.34671, z=1.5556, rotation_x=57.4, rotation_y=0.686, rotation_z=94.8)
-  iris.scan(exposure_time=0.007, scan_id=2)
+  iris.scan(exposure_time=0.006, scan_id=2)
 
   iris.view(x=1.9288, y=0.37064, z=1.2308, rotation_x=73.4, rotation_y=0.77, rotation_z=91.4)
-  iris.scan(exposure_time=0.007, scan_id=3)
+  iris.scan(exposure_time=0.006, scan_id=3)
 
   iris.view(x=1.4933, y=0.18161, z=1.3969, rotation_x=65.8, rotation_y=0.735, rotation_z=86.1)
-  iris.scan(exposure_time=0.007, scan_id=4)
+  iris.scan(exposure_time=0.006, scan_id=4)
 
   iris.view(x=1.5473, y=0.48652, z=1.3058, rotation_x=67, rotation_y=0.741, rotation_z=103)
-  iris.scan(exposure_time=0.007, scan_id=5)
+  iris.scan(exposure_time=0.006, scan_id=5)
 
   iris.view(x=1.5932, y=0.76718, z=1.0338, rotation_x=79.8, rotation_y=0.79, rotation_z=116)
-  iris.scan(exposure_time=0.007, scan_id=6)
+  iris.scan(exposure_time=0.006, scan_id=6)
 
   iris.view(x=1.2142, y=0.5983, z=1.9175, rotation_x=21, rotation_y=0.437, rotation_z=116)
-  iris.scan(exposure_time=0.007, scan_id=7)
+  iris.scan(exposure_time=0.006, scan_id=7)
 
 
   # iris = Iris(model="toucan.glb", resolution=0.1)
