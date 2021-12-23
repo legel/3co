@@ -595,9 +595,13 @@ class Model():
 
     bpy.ops.object.join(c)
     self.model_object = bpy.context.object
+
+    bpy.context.object.visible_shadow = False
+
+
     bpy.context.object.name = "Model"
 
-    bpy.context.object.location = (0.8, 0.5, 0.8)
+    bpy.context.object.location = (1.0, 0.7, 0.8)
     bpy.context.object.scale = (0.01, 0.01, 0.01)
 
     # for image in bpy.data.images:
@@ -910,6 +914,12 @@ class Iris():
           
           time_start = time.time()
           bpy.data.scenes["Scene"].render.filepath = render_filepath
+
+          # remove shadows which are not good for light-invariant material representation
+          bpy.context.object.visible_shadow = False
+          bpy.data.lights["projector_data"].cycles.cast_shadow = False
+          bpy.data.lights["projector_data"].use_shadow = False
+
           bpy.ops.render.render(animation=False, write_still=True)
           time_end = time.time()
           print("---------------------------------")
@@ -1048,28 +1058,28 @@ if __name__ == "__main__":
 
   # startOfflineSimulation(iris=iris, exposure_time=0.015, path=path)
 
-  iris.view(x=1.6389, y=0.43556, z=1.662, rotation_x=52, rotation_y=0.65, rotation_z=98)
-  iris.scan(exposure_time=0.006, scan_id=0)
+  # iris.view(x=1.8389, y=0.63556, z=1.662, rotation_x=52, rotation_y=0.65, rotation_z=98)
+  # iris.scan(exposure_time=0.006, scan_id=0)
 
-  iris.view(x=1.5901, y=0.52353, z=1.7028, rotation_x=51, rotation_y=0.643, rotation_z=10)
+  iris.view(x=1.7901, y=0.72353, z=1.7028, rotation_x=51, rotation_y=0.643, rotation_z=90)
   iris.scan(exposure_time=0.006, scan_id=1)
 
-  iris.view(x=1.732, y=0.34671, z=1.5556, rotation_x=57.4, rotation_y=0.686, rotation_z=94.8)
+  iris.view(x=1.932, y=0.54671, z=1.5556, rotation_x=57.4, rotation_y=0.686, rotation_z=94.8)
   iris.scan(exposure_time=0.006, scan_id=2)
 
-  iris.view(x=1.9288, y=0.37064, z=1.2308, rotation_x=73.4, rotation_y=0.77, rotation_z=91.4)
+  iris.view(x=2.1288, y=0.57064, z=1.2308, rotation_x=73.4, rotation_y=0.77, rotation_z=91.4)
   iris.scan(exposure_time=0.006, scan_id=3)
 
-  iris.view(x=1.4933, y=0.18161, z=1.3969, rotation_x=65.8, rotation_y=0.735, rotation_z=86.1)
+  iris.view(x=1.6933, y=0.38161, z=1.3969, rotation_x=65.8, rotation_y=0.735, rotation_z=86.1)
   iris.scan(exposure_time=0.006, scan_id=4)
 
-  iris.view(x=1.5473, y=0.48652, z=1.3058, rotation_x=67, rotation_y=0.741, rotation_z=103)
+  iris.view(x=1.7473, y=0.68652, z=1.3058, rotation_x=67, rotation_y=0.741, rotation_z=103)
   iris.scan(exposure_time=0.006, scan_id=5)
 
-  iris.view(x=1.5932, y=0.76718, z=1.0338, rotation_x=79.8, rotation_y=0.79, rotation_z=116)
+  iris.view(x=1.7932, y=0.96718, z=1.0338, rotation_x=79.8, rotation_y=0.79, rotation_z=116)
   iris.scan(exposure_time=0.006, scan_id=6)
 
-  iris.view(x=1.2142, y=0.5983, z=1.9175, rotation_x=21, rotation_y=0.437, rotation_z=116)
+  iris.view(x=1.4142, y=0.7983, z=1.9175, rotation_x=21, rotation_y=0.437, rotation_z=116)
   iris.scan(exposure_time=0.006, scan_id=7)
 
 
