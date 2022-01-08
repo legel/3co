@@ -9,12 +9,11 @@
 # (1) Set up HDR environment map (we may eventually do something a little different to increase realism, but for now this hack should help)
 # (2) Double check materials are properly imported and applied (Lance will clean-up and fine-tune later)
 # (3) Blender Camera is rendering at a ratio of pixel_width:pixel_height equal to 16:9, e.g. 1600:900 pixels.
-# (4) Consider adding a few tricks to increase realism of renders, 
-#	  e.g. small depth of field of camera so there is focus blur, achieved by setting aperture to be wide open and turning on depth of field parameter in Blender
+# (4) Consider adding a few tricks to increase realism of renders, e.g. small depth of field of camera so there is focus blur
 
 # C. Test on an animation with a few frames:
 # (1) Ensure .png files are created (e.g. in Blender's /tmp/ directory, where sometimes animation renders get written to)
-# (2) Make sure they follow the animation path and that they look perfect 
+# (2) Make sure they follow the animation path and that they look perfect
  
 import math
 
