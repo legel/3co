@@ -14,7 +14,10 @@
 # C. Test on an animation with a few frames:
 # (1) Ensure .png files are created (e.g. in Blender's /tmp/ directory, where sometimes animation renders get written to)
 # (2) Make sure they follow the animation path and that they look perfect
- 
+
+# D. Clean up bugs along the way, here is one so far, to try to knock out first:
+# (1) For the z-axis, when the payload is high up, the tower seems to crash into it. For current coordinate system, see between z=0.0 and ~z=-1.5.
+
 import math
 
 class Iris():
