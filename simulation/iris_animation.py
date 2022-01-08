@@ -29,46 +29,39 @@ class Iris():
 		self.pitch = pitch # ... pitch = 0 to be facing forward, like a human head starting directly ahead (set +pitch upward as high as +90 degrees, -pitch downward as low as -90 degrees)
 		self.yaw = 0 # ... yaw = 0 to be equal to facing the opening doors of the machine (set +yaw = turning to the right side from our view facing into doors, up to 179.99 degrees; -yaw turns to the left side back to -179.99 degrees)
 
-		# animation indexing information, useful for chronological sequences
-		self.current_frame_number = 0 
-
 # include as functions:
 	def position(self, frame, x=None, y=None, z=None, pitch=None, yaw=None):
 		# frame will define the keyframe number of the animation that Iris should be in this position
 		# this way, e.g., we can issue a sequence of positions and then Blender (as it currently does) 
 		# will automatically compute the motion in between each position at the speed needed
 
-		if type(pitch) != type(None):
-			# access the driver in blender (bpy.object), move pitch (with above coordinate system)
+		iris_motion_controller = # get driver in blender
 
-			# update internal variables 
-			self.pitch = pitch
+		if type(pitch) != type(None):
+			# move pitch of blender object, with input commands in Iris coordinate system, and any conversion necessary to Blender coordinate system
+			iris_motion_controller.rotation_euler[0] = math.radians(pitch) # important to convert to radians for Blender!
+			self.pitch = pitch # update internal variables 
 
 		if type(yaw) != type(None):
-			# access the driver in blender, move yaw
-
-			# update internal variables 
+			# move yaw of blender object
+			iris_motion_controller.rotation_euler[1] = math.radians(yaw)
 			self.yaw = yaw
 
 		if type(z) != type(None):
-			# access the driver in blender, move z
-
-			# update internal variables 
+			# move z of blender object
+			iris_motion_controller.location[2] = z # note, in Blender's coordinate system, the third parameter of location is Z; however, for whatever reason, things might be switched up, relative to Iris coordinate system; just hack and work around
 			self.z = z
 
 		if type(y) != type(None):
-			# access the driver in blender, move y		 
-
-			# update internal variables 
+			# move y of blender object	 
+			iris_motion_controller.location[1] = y # note, in Blender's coordinate system, the second parameter of location is Y; ...
 			self.y = y
 
 		if type(x) != type(None):
-			# access the driver in blender, move x
-
-			# update internal variables 
+			# move x of blender object
+			iris_motion_controller.location[0] = x # note, in Blender's coordinate system, the first parameter of location is X; ...
 			self.x = x
 
-		self.current_frame_number += frame
 
 	def scan(self, frame, number_of_frames_to_scan=30):
 		# start scanning at "frame" (e.g. frame = 0) for a defined number_of_frames_to_scan
@@ -111,7 +104,7 @@ def rescale_model_size(rescale_ratio=1.0):
 	model.delta_scale = (rescale_ratio, rescale_ratio, rescale_ratio)
 
 
-def view(x=None,y=None,z=None,pitch=None,yaw=None):
+def blender_render_view(x=None,y=None,z=None,pitch=None,yaw=None):
 	# a simple function for controlling the position of rendering camera in Blender!
 	# this function should operate with the exact same coordinate system as Iris
 	# that is, repeat coordinate system mapping above, so that it becomes easy, e.g., to overlap the Blender renderer and the Iris scanner view
@@ -125,7 +118,7 @@ def view(x=None,y=None,z=None,pitch=None,yaw=None):
 
 	if type(yaw) != type(None):
 		# move camera yaw
-		camera.rotation_euler[1] = math.radians(yaw) # important to convert to radians for Blender!
+		camera.rotation_euler[1] = math.radians(yaw)
 
 	if type(z) != type(None):
 		# move camera z
@@ -146,8 +139,12 @@ if __name__ == "__main__":
 	# load 3D model to show off getting scanned inside of Iris
 	iris.add_new_object_to_scan("/path/to/monstera_with_pot.glb")
 
+	# camera view is defined in the same coordinate system as the Iris scanner (even if may be outside)
+	# in this case, we are setting the camera to be outside of the doors of the scanner, facing inside, through the doors
+	blender_render_view(frame=0, x=-5.0, y=0.0, z=1.7, pitch=0.0, yaw=-180.0)
+
 	# initialize position of Iris in center, folded up, facing down (a good safe place to start any scan)
-	iris.position(frame=0, x=0.0, y=0.0, z=1.7, pitch=-90.0, yaw=0.0) 
+	iris.position(frame=0, x=0.0, y=0.0, z=1.7, pitch=-90.0, yaw=0.0)
 
 	# capture a scan to start the scene, to survey what's inside
 	iris.scan(frame=0, number_of_frames_to_scan=30)
@@ -186,17 +183,30 @@ if __name__ == "__main__":
 	# machine moves down from its starting 1.7 meters up position, to 0.85 meters above the floor
 	iris.position(frame=335, z=0.85)
 
-	# capture another scan, this time a long exposure again
-	iris.scan(frame=335, number_of_frames_to_scan=30)	
+	# now, we would like to move the camera into the same view as Iris
+	# to make sure the camera has been still the entire time for previous actions
+	# we must set again the same camera position at the latest frame
+	blender_render_view(frame=335, x=-5.0, y=0.0, z=1.7, pitch=0.0, yaw=-180.0)
+
+	# now, let's animation the camera motion, zooming into the perspective of Iris
+	blender_render_view(frame=395, x=1.5, y=0.0, z=0.85, pitch=0.0, yaw=0.0)
+
+	# capture another scan, this time a long exposure again; for the first time, we see the scan from Iris's perspective
+	iris.scan(frame=395, number_of_frames_to_scan=30)
 
 	# machine moves back to the far right again, but this time with its z-axis extended half-way, and its head facing forward 
-	iris.position(frame=395, y=1.5)
+	iris.position(frame=455, y=1.5)
+
+	# as well, as move the camera in synchrony with the machine! "I am become Iris, 3D modeler of worlds."
+	blender_render_view(frame=455, y=1.5)
 
 	# machine is in the far right corner, and now orients its head so that it should now be facing to the left
-	iris.position(frame=455, yaw=-90)
+	iris.position(frame=485, yaw=-90)
+	blender_render_view(frame=485, yaw=-90)
 
 	# machine moves along the right side, coming toward us, stopping halfway in the center of x-axis
-	iris.position(frame=485, x=0)
+	iris.position(frame=515, x=0)
+	blender_render_view(frame=515, x=0)
 
 	# capture the last survey scan, one last long exposure
-	iris.scan(frame=485, number_of_frames_to_scan=30)	
+	iris.scan(frame=515, number_of_frames_to_scan=30)
