@@ -32,8 +32,12 @@ class Iris():
         self.pitch = pitch # min: -90° max: 45
         self.yaw = yaw # min: -135° max: 135°
 
+        # default power of light: light.energy * 1 = 60 W
+        light = bpy.data.lights["Light"]
+        light.energy = light.energy * 1
+
         # making sure structured light is turned off in the beginning
-        self.structured_light = bpy.data.lights["Light"].node_tree
+        self.structured_light = light.node_tree
         self.structured_light.nodes["Emission"].inputs["Strength"].default_value = 0
 
     # include as functions:
@@ -96,10 +100,19 @@ class Iris():
         emission = self.structured_light.nodes["Emission"]
         offset = self.structured_light.nodes["Image Texture"].image_user
         
+        # Set to True if fps hack is used to debug
+        debug_mode = True
+        if debug_mode:
+            adjusted_value = number_of_frames_to_scan
+        else:
+            adjusted_value = 1
+        
+        adjacent_frame = 1 / adjusted_value
+        
         # ek #
         # emission keyframes (ek): measure to disable smooth transition
         emission.inputs["Strength"].default_value = 0
-        emission.inputs["Strength"].keyframe_insert(data_path='default_value', frame=frame-1)
+        emission.inputs["Strength"].keyframe_insert(data_path='default_value', frame = frame - adjacent_frame)
         #light is now OFF
         emission.inputs["Strength"].default_value = 1
         emission.inputs["Strength"].keyframe_insert(data_path='default_value', frame=frame)
@@ -110,14 +123,14 @@ class Iris():
         offset.keyframe_insert(data_path='frame_offset', frame = frame)
         
         offset.frame_offset = 170
-        offset.keyframe_insert(data_path='frame_offset', frame = frame+number_of_frames_to_scan)
+        offset.keyframe_insert(data_path='frame_offset', frame = frame + number_of_frames_to_scan)
 
         # ek #
         emission.inputs["Strength"].default_value = 1
         emission.inputs["Strength"].keyframe_insert(data_path='default_value', frame=frame+number_of_frames_to_scan)
         #light is now ON
-        emission.inputs["Strength"].default_value = 1
-        emission.inputs["Strength"].keyframe_insert(data_path='default_value', frame=frame+number_of_frames_to_scan+1)
+        emission.inputs["Strength"].default_value = 0
+        emission.inputs["Strength"].keyframe_insert(data_path='default_value', frame=frame + number_of_frames_to_scan + adjacent_frame)
         #light is now OFF
         # ek #
 
@@ -148,9 +161,47 @@ class Iris():
 
         # rescale imported object
         imported_object.delta_scale = (rescale_ratio, rescale_ratio, rescale_ratio)
-        imported_object.location.x = initial_x * 1000
-        imported_object.location.y = initial_y * 1000
-        imported_object.location.z = initial_z * 1000
+        # imported_object.location.x = initial_x * 1000
+        # imported_object.location.y = initial_y * 1000
+        # imported_object.location.z = initial_z * 1000
+        imported_object.location = bpy.context.scene.cursor.location ## cursor is exactly in the middle of iris' floor
+
+
+    def open_doors(self, start_frame, end_frame):
+        # ||------------------------------------------||
+        # ||          ||    CLOSED    ||      OPEN    ||
+        # || DOOR     || LEFT | RIGHT || LEFT | RIGHT ||
+        # ||------------------------------------------||
+        # || FULLY    ||  180 | -180  || -90  |  90   ||
+        # || PARALLEL ||  180 | -180  ||   0  |   0   ||
+        # ||------------------------------------------||
+        #            (iris top view) 
+        #   fully:                parallel: 
+        #                         __     __
+        #  ||   ||                  |   |
+        #   |___|                   |___|
+
+        closed = 180
+        open = 90 # set to 90 for fully, to 0 for parallel
+
+        left_door = bpy.data.objects["left_door"]
+        right_door = bpy.data.objects["right_door"]
+
+        # CLOSED DOORS
+        left_door.rotation_euler[2] = math.radians(closed)
+        left_door.keyframe_insert(data_path='rotation_euler', frame=start_frame)
+
+        right_door.rotation_euler[2] = math.radians(-closed)
+        right_door.keyframe_insert(data_path='rotation_euler', frame=start_frame)
+        # CLOSED DOORS
+
+        # OPEN DOORS
+        left_door.rotation_euler[2] = math.radians(-open)
+        left_door.keyframe_insert(data_path='rotation_euler', frame=end_frame)
+
+        right_door.rotation_euler[2] = math.radians(open)
+        right_door.keyframe_insert(data_path='rotation_euler', frame=end_frame)
+        # OPEN DOORS
 
 def load_iris():
     # load iris.blend as the starting point of entire animation
@@ -206,15 +257,20 @@ def blender_camera_view(frame, x=None,y=None,z=None,pitch=None,yaw=None,roll=Non
 
 def fps(input_frame_value):
     # change fps based on resolution parameter (good for debugging slow frame rate)
-    return int(fps_resolution * input_frame_value)
+   return int(fps_resolution * input_frame_value)
 
+# def fps(input_frame_value):
+#     # change fps based on resolution parameter (good for debugging slow frame rate)
+#     # to easily switch back if needed
+#    return input_frame_value
 
+    
 if __name__ == "__main__":
     # load machine components, set up motion drivers
     iris = load_iris()
     
     # load 3D model to show off getting scanned inside of Iris
-    iris.add_new_object_to_scan(filepath="/home/threeco/Desktop/3cology/research/simulation/models/monstera/monstera_with_pot.glb", 
+    iris.add_new_object_to_scan(filepath="/home/threeco/Desktop/3cology/research/simulation/models/monstera/monstera_with_pot_centered.glb", 
                                 rescale_ratio=0.01,
                                 initial_x=3.8805,
                                 initial_y=2.1864, 
@@ -226,6 +282,9 @@ if __name__ == "__main__":
     
     # initialize position of Iris in center, folded up, facing down (a good safe place to start any scan)
     iris.position(frame=fps(0), x=0.0, y=0.0, z=1.5, pitch=-90.0, yaw=0.0)
+    
+    # insert keyframes for opening doors here
+    # iris.open_doors(start_frame, end_frame)
 
     # for a user camera facing into the machine, through the doors from the outside, we then see machine move away from camera, 
     # to the opposite side of the doors, to the position x=1.5 meters, and to the right, to y=1.5 meters, over the next 30 frames
