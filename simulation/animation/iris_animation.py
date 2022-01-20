@@ -281,69 +281,20 @@ if __name__ == "__main__":
     blender_camera_view(frame=fps(0), x=3.7326*1000, y=10.125*1000, z=1.5858*1000, pitch=90, yaw=0.0, roll=180)
     
     # initialize position of Iris in center, folded up, facing down (a good safe place to start any scan)
-    iris.position(frame=fps(0), x=0.0, y=0.0, z=1.5, pitch=-90.0, yaw=0.0)
+    iris.position(frame=fps(0), x=1.5, y=1.5, z=0.75, pitch=0.0, yaw=45.0)
+
+    # start with a scan from the top
+    iris.scan(frame=fps(0), number_of_frames_to_scan=fps(10))
     
+    # initialize position of Iris in center, folded up, facing down (a good safe place to start any scan)
+    iris.position(frame=fps(20), x=1.0, y=1.5, z=1.00, pitch=0.0, yaw=90.0)
+
+
     # insert keyframes for opening doors here
     # iris.open_doors(start_frame, end_frame)
 
-    # for a user camera facing into the machine, through the doors from the outside, we then see machine move away from camera, 
-    # to the opposite side of the doors, to the position x=1.5 meters, and to the right, to y=1.5 meters, over the next 30 frames
-    iris.position(frame=fps(30), x=1.5, y=1.5)
+    # # for a user camera facing into the machine, through the doors from the outside, we then see machine move away from camera, 
+    # # to the opposite side of the doors, to the position x=1.5 meters, and to the right, to y=1.5 meters, over the next 30 frames
+    # iris.position(frame=fps(30), x=1.5, y=1.5)
 
-    # capture another survey scan, at the far right corner of the machine, facing down, this time only a short exposure
-    iris.scan(frame=fps(30), number_of_frames_to_scan=fps(5))
 
-    # machine moves along the right side for the next 60 frames (frame 35 to frame 95), coming toward us, all the way to the nearest edge, by the doors
-    iris.position(frame=fps(95), x=-1.5)
-
-    # capture another quick scan, near right corner of the machine
-    iris.scan(frame=fps(95), number_of_frames_to_scan=fps(5))
-
-    # machine moves to the left side, from our perspective facing into the doors, to the position y=-1.5 meters
-    iris.position(frame=fps(160), y=-1.5)
-
-    # capture another scan
-    iris.scan(frame=fps(160), number_of_frames_to_scan=fps(5))
-
-    # machine moves away from camera, to the opposite side of the doors, again, but this time along the left side 
-    iris.position(frame=fps(210), x=1.5)
-
-    # capture another scan
-    iris.scan(frame=fps(210), number_of_frames_to_scan=fps(5))
-
-    # machine now re-centered in y-axis
-    iris.position(frame=fps(245), y=0.0)
-
-    # machine moves its head from facing down to facing forward, along the direction parallel to the x-axis (going to and from the doors)
-    iris.position(frame=fps(275), pitch=0.0)
-
-    # machine moves down from its starting 1.7 meters up position, to 0.85 meters above the floor
-    iris.position(frame=fps(335), z=0.85)
-
-    # # now, we would like to move the camera into the same view as Iris
-    # # to make sure the camera has been still the entire time for previous actions
-    # # we must set again the same camera position at the latest frame
-    # blender_camera_view(frame=fps(335), x=-5.0, y=0.0, z=1.7, pitch=0.0, yaw=-180.0)
-
-    # # now, let's animation the camera motion, zooming into the perspective of Iris
-    # blender_camera_view(frame=fps(395), x=1.5, y=0.0, z=0.85, pitch=0.0, yaw=0.0)
-
-    # capture another scan, this time a long exposure again; for the first time, we see the scan from Iris's perspective
-    iris.scan(frame=fps(395), number_of_frames_to_scan=30)
-
-    # machine moves back to the far right again, but this time with its z-axis extended half-way, and its head facing forward 
-    iris.position(frame=fps(455), y=1.5)
-
-    # # as well, as move the camera in synchrony with the machine! "I am become Iris, 3D modeler of worlds."
-    # blender_camera_view(frame=fps(455), y=1.5)
-
-    # machine is in the far right corner, and now orients its head so that it should now be facing to the left
-    iris.position(frame=fps(485), yaw=-90)
-    # blender_camera_view(frame=fps(485), yaw=-90)
-
-    # machine moves along the right side, coming toward us, stopping halfway in the center of x-axis
-    iris.position(frame=fps(515), x=0)
-    # blender_camera_view(frame=fps(515), x=0)
-
-    # capture the last survey scan, one last long exposure
-    iris.scan(frame=fps(515), number_of_frames_to_scan=fps(30))
