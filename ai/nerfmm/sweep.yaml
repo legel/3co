@@ -1,0 +1,12 @@
+program: /home/sense/nerfmm/tasks/nerfmm/train.py
+method: bayes
+metric:
+  name: Unweighted_Loss
+  goal: minimize
+parameters:
+  depth_loss_initial:
+    min: 0.1
+    max: 1000.0
+  depth_exponential_decay_rate:
+    min: 0.1
+    max: 10.0

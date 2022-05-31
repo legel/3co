@@ -32,8 +32,8 @@ def compute_angular_distance(rot_a, rot_b, show_angles):
     angular_distance_metric = torch.squeeze(so3_relative_angle(R1=rot_a, R2=rot_b, cos_angle=False, cos_bound=0.0000001, eps=0.0000001))
     angular_distance_metric = torch.sqrt(angular_distance_metric * angular_distance_metric)
 
-    if show_angles:
-        print("\nAngular distance metric of {}".format(angular_distance_metric))
+    # if show_angles:
+    #     print("\nAngular distance metric of {}".format(angular_distance_metric))
 
     return angular_distance_metric
 

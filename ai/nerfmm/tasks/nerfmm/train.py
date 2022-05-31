@@ -7,6 +7,8 @@ import shutil
 import logging
 import imageio
 
+import time
+
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
@@ -35,7 +37,7 @@ import wandb
 
 
 number_of_epochs = 10000
-eval_image_interval = 50
+eval_image_interval = 250
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -98,7 +100,7 @@ def parse_args():
     parser.add_argument('--dir_enc_inc_in', type=bool, default=True, help='concat the input to the encoding')
 
     parser.add_argument('--train_img_num', type=int, default=-1, help='num of images to train, -1 for all')
-    parser.add_argument('--train_skip', type=int, default=1, help='skip every this number of imgs')
+    parser.add_argument('--train_skip', type=int, default=900, help='skip every this number of imgs')
     parser.add_argument('--eval_img_num', type=int, default=1, help='num of images to eval')
     parser.add_argument('--eval_skip', type=int, default=1, help='skip every this number of imgs')
 
@@ -106,6 +108,11 @@ def parse_args():
     parser.add_argument('--true_rand', type=bool, default=False)
 
     parser.add_argument('--alias', type=str, default='', help="experiments alias")
+
+    parser.add_argument('--depth_loss_initial', default=100.0, type=float)
+    parser.add_argument('--depth_exponential_decay_rate', default=2.0, type=float)
+    parser.add_argument('--rgb_loss_importance', default=10.0, type=float)
+
 
     parsed_args = parser.parse_args()
 
@@ -268,16 +275,33 @@ def eval_one_epoch_img(evaluation_image_pose, scene_train, model, focal_net, pos
         rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)
         # rendered_depth_for_file = np.transpose(rendered_depth_for_file, (1, 2, 0))
 
-        image_out_dir = "{}/{}".format(scene_train.base_dir, scene_train.scene_name)
 
-        color_out_dir = "{}/color_nerf_out/".format(image_out_dir)
+        image_out_dir = "{}/{}/hyperparam_experiments".format(scene_train.base_dir, scene_train.scene_name)
+        
+        depth_loss_initial = "{:.3f}".format(args.depth_loss_initial).replace(".","p")
+        depth_exponential_decay_rate = "{:.3f}".format(args.depth_exponential_decay_rate).replace(".","p")
+        rgb_loss_importance = "{:.3f}".format(args.rgb_loss_importance).replace(".","p")
+
+        experiment_label = "{}_depth_loss_initial{}_depth_exponential_decay{}_rgb_loss_importance{}".format(scene_train.unix_time, 
+                                                                                                            depth_loss_initial,
+                                                                                                            depth_exponential_decay_rate,
+                                                                                                            rgb_loss_importance)
+        
+        experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        color_out_dir = Path("{}/color_nerf_out/".format(experiment_dir))
+        color_out_dir.mkdir(parents=True, exist_ok=True)
+
         color_file_name = os.path.join(color_out_dir, str(i).zfill(4) + '_{}_color.png'.format(epoch_i))
-        print("\nRendering color image of shape {} at {}".format(rendered_color_for_file.shape, color_file_name))
+        # print("\nRendering color image of shape {} at {}".format(rendered_color_for_file.shape, color_file_name))
         imageio.imwrite(color_file_name, rendered_color_for_file)
 
-        depth_out_dir = "{}/depth_nerf_out/".format(image_out_dir)
+        depth_out_dir = Path("{}/depth_nerf_out/".format(experiment_dir))
+        depth_out_dir.mkdir(parents=True, exist_ok=True)
+
         depth_file_name = os.path.join(depth_out_dir, str(i).zfill(4) + '_{}_depth.png'.format(epoch_i))
-        print("Rendering depth image of shape {} at {}\n".format(rendered_depth_for_file.shape, depth_file_name))
+        # print("Rendering depth image of shape {} at {}\n".format(rendered_depth_for_file.shape, depth_file_name))
         imageio.imwrite(depth_file_name, rendered_depth_for_file)
 
         # # for vis
@@ -338,19 +362,7 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
 
     # print("For epoch {} the {} images for training are: {}".format(epoch_i, len(indices_of_selected_random_images), indices_of_selected_random_images))
 
-    # (3) NeRF-DS: given the depth coordinate per-pixel per photo, and given the output of the density network, add to the total loss the difference between the density network and depth
     # (4) Over time, reduce the reliance on depth coordinates
-
-
-    # The near/far sampling of volumetric rendering is fascinating, in the sense that we're only querying the network at those points?
-    # At this point, we actually have baseline values to clamp our density field to.
-    # In any case, why is the result so consistently poor vs. what the paper demonstrates?
-    
-    # One issue that keeps coming up is the coordinate system of NeRF
-    # It's just so random the evaluation photo.
-    # Most likely, it would be best to choose a single photo in training, and then force the system to predict the train image, or one nearby it.
-    
-    # What is the correct coordinate system: WC or CW from Stray Scanner?
 
     # Is it the case that actually COLMAP precision is actually essential?
     weighted_sum_of_losses = torch.tensor(0.0, device=my_devices)
@@ -434,11 +446,11 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
             network_camera_position = c2w[:3,3]
             euclidian_distance_metric = torch.sqrt(((initial_camera_position[0] - network_camera_position[0])**2 + (initial_camera_position[1] - network_camera_position[1])**2 +  (initial_camera_position[2] - network_camera_position[2])**2 ))
 
-            if epoch_i % eval_image_interval == 0:
-                print("\n\n---IMAGE {}---".format(scene_train.img_names[i]))
-                print("\nAverage (x,y,z) translation difference between initial camera position and network camera position: {}".format(euclidian_distance_metric))
-                print("\nInitial sensor-based camera (x,y,z):\n{}".format(initial_camera_position))
-                print("\nTrained network camera (x,y,z):\n{}".format(network_camera_position))
+            # if epoch_i % eval_image_interval == 0:
+            #     print("\n\n---IMAGE {}---".format(scene_train.img_names[i]))
+            #     print("\nAverage (x,y,z) translation difference between initial camera position and network camera position: {}".format(euclidian_distance_metric))
+            #     print("\nInitial sensor-based camera (x,y,z):\n{}".format(initial_camera_position))
+            #     print("\nTrained network camera (x,y,z):\n{}".format(network_camera_position))
 
             cam_pos_loss = 1/(-torch.log(euclidian_distance_metric))
             position_importance_for_current_epoch = ((number_of_epochs - epoch_i ) / (number_of_epochs ))**2 # exponentially decrease requirement to keep (x,y,z) cam position fixed
@@ -454,8 +466,8 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
             network_camera_rotation = c2w[:3,:3]
             if epoch_i % eval_image_interval == 0:
                 angular_distance_metric = compute_angular_distance(initial_camera_rotation, network_camera_rotation, show_angles=True) # .cpu().detach().numpy() .cpu().detach().numpy()
-                print("\nInitial sensor-based camera 3x3 rotation matrix:\n{}".format(initial_camera_rotation))
-                print("\nTrained network camera 3x3 rotation matrix:\n{}".format(network_camera_rotation))
+                # print("\nInitial sensor-based camera 3x3 rotation matrix:\n{}".format(initial_camera_rotation))
+                # print("\nTrained network camera 3x3 rotation matrix:\n{}".format(network_camera_rotation))
             else:
                 angular_distance_metric = compute_angular_distance(initial_camera_rotation, network_camera_rotation, show_angles=False)
 
@@ -468,18 +480,19 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
 
 
             # here, we implement the decaying depth loss supervision, so that images can take priority in inverse rendering, after some time in the optimization
-            depth_importance_for_current_epoch = ((number_of_epochs - epoch_i ) / (number_of_epochs ))**2 # exponentially decrease dependence of depth as optimization finishes
-            initial_depth_importance = 100.0
+            depth_exponential_decay_rate = args.depth_exponential_decay_rate # rate between 0.01 - 10.0 to decay the fraction 0
+            depth_importance_for_current_epoch = ((number_of_epochs - epoch_i ) / (number_of_epochs ))**depth_exponential_decay_rate # exponentially decrease dependence of depth as optimization finishes
+            initial_depth_importance = args.depth_loss_initial #100.0
             depth_importance = initial_depth_importance * depth_importance_for_current_epoch # use e^(log(loss)) as a way to preserve gradient signal even for very very small differences
 
             # RGB importance will hold strong and increasingly dominate the loss
-            rgb_importance = 10.0
+            rgb_importance = args.rgb_loss_importance #10.0
 
             # compute final loss metric
-            loss = (depth_importance * depth_loss) + (rgb_importance * rgb_loss) + (position_loss_importance * cam_pos_loss) + (angular_loss_importance * angular_distance_loss)
+            loss = (depth_importance * depth_loss) + (rgb_importance * rgb_loss) #+ (position_loss_importance * cam_pos_loss) + (angular_loss_importance * angular_distance_loss)
 
             if epoch_i % eval_image_interval == 0:
-                print("\nPer-Image Depth Loss: {:.5f}, RGB Inverse Render Loss: {:.5f}\n\n".format(depth_loss, rgb_loss))
+                # print("\nPer-Image Depth Loss: {:.5f}, RGB Inverse Render Loss: {:.5f}\n\n".format(depth_loss, rgb_loss))
                 per_image_depth_loss["{}".format(scene_train.img_names[i])] = depth_loss
                 per_image_rgb_loss["{}".format(scene_train.img_names[i])] = rgb_loss
 
@@ -508,7 +521,7 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
                 optimizer_pose.zero_grad()
 
                 weighted_sum_of_losses = weighted_sum_of_losses + loss
-                sum_of_losses = sum_of_losses + rgb_loss + depth_loss + cam_pos_loss + angular_distance_loss
+                sum_of_losses = sum_of_losses + rgb_loss + depth_loss #+ cam_pos_loss + angular_distance_loss
                 sum_of_rgb_losses = sum_of_rgb_losses + rgb_loss
                 sum_of_depth_losses = sum_of_depth_losses + depth_loss
                 sum_of_cam_pos_losses = sum_of_cam_pos_losses + cam_pos_loss
@@ -523,8 +536,8 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
     average_cam_pos_loss = torch.div(sum_of_cam_pos_losses, count_of_losses)
     average_cam_rot_loss = torch.div(sum_of_cam_rot_losses, count_of_losses)
 
-    wandb.log({"Weighted Sum of Losses  (inverse render + depth supervision + minimization of pose deviation)": average_weighted_loss,
-               "Unweighted Sum of Losses (inverse render + depth supervision + minimization of pose deviation)": average_loss,
+    wandb.log({"Weighted_Loss": average_weighted_loss,
+               "Unweighted_Loss": average_loss,
                "RGB Inverse Render Loss": average_rgb_loss,
                "Depth Loss": average_depth_loss,
                "(x,y,z) camera position deviation": average_cam_pos_loss,
@@ -539,17 +552,22 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
     #L2_loss_epoch_mean = np.mean(L2_loss_epoch)  # loss for all images.
 
     mean_losses = {
-        'L2': sum_of_losses.item(),
+        'L2': weighted_sum_of_losses.item(),
     }
     return mean_losses
 
 
 def main(args):
+
     my_devices = torch.device('cuda:' + str(args.gpu_id))
 
     '''Create Folders'''
     exp_root_dir = Path(os.path.join('./logs/nerfmm', args.scene_name))
     exp_root_dir.mkdir(parents=True, exist_ok=True)
+
+
+
+
     experiment_dir = Path(os.path.join(exp_root_dir, gen_detail_name(args)))
     experiment_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy('./models/nerf_models.py', experiment_dir)

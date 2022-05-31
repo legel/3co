@@ -16,6 +16,8 @@ from utils.lie_group_helper import convert3x4_4x4, SO3_to_quat
 from scipy.spatial.transform import Rotation
 import random
 
+import time
+
 from PIL import Image
 import cv2
 
@@ -237,6 +239,8 @@ class DataLoaderWithSmartphone:
         :param percent_of_data_to_use   if 1.0 then 100% of images will be read in and poses found, else whatever fraction entered
         """
         my_devices = torch.device('cuda:' + "0")
+
+        self.unix_time = int(time.time()) # unique ID for this experiment
 
         self.base_dir = base_dir
         self.scene_name = scene_name
