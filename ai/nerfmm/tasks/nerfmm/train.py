@@ -36,8 +36,9 @@ from models.pose_net import PoseNet
 import wandb
 
 
-number_of_epochs = 10000
-eval_image_interval = 250
+number_of_epochs = 3000
+early_termination_epoch = 3001
+eval_image_interval = 100
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -52,25 +53,25 @@ def parse_args():
     parser.add_argument('--scene_name', type=str, default='pillow_scan')
     parser.add_argument('--use_ndc', default=False, type=eval, choices=[True, False])
 
-    parser.add_argument('--nerf_lr', default=0.005, type=float)
+    parser.add_argument('--nerf_lr', default=0.002, type=float)
     parser.add_argument('--nerf_milestones', default=list(range(0, number_of_epochs, 10)), type=int, nargs='+',
                         help='learning rate schedule milestones')
-    parser.add_argument('--nerf_lr_gamma', type=float, default=0.9954, help="learning rate milestones gamma")
+    parser.add_argument('--nerf_lr_gamma', type=float, default=0.98, help="learning rate milestones gamma")
 
     parser.add_argument('--learn_focal', default=True, type=eval, choices=[True, False])
     parser.add_argument('--fx_only', default=False, type=eval, choices=[True, False])
     parser.add_argument('--focal_order', default=2, type=int)
-    parser.add_argument('--focal_lr', default=0.001, type=float)
+    parser.add_argument('--focal_lr', default=0.002, type=float)
     parser.add_argument('--focal_milestones', default=list(range(0, number_of_epochs, 100)), type=int, nargs='+',
                         help='learning rate schedule milestones')
-    parser.add_argument('--focal_lr_gamma', type=float, default=0.9, help="learning rate milestones gamma")
+    parser.add_argument('--focal_lr_gamma', type=float, default=0.94, help="learning rate milestones gamma")
 
     parser.add_argument('--learn_R', default=True, type=eval, choices=[True, False])
     parser.add_argument('--learn_t', default=True, type=eval, choices=[True, False])
-    parser.add_argument('--pose_lr', default=0.005, type=float)
+    parser.add_argument('--pose_lr', default=0.001, type=float)
     parser.add_argument('--pose_milestones', default=list(range(0, number_of_epochs, 10)), type=int, nargs='+',
                         help='learning rate schedule milestones')
-    parser.add_argument('--pose_lr_gamma', type=float, default=0.9, help="learning rate milestones gamma")
+    parser.add_argument('--pose_lr_gamma', type=float, default=0.98, help="learning rate milestones gamma")
 
     parser.add_argument('--store_pose_history', type=bool, default=True, help='store pose history to log dir')
 
@@ -87,7 +88,7 @@ def parse_args():
 
     parser.add_argument('--resize_ratio', type=int, default=1, help='lower the image resolution with this ratio')
     parser.add_argument('--num_rows_eval_img', type=int, default=10, help='split a high res image to rows in eval')
-    parser.add_argument('--hidden_dims', type=int, default=128, help='network hidden unit dimensions')
+    parser.add_argument('--hidden_dims', type=int, default=120, help='network hidden unit dimensions')
     parser.add_argument('--train_rand_rows', type=int, default=64, help='rand sample these rows to train')
     parser.add_argument('--train_rand_cols', type=int, default=64, help='rand sample these cols to train')
     parser.add_argument('--num_sample', type=int, default=128, help='number samples along a ray')
@@ -96,11 +97,11 @@ def parse_args():
     parser.add_argument('--pos_enc_inc_in', type=bool, default=True, help='concat the input to the encoding')
 
     parser.add_argument('--use_dir_enc', type=bool, default=True, help='use pos enc for view dir?')
-    parser.add_argument('--dir_enc_levels', type=int, default=4, help='number of freqs for positional encoding')
+    parser.add_argument('--dir_enc_levels', type=int, default=5, help='number of freqs for positional encoding')
     parser.add_argument('--dir_enc_inc_in', type=bool, default=True, help='concat the input to the encoding')
 
     parser.add_argument('--train_img_num', type=int, default=-1, help='num of images to train, -1 for all')
-    parser.add_argument('--train_skip', type=int, default=900, help='skip every this number of imgs')
+    parser.add_argument('--train_skip', type=int, default=60*3, help='skip every this number of imgs')
     parser.add_argument('--eval_img_num', type=int, default=1, help='num of images to eval')
     parser.add_argument('--eval_skip', type=int, default=1, help='skip every this number of imgs')
 
@@ -109,9 +110,29 @@ def parse_args():
 
     parser.add_argument('--alias', type=str, default='', help="experiments alias")
 
-    parser.add_argument('--depth_loss_initial', default=100.0, type=float)
-    parser.add_argument('--depth_exponential_decay_rate', default=2.0, type=float)
+    parser.add_argument('--depth_loss_initial_importance', default=0.80, type=float)
+    parser.add_argument('--depth_loss_final_importance', default=0.01, type=float)
+
+
+    # parser.add_argument('--depth_loss_exponential_decay_rate', default=1.0, type=float)
+    parser.add_argument('--depth_loss_exponential_index', default=2, type=int)
+    parser.add_argument('--depth_loss_curve_shape', default=5, type=int)
+
+
+
+
+
     parser.add_argument('--rgb_loss_importance', default=10.0, type=float)
+
+    parser.add_argument('--pose_deviation_loss_initial_importance', default=0.0, type=float)
+    parser.add_argument('--pose_deviation_loss_exponential_decay_rate', default=3.5, type=float)
+
+    parser.add_argument('--empirical_maximum_depth_loss', default=0.15, type=float)
+    parser.add_argument('--empirical_maximum_rgb_loss', default=1.20, type=float)
+
+    parser.add_argument('--depth_variance', default=0.0000001, type=float)
+
+    parser.add_argument('--log_frequency', default=1, type=int)
 
 
     parsed_args = parser.parse_args()
@@ -202,7 +223,7 @@ def model_render_image(c2w, rays_cam, t_vals, near, far, H, W, fxfy, model, pert
         'depth_map': depth_map,  # (H, W)
         'rgb_density': rgb_density,  # (H, W, N_sample, 4)
         'depth_weights': weight, # (H, W, N_sample),
-        't_vals': t_vals # (N_samples)
+        't_vals': t_vals_noisy # (N_samples)
     }
 
     return result
@@ -278,14 +299,11 @@ def eval_one_epoch_img(evaluation_image_pose, scene_train, model, focal_net, pos
 
         image_out_dir = "{}/{}/hyperparam_experiments".format(scene_train.base_dir, scene_train.scene_name)
         
-        depth_loss_initial = "{:.3f}".format(args.depth_loss_initial).replace(".","p")
-        depth_exponential_decay_rate = "{:.3f}".format(args.depth_exponential_decay_rate).replace(".","p")
-        rgb_loss_importance = "{:.3f}".format(args.rgb_loss_importance).replace(".","p")
+        N = "{}".format(args.depth_loss_exponential_index)#.replace(".","p")
+        k = "{}".format(args.depth_loss_curve_shape)#.replace(".","p")
+        # rgb_loss_importance = "{:.3f}".format(args.rgb_loss_importance).replace(".","p")
 
-        experiment_label = "{}_depth_loss_initial{}_depth_exponential_decay{}_rgb_loss_importance{}".format(scene_train.unix_time, 
-                                                                                                            depth_loss_initial,
-                                                                                                            depth_exponential_decay_rate,
-                                                                                                            rgb_loss_importance)
+        experiment_label = "{}_k{}_N{}".format(scene_train.unix_time, k, N)
         
         experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
         experiment_dir.mkdir(parents=True, exist_ok=True)
@@ -330,8 +348,18 @@ def eval_one_epoch_traj(scene_train, pose_param_net):
     return stats_tran, stats_rot, stats_scale
 
 
+# https://arxiv.org/pdf/2004.05909v1.pdf
+def polynomial_decay(current_step, total_steps, start_value, end_value, exponential_index=1, curvature_shape=1):
+    return (start_value - end_value) * (1 - current_step**curvature_shape / total_steps**curvature_shape)**exponential_index + end_value
+
+
 def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose, model, focal_net, pose_param_net,
                     my_devices, args, rgb_act_fn, epoch_i, batch_size=48, reviews_per_batch=1):
+
+    if epoch_i == early_termination_epoch:
+        print("Terminating early to speed up hyperparameter search")
+        sys.exit(0)
+
     model.train()
 
     if epoch_i >= args.start_refine_pose_epoch:
@@ -371,6 +399,7 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
     sum_of_depth_losses = torch.tensor(0.0, device=my_devices)
     sum_of_cam_pos_losses = torch.tensor(0.0, device=my_devices)
     sum_of_cam_rot_losses = torch.tensor(0.0, device=my_devices)
+    sum_of_depth_to_rgb_loss_ratios = torch.tensor(0.0, device=my_devices)
 
     count_of_losses = torch.tensor(0, device=my_devices)
     for review_number in range(reviews_per_batch):
@@ -408,12 +437,29 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
                                                scene_train.H, scene_train.W, fxfy,
                                                model, True, 0.0, args, rgb_act_fn)  # (N_select_rows, N_select_cols, 3)
             rgb_rendered = render_result['rgb']  # (N_select_rows, N_select_cols, 3)
+            t_vals = render_result['t_vals'] # (N_samples) - updates t_vals (distances along ray to be sampled) after adding noise...
 
 
             # implement DS-NeRF here: add a loss from the difference between the depth map from the sensor and the depth map of NeRF
             #nerf_depth = render_result['depth_map'] # (N_select_rows, N_select_cols)
             
             nerf_depth_weights = render_result['depth_weights'] # (N_select_rows, N_select_cols, N_sample)
+
+
+            ########
+            # First of all, wow, great catch with t_vals_noisy as the new FIXED loss metric for depth!
+            # That is an extremely fortunate catch as a consequence of the exploding gradients, which still exist.
+            # So, we have discovered that in scenarios where depth loss is a dominant factor to optimize againt,
+            # indeed somehow NeRF density field can end up spitting out all 0's entirely...
+            # Note the interesting flag here for "start training color network" on top of density network...
+            # Naturally, when you multiply a lot of 0's by anything, still 0, then that's the loss?  No!  Problem appears to be NeRF not probabalistic?
+            # That is, why isn't the NeRF output for density a uniform distribution over the distance!?
+            # This is absolutely, as well, related to the opportunity to implement signed-distance-function loss using the depth supervision...
+            # Then, we could potentially decrease number of t_vals, and furthermore, we could put t_vals close to depth! (with some random variance; Gaussian)
+            ########
+
+
+
 
             # collect sensor data and format it
             sensor_depth = scene_train.depths[i,:,:].to(my_devices) # (H, W)
@@ -422,22 +468,35 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
             sensor_depth_selected = sensor_depth_selected.expand(-1,-1,args.num_sample) # (N_select_rows, N_select_cols, N_sample)
 
             # collect sampling distance data and format it
-            t_vals = torch.unsqueeze(torch.unsqueeze(t_vals, 0), 0) # (1,1, N_sample)
-            t_vals = t_vals.expand(args.train_rand_rows, args.train_rand_cols, -1) # (N_select_rows, N_select_cols, N_sample)
+            #t_vals = torch.unsqueeze(torch.unsqueeze(t_vals, 0), 0) # (1,1, N_sample)
+            #t_vals = t_vals.expand(args.train_rand_rows, args.train_rand_cols, -1) # (N_select_rows, N_select_cols, N_sample)
 
             # get a metric for every sampled distance of how far that is from the sensor depth
             squared_difference_weighted_sensor_depth = (sensor_depth_selected - t_vals)**2 # (N_select_rows, N_select_cols, N_sample)
 
+            # go for a Gaussian distribution around the sensor weights
+            depth_mean = nerf_depth_weights
+            # variance of the NeRF depth values will be random values between 0.0 - 1.0, multiplied by some clamping factor to limit max variance, e.g. 0.01
+            # variance helps to prevent system from overfitting to sensor depth data
+
+            min_variance = args.depth_variance * -1
+            max_variance = args.depth_variance * 1
+            depth_variance = (max_variance - min_variance) * torch.rand((args.train_rand_rows, args.train_rand_cols, args.num_sample), device=c2w.device, dtype=torch.float32) + min_variance # (N_select_rows, N_select_cols, N_sample) 
+            resampled_nerf_depths = depth_mean + depth_variance #torch.normal(mean=depth_mean, std=depth_variance)
+
             # now, take the metric of sensor distance per ray sample and multiply that with NeRF weights: higher loss values will emerge for values further from sensor data
-            nerf_sensor_distribution_overlap = squared_difference_weighted_sensor_depth * nerf_depth_weights # (N_select_rows, N_select_cols, N_sample)
+            nerf_sensor_distribution_overlap = squared_difference_weighted_sensor_depth * resampled_nerf_depths # (N_select_rows, N_select_cols, N_sample)
 
             # take the mean distance value for all of the samples
-            depth_loss = torch.mean(nerf_sensor_distribution_overlap)
-            depth_loss = 1/(-torch.log(depth_loss)) # use 1/(-log(loss)) as a way to preserve gradient signal even for very very small differences
+            mean_depth_loss = torch.mean(nerf_sensor_distribution_overlap)
+            log_depth_loss = 1/(-torch.log(mean_depth_loss)) # use 1/(-log(loss)) as a way to preserve gradient signal even for very very small differences
+            depth_loss = log_depth_loss / args.empirical_maximum_depth_loss # approximately normalize per-image depth loss between 0 - 1.0
+
 
             #depth_loss = F.mse_loss(nerf_depth, sensor_depth_selected)
             rgb_loss = F.mse_loss(rgb_rendered, img_selected)  # loss for one image
             rgb_loss = 1/(-torch.log(rgb_loss))
+            rgb_loss = rgb_loss / args.empirical_maximum_rgb_loss # approximately normalize per-image RGB loss between 0 - 1.0
 
             ###
             # pose deviation metrics for loss
@@ -454,7 +513,7 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
 
             cam_pos_loss = 1/(-torch.log(euclidian_distance_metric))
             position_importance_for_current_epoch = ((number_of_epochs - epoch_i ) / (number_of_epochs ))**2 # exponentially decrease requirement to keep (x,y,z) cam position fixed
-            initial_position_loss_importance = 0.0
+            initial_position_loss_importance = args.pose_deviation_loss_initial_importance
             position_loss_importance = initial_position_loss_importance * position_importance_for_current_epoch
 
 
@@ -474,28 +533,82 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
             angular_distance_metric = angular_distance_metric / (math.pi * 2)
             angular_distance_loss = 1 /(-torch.log(angular_distance_metric))
             angular_importance_for_current_epoch = ((number_of_epochs - epoch_i ) / (number_of_epochs ))**2 # exponentially decrease requirement to keep (pitch,yaw,roll) of cam fixed
-            initial_angular_loss_importance = 0.0 
+            initial_angular_loss_importance = args.pose_deviation_loss_initial_importance
             angular_loss_importance = initial_angular_loss_importance * angular_importance_for_current_epoch
 
-
-
             # here, we implement the decaying depth loss supervision, so that images can take priority in inverse rendering, after some time in the optimization
-            depth_exponential_decay_rate = args.depth_exponential_decay_rate # rate between 0.01 - 10.0 to decay the fraction 0
-            depth_importance_for_current_epoch = ((number_of_epochs - epoch_i ) / (number_of_epochs ))**depth_exponential_decay_rate # exponentially decrease dependence of depth as optimization finishes
-            initial_depth_importance = args.depth_loss_initial #100.0
-            depth_importance = initial_depth_importance * depth_importance_for_current_epoch # use e^(log(loss)) as a way to preserve gradient signal even for very very small differences
+            # depth_loss_exponential_decay_rate = args.depth_loss_exponential_decay_rate # rate between 0.01 - 10.0 to decay the fraction 0
+
+            # x = (number_of_epochs - epoch_i ) / (number_of_epochs)
+
+
+            depth_importance = polynomial_decay(current_step=epoch_i, 
+                                                total_steps=number_of_epochs, 
+                                                start_value=args.depth_loss_initial_importance, 
+                                                end_value=args.depth_loss_final_importance, 
+                                                exponential_index=args.depth_loss_exponential_index, 
+                                                curvature_shape=args.depth_loss_curve_shape)
+
+
+            # exponent = torch.tensor((-1 * x * depth_loss_exponential_decay_rate), device=my_devices)
+            # depth_importance_for_current_epoch = torch.exp(exponent) # exponentially decrease dependence of depth as optimization finishes
+
+            # initial_depth_importance = args.depth_loss_initial_importance #100.0
+            # depth_importance = initial_depth_importance * depth_importance_for_current_epoch # use e^(log(loss)) as a way to preserve gradient signal even for very very small differences
 
             # RGB importance will hold strong and increasingly dominate the loss
             rgb_importance = args.rgb_loss_importance #10.0
 
             # compute final loss metric
-            loss = (depth_importance * depth_loss) + (rgb_importance * rgb_loss) #+ (position_loss_importance * cam_pos_loss) + (angular_loss_importance * angular_distance_loss)
+            if depth_importance <= 1.0:
+                loss = (depth_importance * depth_loss) + ((1 - depth_importance) * rgb_loss) #+ (position_loss_importance * cam_pos_loss) + (angular_loss_importance * angular_distance_loss)
+                depth_loss_to_rgb_loss_ratio = depth_importance / (1 - depth_importance)
+            else:
+                print("System exiting early, as depth importance greater than 1: {}".format(depth_importance))
+                print("Depth loss exponential decay rate: {}".format(depth_loss_exponential_decay_rate))
+                print("Depth loss importance for current epoch: {}".format(depth_importance_for_current_epoch))
+                print("Initial depth importance: {}".format(initial_depth_importance))
+                sys.exit(0)
+
 
             if epoch_i % eval_image_interval == 0:
                 # print("\nPer-Image Depth Loss: {:.5f}, RGB Inverse Render Loss: {:.5f}\n\n".format(depth_loss, rgb_loss))
                 per_image_depth_loss["{}".format(scene_train.img_names[i])] = depth_loss
                 per_image_rgb_loss["{}".format(scene_train.img_names[i])] = rgb_loss
 
+
+            if torch.isnan(depth_loss):
+                print("Terminating early given NaN in depth loss, debug info below")
+
+                print("\nNeRF depth weights for all samples, first row and col: {}".format(nerf_depth_weights[0,0,:]))
+                print("\nSensor depth selected...: {}".format(sensor_depth_selected[0,0,:]))
+                print("\nt_vals...: {}".format(t_vals[0,0,:]))
+                print("\nsquared_difference_weighted_sensor_depth...: {}".format(squared_difference_weighted_sensor_depth[0,0,:]))
+                print("\ndepth_variance...: {}".format(depth_variance[0,0,:]))
+                print("\nresampled_nerf_depths...: {}".format(resampled_nerf_depths[0,0,:]))
+                print("\nnerf_sensor_distribution_overlap...: {}".format(nerf_sensor_distribution_overlap[0,0,:]))
+                print("\nmean depth loss...: {}".format(mean_depth_loss))
+                print("\nlog depth loss...: {}".format(log_depth_loss))
+
+                print("NeRF depth weights is NaN: {}".format(torch.isnan(nerf_depth_weights)))
+                print("\nSensor depth selected...: {}".format(torch.isnan(sensor_depth_selected)))
+                print("\nt_vals...: {}".format(torch.isnan(t_vals)))
+                print("\nsquared_difference_weighted_sensor_depth...: {}".format(torch.isnan(squared_difference_weighted_sensor_depth)))
+                print("\ndepth_variance...: {}".format(torch.isnan(depth_variance)))
+                print("\nresampled_nerf_depths...: {}".format(torch.isnan(resampled_nerf_depths)))
+                print("\nnerf_sensor_distribution_overlap...: {}".format(torch.isnan(nerf_sensor_distribution_overlap)))
+                print("\nmean depth loss...: {}".format(torch.isnan(mean_depth_loss)))
+                print("\nlog depth loss...: {}".format(torch.isnan(log_depth_loss)))
+            else:
+                print("\nNeRF depth weights for all samples, first row and col: {}".format(nerf_depth_weights[0,0,:]))
+                print("\nSensor depth selected...: {}".format(sensor_depth_selected[0,0,:]))
+                print("\nt_vals...: {}".format(t_vals[0,0,:]))
+                print("\nsquared_difference_weighted_sensor_depth...: {}".format(squared_difference_weighted_sensor_depth[0,0,:]))
+                print("\ndepth_variance...: {}".format(depth_variance[0,0,:]))
+                print("\nresampled_nerf_depths...: {}".format(resampled_nerf_depths[0,0,:]))
+                print("\nnerf_sensor_distribution_overlap...: {}".format(nerf_sensor_distribution_overlap[0,0,:]))
+                print("\nmean depth loss...: {}".format(mean_depth_loss))
+                print("\nlog depth loss...: {}".format(log_depth_loss))                
 
             if torch.isnan(rgb_loss):
                 print("\n\n--NaN encountered for input image {}, here is the debug summary:--\n\n".format(i))
@@ -527,6 +640,8 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
                 sum_of_cam_pos_losses = sum_of_cam_pos_losses + cam_pos_loss
                 sum_of_cam_rot_losses = sum_of_cam_rot_losses + angular_distance_loss
 
+                sum_of_depth_to_rgb_loss_ratios = sum_of_depth_to_rgb_loss_ratios + depth_loss_to_rgb_loss_ratio
+
                 count_of_losses = count_of_losses + 1
 
     average_weighted_loss = torch.div(weighted_sum_of_losses, count_of_losses)
@@ -535,18 +650,20 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
     average_depth_loss = torch.div(sum_of_depth_losses, count_of_losses)
     average_cam_pos_loss = torch.div(sum_of_cam_pos_losses, count_of_losses)
     average_cam_rot_loss = torch.div(sum_of_cam_rot_losses, count_of_losses)
+    average_depth_to_rgb_loss_ratio = torch.div(sum_of_depth_to_rgb_loss_ratios, count_of_losses)
 
-    wandb.log({"Weighted_Loss": average_weighted_loss,
-               "Unweighted_Loss": average_loss,
-               "RGB Inverse Render Loss": average_rgb_loss,
-               "Depth Loss": average_depth_loss,
-               "(x,y,z) camera position deviation": average_cam_pos_loss,
-               "(pitch,yaw,roll) camera perspective deviation": average_cam_rot_loss,
-               # "Per-Image Depth Loss": per_image_depth_loss,
-               # "Per-Image RGB Loss": per_image_rgb_loss,
-               })
 
-    print("({}) RGB Loss: {:.5f}, Depth Loss: {:.5f}, Cam Pos Loss: {}, Cam Rot Loss: {}, Total Loss: {:.5f}".format(epoch_i, average_rgb_loss, average_depth_loss, average_cam_pos_loss, average_cam_rot_loss, average_loss))
+    if epoch_i % args.log_frequency == 0:
+        wandb.log({"Weighted_Loss": average_weighted_loss,
+                   "Unweighted_Loss": average_loss,
+                   "RGB Inverse Render Loss": average_rgb_loss,
+                   "Depth Loss": average_depth_loss,
+                   "Ratio of Depth Loss to RGB Loss": average_depth_to_rgb_loss_ratio,
+                   "(x,y,z) camera position deviation + (pitch,yaw,roll) camera perspective deviation": average_cam_pos_loss + average_cam_rot_loss,
+                   })
+
+    if epoch_i % args.log_frequency == 0:
+        print("({}) RGB Loss: {:.5f}, Depth Loss: {:.5f}, Depth to RGB Loss Ratio: {:.3f}, Unweighted Loss: {:.5f}".format(epoch_i, average_rgb_loss, average_depth_loss, average_depth_to_rgb_loss_ratio, average_loss))
 
     #L2_loss_epoch.append(L2_loss.item())
     #L2_loss_epoch_mean = np.mean(L2_loss_epoch)  # loss for all images.
