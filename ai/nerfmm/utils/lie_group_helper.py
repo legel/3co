@@ -13,6 +13,19 @@ import torch
 
 DEFAULT_ACOS_BOUND: float = 1.0 - 1e-4
 
+def to_euler(rotation_matrix, rotation_order = "xzy"):
+    # outputs Euler angles, basically "pitch", "yaw", "roll"
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.as_euler.html#r72d546869407-3
+    return r.as_euler(rotation_order, degrees=True)
+
+def from_euler(euler_angles, rotation_order = 'xzy'):
+    # convert from Euler angles to 3x3 rotation matrix
+    # Euler angles is a list of size 3 of angles (pitch, yaw, roll)
+    return r.from_euler(rotation_order, euler_angles, degrees=True)
+
+
+
+
 def compute_angular_distance(rot_a, rot_b, show_angles):
     # compute angular distance between 2 rotation matrices, each of which is a 3x3 representation
     # rot_a_quat = Quaternion(SO3_to_quat(rot_a))

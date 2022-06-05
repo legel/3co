@@ -27,7 +27,7 @@ from utils.pos_enc import encode_position
 from utils.volume_op import volume_sampling, volume_sampling_ndc, volume_rendering
 from utils.comp_ray_dir import comp_ray_dir_cam_fxfy
 from utils.comp_ate import compute_ate
-from utils.lie_group_helper import compute_angular_distance
+from utils.lie_group_helper import compute_angular_distance, convert3x4_4x4
 from models.nerf_models import OfficialNerf
 from models.intrinsics import LearnFocal
 from models.poses import LearnPose
@@ -35,10 +35,20 @@ from models.pose_net import PoseNet
 
 import wandb
 
+### Gaussian sampling around depth sensor data was a huge win
+### How many samples per image needed / best?
+### How many images best?
+### We've run nearly 1,000 images -- how is pose being handled, does it need to be supervised?
+### Are we overly fitting to geometric data, given that we're so effectively initializing with it?
+### How about the learning rates of the rest of the system, with the new normals?
+### What does the most recent 3co_neural_net_color.mp4 video have that this latest work doesn't regarding black stripes?
 
-number_of_epochs = 3000
-early_termination_epoch = 3001
-eval_image_interval = 100
+
+
+
+number_of_epochs = 10000
+early_termination_epoch = 10001
+eval_image_interval = 5
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -54,9 +64,9 @@ def parse_args():
     parser.add_argument('--use_ndc', default=False, type=eval, choices=[True, False])
 
     parser.add_argument('--nerf_lr', default=0.002, type=float)
-    parser.add_argument('--nerf_milestones', default=list(range(0, number_of_epochs, 10)), type=int, nargs='+',
+    parser.add_argument('--nerf_milestones', default=list(range(0, number_of_epochs, 100)), type=int, nargs='+',
                         help='learning rate schedule milestones')
-    parser.add_argument('--nerf_lr_gamma', type=float, default=0.98, help="learning rate milestones gamma")
+    parser.add_argument('--nerf_lr_gamma', type=float, default=0.99, help="learning rate milestones gamma")
 
     parser.add_argument('--learn_focal', default=True, type=eval, choices=[True, False])
     parser.add_argument('--fx_only', default=False, type=eval, choices=[True, False])
@@ -83,25 +93,25 @@ def parse_args():
                         help='Set to -1 to init focal from image resolution. Set to a epoch number >= 0 '
                              'to init focals from COLMAP and start refining them from this epoch.')
 
-    parser.add_argument('--start_refine_rgb_epoch', type=int, default=50,
+    parser.add_argument('--start_refine_rgb_epoch', type=int, default=0,
                         help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     parser.add_argument('--resize_ratio', type=int, default=1, help='lower the image resolution with this ratio')
     parser.add_argument('--num_rows_eval_img', type=int, default=10, help='split a high res image to rows in eval')
-    parser.add_argument('--hidden_dims', type=int, default=120, help='network hidden unit dimensions')
+    parser.add_argument('--hidden_dims', type=int, default=128, help='network hidden unit dimensions')
     parser.add_argument('--train_rand_rows', type=int, default=64, help='rand sample these rows to train')
     parser.add_argument('--train_rand_cols', type=int, default=64, help='rand sample these cols to train')
-    parser.add_argument('--num_sample', type=int, default=128, help='number samples along a ray')
+    parser.add_argument('--num_sample', type=int, default=32, help='number samples along a ray')
 
     parser.add_argument('--pos_enc_levels', type=int, default=10, help='number of freqs for positional encoding')
     parser.add_argument('--pos_enc_inc_in', type=bool, default=True, help='concat the input to the encoding')
 
     parser.add_argument('--use_dir_enc', type=bool, default=True, help='use pos enc for view dir?')
-    parser.add_argument('--dir_enc_levels', type=int, default=5, help='number of freqs for positional encoding')
+    parser.add_argument('--dir_enc_levels', type=int, default=4, help='number of freqs for positional encoding')
     parser.add_argument('--dir_enc_inc_in', type=bool, default=True, help='concat the input to the encoding')
 
     parser.add_argument('--train_img_num', type=int, default=-1, help='num of images to train, -1 for all')
-    parser.add_argument('--train_skip', type=int, default=60*3, help='skip every this number of imgs')
+    parser.add_argument('--train_skip', type=int, default=12*5*5, help='skip every this number of imgs')
     parser.add_argument('--eval_img_num', type=int, default=1, help='num of images to eval')
     parser.add_argument('--eval_skip', type=int, default=1, help='skip every this number of imgs')
 
@@ -110,17 +120,13 @@ def parse_args():
 
     parser.add_argument('--alias', type=str, default='', help="experiments alias")
 
-    parser.add_argument('--depth_loss_initial_importance', default=0.80, type=float)
-    parser.add_argument('--depth_loss_final_importance', default=0.01, type=float)
+    parser.add_argument('--depth_loss_initial_importance', default=0.0, type=float)
+    parser.add_argument('--depth_loss_final_importance', default=0.0, type=float)
 
 
     # parser.add_argument('--depth_loss_exponential_decay_rate', default=1.0, type=float)
-    parser.add_argument('--depth_loss_exponential_index', default=2, type=int)
-    parser.add_argument('--depth_loss_curve_shape', default=5, type=int)
-
-
-
-
+    parser.add_argument('--depth_loss_exponential_index', default=8, type=int)
+    parser.add_argument('--depth_loss_curve_shape', default=1, type=int)
 
     parser.add_argument('--rgb_loss_importance', default=10.0, type=float)
 
@@ -132,8 +138,16 @@ def parse_args():
 
     parser.add_argument('--depth_variance', default=0.0000001, type=float)
 
+    parser.add_argument('--depth_sensor_nerf_sampling_variance', default=0.1, type=float) # .1 = 10% sampling variance from sensor depth
+
+    parser.add_argument('--density_network_variance', default=0.0001, type=float)
+
+
     parser.add_argument('--log_frequency', default=1, type=int)
 
+    parser.add_argument('--animation_video_frequency', default=50, type=int)
+    parser.add_argument('--animation_spherical_radius', default=15, type=int)
+    parser.add_argument('--animation_number_of_poses', default=36, type=int)
 
     parsed_args = parser.parse_args()
 
@@ -252,8 +266,119 @@ def heatmap_to_pseudo_color(heatmap):
     pseudo_color[heatmap > 1.0] = 1.0
     return pseudo_color
 
+
+
+def generate_poses_on_sphere_around_object(scene_train, c2w, ray_dir_cam, sensor_depth, sphere_angle, number_of_poses, my_devices):
+    camera_rotation_matrix = c2w[:3, :3] # rotation matrix (3,3)
+    camera_xyz = c2w[:3, 3]  # translation vector (3)
+
+    center_of_image_h = int(scene_train.H / 2)
+    center_of_image_w = int(scene_train.W / 2)
+
+    distance_from_camera_for_pixel = sensor_depth[center_of_image_h, center_of_image_w] # (1)
+
+    # transform rays from camera coordinate to world coordinate
+    ray_dir_world = torch.matmul(camera_rotation_matrix.view(1, 1, 3, 3), ray_dir_cam.unsqueeze(3)).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
+    ray_dir_for_pixel = ray_dir_world[center_of_image_h, center_of_image_w, :] # (3) orientation for this pixel from the camera
+
+    # (3) + (3) * (1) = (3)
+    # print("Camera XYZ: {}".format(camera_xyz))
+    # print("Ray direction for pixel: {}".format(ray_dir_for_pixel))
+    # print("Distance from camera to pixel 3D point: {}".format(distance_from_camera_for_pixel))
+    pixel_xyz = camera_xyz + ray_dir_for_pixel * distance_from_camera_for_pixel 
+    # print("Pixel XYZ: {}".format(pixel_xyz))
+    pixel_x = pixel_xyz[0]
+    pixel_y = pixel_xyz[1]
+    pixel_z = pixel_xyz[2]
+
+    # print("Evaluation camera position is (x={}, y={}, z={})".format(camera_xyz[0], camera_xyz[1], camera_xyz[2]))
+    # print("For the middle pixel, (x={}, y={}, z={})".format(pixel_xyz[0], pixel_xyz[1], pixel_xyz[2]))
+
+    # By subtracting the pixel_xyz from itself, and the camera_xyz, then we have the pixel_xyz become the origin
+    camera_xyz_ = camera_xyz - pixel_xyz
+    cam_x = camera_xyz_[0]
+    cam_y = camera_xyz_[1]
+    cam_z = camera_xyz_[2]
+
+
+    # print("Relative camera (x={}, y={}, z={})".format(camera_xyz_[0], camera_xyz_[1], camera_xyz_[2]))
+
+    # Now convert to spherical coordinates, where we move on a circle on a sphere, with the center of the circle the original camera view
+    sphere_radius = distance_from_camera_for_pixel
+
+    if cam_x == 0.0:
+        cam_theta = torch.tensor(0.0)
+    else:
+        cam_theta = torch.arctan(cam_y / cam_x)
+    # print("Camera theta (yaw) = {}".format(torch.rad2deg(cam_theta)))
+
+    # pi = torch.tensor(math.pi)
+
+    cam_phi = torch.arccos(cam_z / sphere_radius)
+
+    # if cam_x > 0.0:
+    #     phi = torch.arctan(cam_y / cam_x)
+    # elif cam_x < 0.0:
+    #     if cam_y >= 0.0:
+    #         phi = torch.arctan(cam_y / cam_x) + pi
+    #     else:
+    #         phi = torch.arctan(cam_y / cam_x) - pi
+    # else:
+    #     phi = torch.tensor(0.0)
+
+    # print("Camera phi (pitch) = {}\n".format(torch.rad2deg(cam_phi)))
+
+    # define number_of_poses along sphere, around the original pose defined in spherical coordinates
+    poses = []
+    for i, angle in enumerate(np.linspace(0, 2 * np.pi, number_of_poses + 1)):
+        angle = torch.from_numpy(np.asarray(angle))
+
+        # print("For angle {}...".format(angle)) 
+
+        # first move along the sphere in spherical coordinates
+        next_cam_theta = torch.deg2rad(torch.cos(angle) * sphere_angle) + cam_theta
+        next_cam_phi = torch.deg2rad(torch.sin(angle) * sphere_angle) + cam_phi
+
+        # then convert back to euclidian coordinates
+        next_cam_x = sphere_radius * torch.sin(next_cam_phi) * torch.cos(next_cam_theta)
+        next_cam_y = sphere_radius * torch.sin(next_cam_phi) * torch.sin(next_cam_theta)
+        next_cam_z = sphere_radius * torch.cos(next_cam_phi)
+
+        # print("({}) theta = {:.3f}, phi = {:.3f} -> (x={:.3f}, y={:.3f}, z={:.3f})".format(i, 
+        #                                                                                   torch.rad2deg(next_cam_theta), 
+        #                                                                                   torch.rad2deg(next_cam_phi),
+        #                                                                                   next_cam_x,
+        #                                                                                   next_cam_y,
+        #                                                                                   next_cam_z
+        #                                                                                   ))
+
+        # put back into a global (world) coordinate system by adding back in the object's (x,y,z) coordinate
+        next_cam_x = next_cam_x + pixel_x
+        next_cam_y = next_cam_y + pixel_y
+        next_cam_z = next_cam_z + pixel_z
+
+        # print("({}) Global (x,y,z) for next pose: (x={:.3f}, y={:.3f}, z={:.3f})".format(i, next_cam_x, next_cam_y, next_cam_z))
+
+        # for now, let's just have all new poses face the same direction as the original pose
+        #camera_rotation_matrix # 3x3
+        # print("Camera rotation matrix: {}".format(camera_rotation_matrix))
+
+        next_cam_c2w = torch.zeros((3,4))
+        next_cam_c2w[:3,:3] = camera_rotation_matrix
+        next_cam_c2w[:3,3] = torch.tensor([next_cam_x, next_cam_y, next_cam_z])
+
+        # print("Next cam c2w: {}".format(next_cam_c2w))
+
+        poses.append(next_cam_c2w)
+
+    poses = torch.stack(poses, 0)
+    poses = convert3x4_4x4(poses).to(my_devices)
+
+    return poses
+
+
 def eval_one_epoch_img(evaluation_image_pose, scene_train, model, focal_net, pose_param_net,
-                       my_devices, args, epoch_i, writer, rgb_act_fn, evaluation_image_index):
+                       my_devices, args, epoch_i, writer, rgb_act_fn, evaluation_image_index, save_depth_ground_truth=False):
     # print("Evaluating image (saving) at epoch {}".format(epoch_i))
     model.eval()
     focal_net.eval()
@@ -269,73 +394,154 @@ def eval_one_epoch_img(evaluation_image_pose, scene_train, model, focal_net, pos
     for i in range(N_img):
         c2w = evaluation_image_pose[i].to(my_devices)  # (4, 4)
 
-        t_vals = torch.linspace(scene_train.near[evaluation_image_index], scene_train.far[evaluation_image_index], args.num_sample, device=my_devices)  # (N_sample,) sample position
+        # t_vals = torch.linspace(scene_train.near[evaluation_image_index], scene_train.far[evaluation_image_index], args.num_sample, device=my_devices)  # (N_sample,) sample position
 
-        # split an image to rows when the input image resolution is high
-        rays_dir_cam_split_rows = ray_dir_cam.split(args.num_rows_eval_img, dim=0)
-        rendered_img = []
-        rendered_depth = []
-        for rays_dir_rows in rays_dir_cam_split_rows:
-            render_result = model_render_image(c2w, rays_dir_rows, t_vals, scene_train.near, scene_train.far,
-                                               scene_train.H, scene_train.W, fxfy,
-                                               model, False, 0.0, args, rgb_act_fn)
-            rgb_rendered_rows = render_result['rgb']  # (num_rows_eval_img, W, 3)
-            depth_map = render_result['depth_map']  # (num_rows_eval_img, W)
+        sensor_depth = scene_train.depths[i,:,:].to(my_devices) # (H, W)
 
-            rendered_img.append(rgb_rendered_rows)
-            rendered_depth.append(depth_map)
+        if epoch_i % args.animation_video_frequency == 0:
+            poses = generate_poses_on_sphere_around_object(scene_train=scene_train, 
+                                                           c2w=c2w, 
+                                                           ray_dir_cam=ray_dir_cam, 
+                                                           sensor_depth=sensor_depth, 
+                                                           sphere_angle=args.animation_spherical_radius,
+                                                           number_of_poses=args.animation_number_of_poses,
+                                                           my_devices=my_devices)
+        else:
+            # if this is not the video, set our poses to just be the one evaluation image
+            poses = [c2w]
 
-        # combine rows to an image
-        rendered_img = torch.cat(rendered_img, dim=0)
-        rendered_color_for_file = (rendered_img.cpu().numpy() * 255).astype(np.uint8)
-
-        # get depth map and convert it to Turbo Color Map
-        rendered_depth = torch.cat(rendered_depth, dim=0)  # (H, W)
-        rendered_depth_for_file = rendered_depth.cpu().numpy() 
-        rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_for_file)
-        rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)
-        # rendered_depth_for_file = np.transpose(rendered_depth_for_file, (1, 2, 0))
-
-
-        image_out_dir = "{}/{}/hyperparam_experiments".format(scene_train.base_dir, scene_train.scene_name)
-        
-        N = "{}".format(args.depth_loss_exponential_index)#.replace(".","p")
-        k = "{}".format(args.depth_loss_curve_shape)#.replace(".","p")
-        # rgb_loss_importance = "{:.3f}".format(args.rgb_loss_importance).replace(".","p")
-
-        experiment_label = "{}_k{}_N{}".format(scene_train.unix_time, k, N)
-        
-        experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
-        experiment_dir.mkdir(parents=True, exist_ok=True)
-
-        color_out_dir = Path("{}/color_nerf_out/".format(experiment_dir))
-        color_out_dir.mkdir(parents=True, exist_ok=True)
-
-        color_file_name = os.path.join(color_out_dir, str(i).zfill(4) + '_{}_color.png'.format(epoch_i))
-        # print("\nRendering color image of shape {} at {}".format(rendered_color_for_file.shape, color_file_name))
-        imageio.imwrite(color_file_name, rendered_color_for_file)
-
-        depth_out_dir = Path("{}/depth_nerf_out/".format(experiment_dir))
-        depth_out_dir.mkdir(parents=True, exist_ok=True)
-
-        depth_file_name = os.path.join(depth_out_dir, str(i).zfill(4) + '_{}_depth.png'.format(epoch_i))
-        # print("Rendering depth image of shape {} at {}\n".format(rendered_depth_for_file.shape, depth_file_name))
-        imageio.imwrite(depth_file_name, rendered_depth_for_file)
-
-        # # for vis
-        rendered_img_list.append(rendered_img.cpu().numpy())
-        rendered_depth_list.append(rendered_depth.cpu().numpy())
-
-    # random display an eval image to tfboard
-    rand_num = np.random.randint(low=0, high=N_img)
-    disp_img = np.transpose(rendered_img_list[rand_num], (2, 0, 1))  # (3, H, W)
-    disp_depth = rendered_depth_list[rand_num]  # (1, H, W)
+        if save_depth_ground_truth and epoch_i / args.eval_img_interval == 1 and i == 0:
+            print("Saving ground truth depth for evaluation image")  
+            # save_ground_truth_depth_map
+            sensor_depth_for_file = sensor_depth.cpu().numpy() 
+            sensor_depth_for_file = heatmap_to_pseudo_color(sensor_depth_for_file)
+            sensor_depth_for_file = (sensor_depth_for_file * 255).astype(np.uint8)
+            depth_ground_truth_image_name = "depth_ground_truth.png"
+            ground_truth_image_out_dir = "{}/{}".format(scene_train.base_dir, scene_train.scene_name)
+            depth_ground_truth_path = Path(os.path.join(ground_truth_image_out_dir, depth_ground_truth_image_name))
+            imageio.imwrite(depth_ground_truth_path, sensor_depth_for_file)
 
 
 
+        if epoch_i % args.animation_video_frequency != 0:
+            # use sensor data to draw samples
+            sensor_depth_n_samples = torch.unsqueeze(sensor_depth, 2) # (H, W, 1)
+            sensor_depth_n_samples = sensor_depth_n_samples.expand(-1, -1, args.num_sample) # (H, W, N_sample)
 
-    # writer.add_image('eval_img', disp_img, global_step=epoch_i)
-    # writer.add_image('eval_depth', disp_depth, global_step=epoch_i)
+            sampling_variance = torch.tensor(args.depth_sensor_nerf_sampling_variance, device=my_devices)  
+            depth_based_variance = sensor_depth_n_samples * sampling_variance # larger variance for further away depth sensing
+
+            t_vals = torch.normal(mean=sensor_depth_n_samples, std=depth_based_variance) # (N_select_rows, N_select_cols, N_sample)
+            t_vals = torch.clip(t_vals, min=0.0, max=1.0)
+            t_vals, _ = torch.sort(t_vals, dim=-1)
+        else:
+            # # otherwise we're creating new poses, so we need to guess the sampling distances
+
+            # # start by getting overall sense of image space
+            # min_sensor_depth_in_center_image = torch.min(sensor_depth)
+            # max_sensor_depth_in_center_image = torch.max(sensor_depth)
+
+            # # now, use those distances for sampling (not super smart), with extra 25% increase in max
+            # t_vals = torch.linspace(min_sensor_depth_in_center_image, 
+            #                         max_sensor_depth_in_center_image * 1.25, 
+            #                         args.num_sample, 
+            #                         device=my_devices)  # (N_sample,)
+
+            # t_vals = t_vals.view(1, 1, args.num_sample).expand(scene_train.H, scene_train.W, args.num_sample) # (H, W, N_sample)
+
+
+            # use sensor data to draw samples (approximate for close to view)
+            sensor_depth_n_samples = torch.unsqueeze(sensor_depth, 2) # (H, W, 1)
+            sensor_depth_n_samples = sensor_depth_n_samples.expand(-1, -1, args.num_sample) # (H, W, N_sample)
+
+            sampling_variance = torch.tensor(args.depth_sensor_nerf_sampling_variance, device=my_devices)  
+            depth_based_variance = sensor_depth_n_samples * sampling_variance # larger variance for further away depth sensing
+
+            t_vals = torch.normal(mean=sensor_depth_n_samples * 5.0, std=depth_based_variance) # (N_select_rows, N_select_cols, N_sample)
+            t_vals = torch.clip(t_vals, min=0.0, max=1.0)
+            t_vals, _ = torch.sort(t_vals, dim=-1)
+
+
+
+        all_color_images = []
+        all_depth_images = []
+        for i, pose in enumerate(poses):
+            # print("(Test Pose {}): {}".format(i, pose))
+
+            # split an image to rows when the input image resolution is high
+            rays_dir_cam_split_rows = ray_dir_cam.split(args.num_rows_eval_img, dim=0)
+            t_vals_split_rows = t_vals.split(args.num_rows_eval_img, dim=0)
+
+            rendered_img = []
+            rendered_depth = []
+            for rays_dir_rows, t_vals_row in zip(rays_dir_cam_split_rows, t_vals_split_rows):
+                render_result = model_render_image(pose, rays_dir_rows, t_vals_row, scene_train.near, scene_train.far,
+                                                   scene_train.H, scene_train.W, fxfy,
+                                                   model, False, 0.0, args, rgb_act_fn)
+                rgb_rendered_rows = render_result['rgb']  # (num_rows_eval_img, W, 3)
+                depth_map = render_result['depth_map']  # (num_rows_eval_img, W)
+
+                rendered_img.append(rgb_rendered_rows)
+                rendered_depth.append(depth_map)
+
+            # combine rows to an image
+            rendered_img = torch.cat(rendered_img, dim=0)
+            rendered_color_for_file = (rendered_img.cpu().numpy() * 255).astype(np.uint8)
+            all_color_images.append(rendered_color_for_file)
+
+            # get depth map and convert it to Turbo Color Map
+            rendered_depth = torch.cat(rendered_depth, dim=0)  # (H, W)
+            rendered_depth_for_file = rendered_depth.cpu().numpy() 
+            rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_for_file)
+            rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)
+            all_depth_images.append(rendered_depth_for_file)
+            # rendered_depth_for_file = np.transpose(rendered_depth_for_file, (1, 2, 0))
+
+            image_out_dir = "{}/{}/hyperparam_experiments".format(scene_train.base_dir, scene_train.scene_name)
+            
+            num_samples = "{}".format(args.num_sample)#.replace(".","p")
+            depth_variance = "{:.3f}".format(args.depth_sensor_nerf_sampling_variance)#.replace(".","p")
+            # rgb_loss_importance = "{:.3f}".format(args.rgb_loss_importance).replace(".","p")
+
+            experiment_label = "{}_samples{}_variance{}".format(scene_train.unix_time, num_samples, depth_variance)
+            
+            experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+
+            if epoch_i % args.animation_video_frequency != 0:
+                color_out_dir = Path("{}/color_nerf_out/".format(experiment_dir))
+                color_out_dir.mkdir(parents=True, exist_ok=True)
+                depth_out_dir = Path("{}/depth_nerf_out/".format(experiment_dir))
+                depth_out_dir.mkdir(parents=True, exist_ok=True)
+                color_file_name = os.path.join(color_out_dir, str(i).zfill(4) + '_{}_color.png'.format(epoch_i))
+                depth_file_name = os.path.join(depth_out_dir, str(i).zfill(4) + '_{}_depth.png'.format(epoch_i))
+            else:
+                color_out_dir = Path("{}/video_color_nerf_out/".format(experiment_dir))
+                color_out_dir.mkdir(parents=True, exist_ok=True)
+                depth_out_dir = Path("{}/video_depth_nerf_out/".format(experiment_dir))
+                depth_out_dir.mkdir(parents=True, exist_ok=True)
+                color_file_name = os.path.join(color_out_dir, str(i).zfill(4) + '_color.png')
+                depth_file_name = os.path.join(depth_out_dir, str(i).zfill(4) + '_depth.png')
+
+            # print("\nRendering color image of shape {} at {}".format(rendered_color_for_file.shape, color_file_name))
+            imageio.imwrite(color_file_name, rendered_color_for_file)
+
+            # print("Rendering depth image of shape {} at {}\n".format(rendered_depth_for_file.shape, depth_file_name))
+            imageio.imwrite(depth_file_name, rendered_depth_for_file)
+
+            # # for vis
+            rendered_img_list.append(rendered_img.cpu().numpy())
+            rendered_depth_list.append(rendered_depth.cpu().numpy())
+
+        if epoch_i % args.animation_video_frequency == 0:
+            # create .mp4 movies
+            imageio.mimwrite(os.path.join(experiment_dir, 'color_test.mp4'), all_color_images, fps=30, quality=9)
+            imageio.mimwrite(os.path.join(experiment_dir, 'depth_test.mp4'), all_depth_images, fps=30, quality=9)
+
+            # create a cool GIF with cats
+            imageio.mimwrite(os.path.join(experiment_dir, 'color_test.gif'), all_color_images, fps=30)
+            imageio.mimwrite(os.path.join(experiment_dir, 'depth_test.gif'), all_depth_images, fps=30)
+
 
 
 def eval_one_epoch_traj(scene_train, pose_param_net):
@@ -354,7 +560,7 @@ def polynomial_decay(current_step, total_steps, start_value, end_value, exponent
 
 
 def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose, model, focal_net, pose_param_net,
-                    my_devices, args, rgb_act_fn, epoch_i, batch_size=48, reviews_per_batch=1):
+                    my_devices, args, rgb_act_fn, epoch_i, batch_size=48, reviews_per_batch=1, save_depth_ground_truth=True):
 
     if epoch_i == early_termination_epoch:
         print("Terminating early to speed up hyperparameter search")
@@ -430,27 +636,52 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
             img_selected = img[r_id][:, c_id]  # (N_select_rows, N_select_cols, 3)
 
 
-            t_vals = torch.linspace(scene_train.near[i], scene_train.far[i], args.num_sample, device=my_devices)  # (N_sample,) sample position
+            sensor_depth = scene_train.depths[i,:,:].to(my_devices) # (H, W)
+            sensor_depth = sensor_depth[r_id,:][:, c_id] # (N_select_rows, N_select_cols)
 
+            sensor_depth_n_samples = torch.unsqueeze(sensor_depth, 2) # (N_select_rows, N_select_cols, 1)
+            sensor_depth_n_samples = sensor_depth_n_samples.expand(-1, -1, args.num_sample) # (N_select_rows, N_select_cols, N_sample)
+
+            # implement: don't sample depth coordinates with terrible confidence
+            # implement: set variance based on feedback metric of NeRF per-pixel confidence / inverse render success!
+            sampling_variance = torch.tensor(args.depth_sensor_nerf_sampling_variance, device=my_devices)  
+            depth_based_variance = sensor_depth_n_samples * sampling_variance # larger variance for further away depth sensing
+
+            t_vals = torch.normal(mean=sensor_depth_n_samples, std=depth_based_variance) # (N_select_rows, N_select_cols, N_sample)
+
+            t_vals = torch.clip(t_vals, min=0.0, max=1.0)
+
+            t_vals, _ = torch.sort(t_vals, dim=-1)
+
+            # print(t_vals.shape)
+            # print(t_vals)
+            # print("\nFirst sample rays:")
+            # print(t_vals[0,0,:]) # first sample
+            # print("\nLast sample rays:")
+            # print(t_vals[-1,-1,:])
+
+
+            # t_vals = torch.linspace(scene_train.near[i], scene_train.far[i], args.num_sample, device=my_devices)  # (N_sample,) sample position
+
+            # no need to perturb ray distances after already randomly selecting it
             # render an image using selected rays, pose, sample intervals, and the network
             render_result = model_render_image(c2w, ray_selected_cam, t_vals, scene_train.near[i], scene_train.far[i],
                                                scene_train.H, scene_train.W, fxfy,
-                                               model, True, 0.0, args, rgb_act_fn)  # (N_select_rows, N_select_cols, 3)
+                                               model, False, args.density_network_variance, args, rgb_act_fn)  # (N_select_rows, N_select_cols, 3)
             rgb_rendered = render_result['rgb']  # (N_select_rows, N_select_cols, 3)
-            t_vals = render_result['t_vals'] # (N_samples) - updates t_vals (distances along ray to be sampled) after adding noise...
+            # t_vals = render_result['t_vals'] # (N_samples) - updates t_vals (distances along ray to be sampled) after adding noise...
+
 
 
             # implement DS-NeRF here: add a loss from the difference between the depth map from the sensor and the depth map of NeRF
-            #nerf_depth = render_result['depth_map'] # (N_select_rows, N_select_cols)
+            nerf_depth = render_result['depth_map'] # (N_select_rows, N_select_cols)
             
-            nerf_depth_weights = render_result['depth_weights'] # (N_select_rows, N_select_cols, N_sample)
+
+
+            #nerf_depth_weights = render_result['depth_weights'] # (N_select_rows, N_select_cols, N_sample)
 
 
             ########
-            # First of all, wow, great catch with t_vals_noisy as the new FIXED loss metric for depth!
-            # That is an extremely fortunate catch as a consequence of the exploding gradients, which still exist.
-            # So, we have discovered that in scenarios where depth loss is a dominant factor to optimize againt,
-            # indeed somehow NeRF density field can end up spitting out all 0's entirely...
             # Note the interesting flag here for "start training color network" on top of density network...
             # Naturally, when you multiply a lot of 0's by anything, still 0, then that's the loss?  No!  Problem appears to be NeRF not probabalistic?
             # That is, why isn't the NeRF output for density a uniform distribution over the distance!?
@@ -462,35 +693,38 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
 
 
             # collect sensor data and format it
-            sensor_depth = scene_train.depths[i,:,:].to(my_devices) # (H, W)
-            sensor_depth_selected = sensor_depth[r_id,:][:, c_id] # (N_select_rows, N_select_cols)
-            sensor_depth_selected = torch.unsqueeze(sensor_depth_selected, 2) # (N_select_rows, N_select_cols, 1)
-            sensor_depth_selected = sensor_depth_selected.expand(-1,-1,args.num_sample) # (N_select_rows, N_select_cols, N_sample)
+            # sensor_depth = scene_train.depths[i,:,:].to(my_devices) # (H, W)
+            # sensor_depth = sensor_depth[r_id,:][:, c_id] # (N_select_rows, N_select_cols)
+            
+            total_depth_loss = (nerf_depth - sensor_depth)**2
+
+            #sensor_depth_selected = torch.unsqueeze(sensor_depth_selected, 2) # (N_select_rows, N_select_cols, 1)
+            #sensor_depth_selected = sensor_depth_selected.expand(-1,-1,args.num_sample) # (N_select_rows, N_select_cols, N_sample)
 
             # collect sampling distance data and format it
             #t_vals = torch.unsqueeze(torch.unsqueeze(t_vals, 0), 0) # (1,1, N_sample)
             #t_vals = t_vals.expand(args.train_rand_rows, args.train_rand_cols, -1) # (N_select_rows, N_select_cols, N_sample)
 
             # get a metric for every sampled distance of how far that is from the sensor depth
-            squared_difference_weighted_sensor_depth = (sensor_depth_selected - t_vals)**2 # (N_select_rows, N_select_cols, N_sample)
+            # squared_difference_weighted_sensor_depth = (sensor_depth_selected - t_vals)**2 # (N_select_rows, N_select_cols, N_sample)
 
             # go for a Gaussian distribution around the sensor weights
-            depth_mean = nerf_depth_weights
+            # depth_mean = nerf_depth_weights
             # variance of the NeRF depth values will be random values between 0.0 - 1.0, multiplied by some clamping factor to limit max variance, e.g. 0.01
             # variance helps to prevent system from overfitting to sensor depth data
 
-            min_variance = args.depth_variance * -1
-            max_variance = args.depth_variance * 1
-            depth_variance = (max_variance - min_variance) * torch.rand((args.train_rand_rows, args.train_rand_cols, args.num_sample), device=c2w.device, dtype=torch.float32) + min_variance # (N_select_rows, N_select_cols, N_sample) 
-            resampled_nerf_depths = depth_mean + depth_variance #torch.normal(mean=depth_mean, std=depth_variance)
+            # min_variance = args.depth_variance * -1
+            # max_variance = args.depth_variance * 1
+            # depth_variance = (max_variance - min_variance) * torch.rand((args.train_rand_rows, args.train_rand_cols, args.num_sample), device=c2w.device, dtype=torch.float32) + min_variance # (N_select_rows, N_select_cols, N_sample) 
+            # resampled_nerf_depths = depth_mean + depth_variance #torch.normal(mean=depth_mean, std=depth_variance)
 
             # now, take the metric of sensor distance per ray sample and multiply that with NeRF weights: higher loss values will emerge for values further from sensor data
-            nerf_sensor_distribution_overlap = squared_difference_weighted_sensor_depth * resampled_nerf_depths # (N_select_rows, N_select_cols, N_sample)
+            # nerf_sensor_distribution_overlap = squared_difference_weighted_sensor_depth * nerf_depth_weights # (N_select_rows, N_select_cols, N_sample)
 
             # take the mean distance value for all of the samples
-            mean_depth_loss = torch.mean(nerf_sensor_distribution_overlap)
-            log_depth_loss = 1/(-torch.log(mean_depth_loss)) # use 1/(-log(loss)) as a way to preserve gradient signal even for very very small differences
-            depth_loss = log_depth_loss / args.empirical_maximum_depth_loss # approximately normalize per-image depth loss between 0 - 1.0
+            mean_depth_loss = torch.mean(total_depth_loss)
+            depth_loss = 1/(-torch.log(mean_depth_loss)) # use 1/(-log(loss)) as a way to preserve gradient signal even for very very small differences
+            #depth_loss = log_depth_loss / args.empirical_maximum_depth_loss # approximately normalize per-image depth loss between 0 - 1.0
 
 
             #depth_loss = F.mse_loss(nerf_depth, sensor_depth_selected)
@@ -580,35 +814,28 @@ def train_one_epoch(scene_train, optimizer_nerf, optimizer_focal, optimizer_pose
             if torch.isnan(depth_loss):
                 print("Terminating early given NaN in depth loss, debug info below")
 
-                print("\nNeRF depth weights for all samples, first row and col: {}".format(nerf_depth_weights[0,0,:]))
-                print("\nSensor depth selected...: {}".format(sensor_depth_selected[0,0,:]))
-                print("\nt_vals...: {}".format(t_vals[0,0,:]))
-                print("\nsquared_difference_weighted_sensor_depth...: {}".format(squared_difference_weighted_sensor_depth[0,0,:]))
-                print("\ndepth_variance...: {}".format(depth_variance[0,0,:]))
-                print("\nresampled_nerf_depths...: {}".format(resampled_nerf_depths[0,0,:]))
-                print("\nnerf_sensor_distribution_overlap...: {}".format(nerf_sensor_distribution_overlap[0,0,:]))
-                print("\nmean depth loss...: {}".format(mean_depth_loss))
-                print("\nlog depth loss...: {}".format(log_depth_loss))
+                print("\nNeRF depth weights for all samples, first row and col: {}".format(nerf_depth[0,0]))
+                print("\nSensor depth selected...: {}".format(sensor_depth[0,0]))
+                print("\nmean depth loss...: {}".format(depth_loss))
 
-                print("NeRF depth weights is NaN: {}".format(torch.isnan(nerf_depth_weights)))
-                print("\nSensor depth selected...: {}".format(torch.isnan(sensor_depth_selected)))
-                print("\nt_vals...: {}".format(torch.isnan(t_vals)))
-                print("\nsquared_difference_weighted_sensor_depth...: {}".format(torch.isnan(squared_difference_weighted_sensor_depth)))
-                print("\ndepth_variance...: {}".format(torch.isnan(depth_variance)))
-                print("\nresampled_nerf_depths...: {}".format(torch.isnan(resampled_nerf_depths)))
-                print("\nnerf_sensor_distribution_overlap...: {}".format(torch.isnan(nerf_sensor_distribution_overlap)))
-                print("\nmean depth loss...: {}".format(torch.isnan(mean_depth_loss)))
-                print("\nlog depth loss...: {}".format(torch.isnan(log_depth_loss)))
-            else:
-                print("\nNeRF depth weights for all samples, first row and col: {}".format(nerf_depth_weights[0,0,:]))
-                print("\nSensor depth selected...: {}".format(sensor_depth_selected[0,0,:]))
-                print("\nt_vals...: {}".format(t_vals[0,0,:]))
-                print("\nsquared_difference_weighted_sensor_depth...: {}".format(squared_difference_weighted_sensor_depth[0,0,:]))
-                print("\ndepth_variance...: {}".format(depth_variance[0,0,:]))
-                print("\nresampled_nerf_depths...: {}".format(resampled_nerf_depths[0,0,:]))
-                print("\nnerf_sensor_distribution_overlap...: {}".format(nerf_sensor_distribution_overlap[0,0,:]))
-                print("\nmean depth loss...: {}".format(mean_depth_loss))
-                print("\nlog depth loss...: {}".format(log_depth_loss))                
+                # print("NeRF depth weights is NaN: {}".format(torch.isnan(nerf_depth_weights)))
+                # print("\nSensor depth selected...: {}".format(torch.isnan(sensor_depth_selected)))
+                # print("\nt_vals...: {}".format(torch.isnan(t_vals)))
+                # print("\nsquared_difference_weighted_sensor_depth...: {}".format(torch.isnan(squared_difference_weighted_sensor_depth)))
+                # print("\nerf_depth_weights...: {}".format(torch.isnan(nerf_depth_weights)))
+                # print("\nnerf_sensor_distribution_overlap...: {}".format(torch.isnan(nerf_sensor_distribution_overlap)))
+                # print("\nmean depth loss...: {}".format(torch.isnan(mean_depth_loss)))
+                # print("\nlog depth loss...: {}".format(torch.isnan(log_depth_loss)))
+            # else:
+            #     print("\nNeRF depth weights for all samples, first row and col: {}".format(nerf_depth_weights[0,0,:]))
+            #     print("\nSensor depth selected...: {}".format(sensor_depth_selected[0,0,:]))
+            #     print("\nt_vals...: {}".format(t_vals[0,0,:]))
+            #     print("\nsquared_difference_weighted_sensor_depth...: {}".format(squared_difference_weighted_sensor_depth[0,0,:]))
+            #     print("\ndepth_variance...: {}".format(depth_variance[0,0,:]))
+            #     print("\nresampled_nerf_depths...: {}".format(resampled_nerf_depths[0,0,:]))
+            #     print("\nnerf_sensor_distribution_overlap...: {}".format(nerf_sensor_distribution_overlap[0,0,:]))
+            #     print("\nmean depth loss...: {}".format(mean_depth_loss))
+            #     print("\nlog depth loss...: {}".format(log_depth_loss))                
 
             if torch.isnan(rgb_loss):
                 print("\n\n--NaN encountered for input image {}, here is the debug summary:--\n\n".format(i))

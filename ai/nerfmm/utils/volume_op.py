@@ -113,7 +113,8 @@ def volume_sampling(c2w, ray_dir_cam, t_vals, near, far, perturb_t):
         t_noise = t_noise * (far - near) / N_sam
         t_vals_noisy = t_vals.view(1, 1, N_sam) + t_noise  # (H, W, N_sam)
     else:
-        t_vals_noisy = t_vals.view(1, 1, N_sam).expand(ray_H, ray_W, N_sam)
+        t_vals_noisy = t_vals
+        #t_vals_noisy = t_vals.view(1, 1, N_sam).expand(ray_H, ray_W, N_sam)
 
     # Get sample position in the world (1, 1, 1, 3) + (H, W, 1, 3) * (H, W, N_sam, 1) -> (H, W, N_sample, 3)
     sample_pos = ray_ori_world.view(1, 1, 1, 3) + ray_dir_world.unsqueeze(2) * t_vals_noisy.unsqueeze(3)
