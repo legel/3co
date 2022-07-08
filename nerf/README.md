@@ -1,11 +1,8 @@
 # iNeRF: Neural Radiance Fields With iOS Estimated Camera Properties & Depth
 
 ## Environment
-We provide a `environment.yml` file to set up a `conda` environment:
 
 ```sh
-git clone https://github.com/ActiveVisionLab/nerfmm.git
-cd nerfmm
 conda env create -f environment.yml
 ```
 
@@ -19,12 +16,18 @@ pip install pytorch3d
 
 #### Apple iPhone Pro: Pillow Dataset
 ```shell
-wget https://www.robots.ox.ac.uk/~ryan/nerfmm2021/nerfmm_release_data.tar.gz
-tar -xzvf path/to/the/tar.gz
+wget https://x3co.s3.amazonaws.com/pillow_small.tar.gz
+wget https://x3co.s3.amazonaws.com/pillow_large.tar.gz
+
+tar -xzvf pillow_small.tar.gz
+tar -xzvf pillow_large.tar.gz
+
+mv pillow_small data/pillow_small
+mv pillow_large data/pillow_large
 ```
 
 ## Train Model
 
 ```shell
-python learn_3d_model.py
+python learn.py
 ```
