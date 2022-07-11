@@ -33,27 +33,29 @@ def parse_args():
     parser.add_argument('--base_directory', type=str, default='./data/pillow_large', help='The base directory to load and save information from')
     parser.add_argument('--images_directory', type=str, default='color', help='The specific group of images to use during training')
     parser.add_argument('--images_data_type', type=str, default='jpg', help='Whether images are jpg or png')
-    parser.add_argument('--skip_every_n_images_for_training', type=int, default=5, help='When loading all of the training data, ignore every N images')
-    parser.add_argument('--save_models_frequency', type=int, default=10000, help='Save model every this number of epochs')
+    parser.add_argument('--skip_every_n_images_for_training', type=int, default=60, help='When loading all of the training data, ignore every N images')
+    parser.add_argument('--save_models_frequency', type=int, default=50000, help='Save model every this number of epochs')
+    parser.add_argument('--load_pretrained_models', type=bool, default=False, help='Whether to start training from models loaded with load_pretrained_models()')
 
     # Define number of epochs, and timing by epoch for when to start training per network
-    parser.add_argument('--number_of_epochs', default=10001, type=int, help='Number of epochs for training, used in learning rate schedules')
-    parser.add_argument('--early_termination_epoch', default=10001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
-    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=300, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
-    parser.add_argument('--start_training_intrinsics_epoch', type=int, default=1000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
+    parser.add_argument('--number_of_epochs', default=200001, type=int, help='Number of epochs for training, used in learning rate schedules')
+    parser.add_argument('--early_termination_epoch', default=200001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
+    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=150, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
+    parser.add_argument('--start_training_intrinsics_epoch', type=int, default=1500, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_color_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging frequency and parameters
-    parser.add_argument('--test_frequency', default=1000, type=int, help='Frequency of epochs to render an evaluation image')
-    parser.add_argument('--visualize_point_cloud_frequency', default=10000, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--test_frequency', default=2500, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--visualize_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=2500, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
-    parser.add_argument('--render_test_video_frequency', default=20000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
+    parser.add_argument('--render_test_video_frequency', default=200001, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=15, type=int, help='Radius of sampled poses around the evaluation pose for video')
     parser.add_argument('--number_of_poses_in_test_video', default=36, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=1, type=int, help='Index in the training data set of the image to show during testing')
-    parser.add_argument('--skip_every_n_images_for_testing', default=1, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')
-    parser.add_argument('--number_of_rows_in_test_renders', default=10, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')
+    parser.add_argument('--number_of_test_images', default=4, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--skip_every_n_images_for_testing', default=20, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')
+    parser.add_argument('--number_of_rows_in_test_renders', default=100, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
     parser.add_argument('--nerf_density_lr_start', default=0.0010, type=float, help="Learning rate start for NeRF geometry network")
@@ -76,25 +78,22 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.0, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.1, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
-    parser.add_argument('--depth_to_rgb_loss_exponential_index', default=5, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
 
     # Define parameters the determines the overall size and learning capacity of the neural networks and their encodings
-    parser.add_argument('--density_neural_network_parameters', type=int, default=64, help='The baseline number of units that defines the size of the NeRF geometry network')
-    parser.add_argument('--color_neural_network_parameters', type=int, default=128, help='The baseline number of units that defines the size of the NeRF RGB (pitch,yaw) network')
-    parser.add_argument('--positional_encoding_fourier_frequencies', type=int, default=12, help='The number of frequencies that are generated for positional encoding of (x,y,z)')
-    parser.add_argument('--directional_encoding_fourier_frequencies', type=int, default=5, help='The number of frequencies that are generated for positional encoding of (pitch, yaw)')
+    parser.add_argument('--density_neural_network_parameters', type=int, default=512, help='The baseline number of units that defines the size of the NeRF geometry network')
+    parser.add_argument('--color_neural_network_parameters', type=int, default=512, help='The baseline number of units that defines the size of the NeRF RGB (pitch,yaw) network')
+    parser.add_argument('--positional_encoding_fourier_frequencies', type=int, default=10, help='The number of frequencies that are generated for positional encoding of (x,y,z)')
+    parser.add_argument('--directional_encoding_fourier_frequencies', type=int, default=10, help='The number of frequencies that are generated for positional encoding of (pitch, yaw)')
 
     # Define sampling parameters, including how many samples per raycast (outward), number of samples randomly selected per image, and (if masking is used) ratio of good to masked samples
-    parser.add_argument('--pixel_samples_per_epoch', type=int, default=64*64, help='The number of rows of samples to randomly collect for each image during training')
+    parser.add_argument('--pixel_samples_per_epoch', type=int, default=4096, help='The number of rows of samples to randomly collect for each image during training')
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=128, help='The number of samples per raycast to collect (linearly)')
-
-    # Decide whether or not to use masks
-    parser.add_argument('--use_masks_to_ignore_bad_pixels', type=bool, default=False, help='The default is not to use masks, because they have not yet been validated with NeRF')
-    parser.add_argument('--total_pixel_samples_for_masked_images', type=int, default=64*64, help='In case we are using masks though, instead of sampling by rows and columns, total number of random samples')
-    parser.add_argument('--bad_pixels_fraction', type=int, default=32, help='divide total pixel samples by this to get bad pixels to sample')
+    parser.add_argument('--percent_of_sensor_depth_as_standard_deviation', type=float, default=0.003, help='The standard deviation of sampling by depth')
+    parser.add_argument('--gaussian_sampling_around_depth_sensor', type=bool, default=False, help='An unproven technique that could be useful if refined')
 
     # Additional parameters on pre-processing of depth data and coordinate systems
     parser.add_argument('--maximum_depth', type=float, default=5.0, help='All depths below this value will be clipped to this value')
@@ -112,11 +111,11 @@ class SceneModel:
     def __init__(self, args):
         # initialize high-level arguments
         self.args = args
-        self.epoch = 0
+        self.epoch = 1
         self.start_time = int(time.time()) 
         self.device = torch.device('cuda:0') 
 
-         # get camera intrinsics (same for all images)
+        # get camera intrinsics (same for all images)
         self.load_camera_intrinsics()
 
         # get camera extrinsics (for each image)
@@ -126,7 +125,8 @@ class SceneModel:
         self.load_all_images_ids()
 
         # define bounds (self.min_x, self.max_x), (self.min_y, self.max_y), (self.min_z, self.max_z) in which all points should initially project inside, or else not be included
-        self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=930, max_pixel_row=1230, min_pixel_col=480, max_pixel_col=780)
+        self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=280, max_pixel_row=1230, min_pixel_col=480, max_pixel_col=1380)
+        # self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=280, max_pixel_row=580, min_pixel_col=700, max_pixel_col=1000)
 
         # prepare test evaluation indices
         self.prepare_test_data()
@@ -138,10 +138,14 @@ class SceneModel:
         self.initialize_models()
         self.initialize_learning_rates()
 
+        if self.args.load_pretrained_models:
+            # load pre-trained model
+            self.load_pretrained_models()
+
 
     def prepare_test_data(self):
         self.test_image_indices = range(0, self.args.number_of_test_images * self.args.skip_every_n_images_for_testing, self.args.skip_every_n_images_for_testing)
-        print("Test image indices are: {}".format(self.test_image_indices))
+        print("Test image indices are: {}".format([i for i in self.test_image_indices]))
 
 
     def visualize_mask(self, pixels_to_visualize, mask_index, colors=None):
@@ -237,7 +241,7 @@ class SceneModel:
         self.poses = self.poses[::self.args.skip_every_n_images_for_training]
 
 
-        print("Loaded data for {:,} pixels".format(self.number_of_pixels ))
+        print("Loaded {} images with {:,} pixels selected".format(i, self.number_of_pixels ))
 
 
     def set_xyz_bounds_from_pixel_bounds(self, index_to_filter, min_pixel_row, max_pixel_row, min_pixel_col, max_pixel_col):
@@ -256,7 +260,7 @@ class SceneModel:
             xyz_coordinates = xyz_coordinates[:, min_pixel_col:max_pixel_col, :]
 
         # now define the bounds in (x,y,z) space through which we will filter all future pixels by their projected points
-        self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates)
+        self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates, padding=0.025)
  
 
     def load_all_images_ids(self):
@@ -414,13 +418,13 @@ class SceneModel:
         self.pixel_directions = camera_coordinates_pixel_directions.to(device=self.device)
 
 
-    def get_min_max_bounds(self, xyz_coordinates):
-        min_x = torch.min(xyz_coordinates[:,:,0])
-        max_x = torch.max(xyz_coordinates[:,:,0])
-        min_y = torch.min(xyz_coordinates[:,:,1])
-        max_y = torch.max(xyz_coordinates[:,:,1])
-        min_z = torch.min(xyz_coordinates[:,:,2])
-        max_z = torch.max(xyz_coordinates[:,:,2])
+    def get_min_max_bounds(self, xyz_coordinates, padding=0.025):
+        min_x = torch.min(xyz_coordinates[:,:,0]) - padding
+        max_x = torch.max(xyz_coordinates[:,:,0]) + padding
+        min_y = torch.min(xyz_coordinates[:,:,1]) - padding
+        max_y = torch.max(xyz_coordinates[:,:,1]) + padding
+        min_z = torch.min(xyz_coordinates[:,:,2]) - padding
+        max_z = torch.max(xyz_coordinates[:,:,2]) + padding
 
         x_cm = torch.abs(max_x - min_x) * 100
         y_cm = torch.abs(max_y - min_y) * 100
@@ -452,8 +456,10 @@ class SceneModel:
         wandb.watch(self.models["geometry"])
         wandb.watch(self.models["color"])
 
+
     def get_polynomial_decay(self, start_value, end_value, exponential_index=1, curvature_shape=1):
         return (start_value - end_value) * (1 - self.epoch**curvature_shape / self.args.number_of_epochs**curvature_shape)**exponential_index + end_value
+
 
     def create_polynomial_learning_rate_schedule(self, model):
         schedule = PolynomialDecayLearningRate(optimizer=self.optimizers[model], 
@@ -487,15 +493,40 @@ class SceneModel:
         self.schedulers["pose"] = self.create_polynomial_learning_rate_schedule(model = "pose")
 
 
-    def save_neural_network_point_cloud(self, pose, depth, rendered_image, view=0):
+    def load_pretrained_models(self, path="models", epoch=200000):
+        for model_name in self.models.keys():
+            model = self.models[model_name]
+            model_path = "{}/{}_{}.pth".format(path, model_name, epoch)
+            model = self.load_model(model_path=model_path, model=model)
+            self.models[model_name] = model.to(device=self.device)
+
+
+    def load_model(self, model_path, model):
+        ckpt = torch.load(model_path, map_location=self.device)
+        weights = ckpt['model_state_dict']
+        model.load_state_dict(weights, strict=True)
+        return model
+
+
+    def get_point_cloud(self, pose, depth, rgb, label=0, save=False, remove_zero_depths=True):
         camera_world_position = pose[:3, 3].view(1, 1, 3)     # (1, 1, 3)
         camera_world_rotation = pose[:3, :3].view(1, 1, 3, 3) # (1, 1, 3, 3)
         pixel_directions = self.pixel_directions.unsqueeze(3) # (H, W, 3, 1)
+
         xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth)
-        pcd = self.create_point_cloud(xyz_coordinates, rendered_image, label="neural_network_output_{}".format(view), flatten_xyz=True, flatten_image=True)
-        file_name = "view_{}_training_data_{}.ply".format(view, self.epoch-1)
-        o3d.io.write_point_cloud(file_name, pcd)
-        # o3d.visualization.draw_geometries([pcd])
+
+        if remove_zero_depths:
+            non_zero_depth = torch.where(depth!=0.0)
+            depth = depth[non_zero_depth]
+            pixel_directions = pixel_directions[non_zero_depth]
+            rgb = rgb[non_zero_depth]
+            xyz_coordinates = xyz_coordinates[non_zero_depth]
+
+        pcd = self.create_point_cloud(xyz_coordinates, rgb, label="point_cloud_{}".format(label), flatten_xyz=False, flatten_image=False)
+        if save:
+            file_name = "view_{}_training_data_{}.ply".format(label, self.epoch-1)
+            o3d.io.write_point_cloud(file_name, pcd)
+        return pcd
 
 
     def get_sensor_xyz_coordinates(self, i=None, pose_data=None, depth_data=None):
@@ -533,32 +564,24 @@ class SceneModel:
         return global_xyz
 
 
-    def get_point_cloud(self, i, min_row=None, max_row=None, min_col=None, max_col=None):
-        # compute 3D coordinates in global coordinate system
-        xyz_coordinates = self.get_sensor_xyz_coordinates(i) # (H, W, 3)
+    # def get_point_cloud(self, i, min_row=None, max_row=None, min_col=None, max_col=None):
+    #     # compute 3D coordinates in global coordinate system
+    #     xyz_coordinates = self.get_sensor_xyz_coordinates(i) # (H, W, 3)
 
-        # get image colors
-        image_colors = self.images[i].to(self.device)  # (H, W, 3)
+    #     # get image colors
+    #     image_colors = self.images[i].to(self.device)  # (H, W, 3)
 
-        if type(min_row) != type(None) or type(max_row) != type(None):
-            xyz_coordinates = xyz_coordinates[min_row:max_row, :, :]
-            image_colors = image_colors[min_row:max_row, :, :]
-        if type(min_col) != type(None) or type(max_col) != type(None):
-            xyz_coordinates = xyz_coordinates[:, min_col:max_col, :]
-            image_colors = image_colors[:, min_col:max_col, :]
+    #     if type(min_row) != type(None) or type(max_row) != type(None):
+    #         xyz_coordinates = xyz_coordinates[min_row:max_row, :, :]
+    #         image_colors = image_colors[min_row:max_row, :, :]
+    #     if type(min_col) != type(None) or type(max_col) != type(None):
+    #         xyz_coordinates = xyz_coordinates[:, min_col:max_col, :]
+    #         image_colors = image_colors[:, min_col:max_col, :]
 
-        if self.args.use_masks_to_ignore_bad_pixels:
-            good_rows_cols = self.good_pixels[i]
-            good_rows = good_rows_cols[0,:]
-            good_cols = good_rows_cols[1,:]
+    #     # create a point cloud in Open3D format
+    #     pcd = self.create_point_cloud(xyz_coordinates, image_colors, label="pose_{}".format(i), flatten_xyz=True, flatten_image=True)
 
-            xyz_coordinates = xyz_coordinates[good_rows, good_cols, :]
-            image_colors = image_colors[good_rows, good_cols, :]
-
-        # create a point cloud in Open3D format
-        pcd = self.create_point_cloud(xyz_coordinates, image_colors, label="pose_{}".format(i), flatten_xyz=True, flatten_image=True)
-
-        return pcd, xyz_coordinates, image_colors
+    #     return pcd, xyz_coordinates, image_colors
 
 
     def create_point_cloud(self, xyz_coordinates, colors, label=0, flatten_xyz=True, flatten_image=True):
@@ -659,6 +682,51 @@ class SceneModel:
         return poses
 
 
+    def get_raycast_samples_per_pixel(self, sensor_depth, add_noise=True):
+        number_of_pixels = sensor_depth.shape[0]
+
+        if self.args.gaussian_sampling_around_depth_sensor:
+            # sample about sensor depth, with increasing standard deviations for longer depths
+
+            # randomly shift the center of the mean, potentially to help prevent overfitting of depth sensor data
+            if add_noise:
+                zero_mean = torch.normal(mean=torch.zeros(number_of_pixels).to(self.device), std=0.001).to(self.device)
+            else:
+                zero_mean = torch.normal(mean=torch.zeros(number_of_pixels).to(self.device), std=0.00).to(self.device)
+
+            # an empirically-derived standard deviation for sampling, which penalizes depths that are further away (samples a wider distribution around further depths)
+            depth_dependent_standard_deviation = ((sensor_depth * 1000) ** 1.4) / 1000 * self.args.percent_of_sensor_depth_as_standard_deviation
+            sampled_standard_deviations = torch.normal(mean=zero_mean, std=depth_dependent_standard_deviation)
+
+            # collect from -1 to 1 the baseline samples per raycast
+            raycast_distances = torch.linspace(-1, 1, self.args.number_of_samples_outward_per_raycast).to(self.device)
+            raycast_distances = raycast_distances.unsqueeze(0).expand(number_of_pixels, self.args.number_of_samples_outward_per_raycast)
+
+            # now, take the absolute value for each of the random standard deviations defined above, and consider 2x that value to be the (min,max) sampling distance, with linear values in between 
+            max_depth_sample_range = torch.abs(sampled_standard_deviations).unsqueeze(1).expand(number_of_pixels, self.args.number_of_samples_outward_per_raycast) * 2 
+
+            # multiply [-1, -.9, ..., .9, 1] x max range value
+            depth_samples = raycast_distances * max_depth_sample_range
+
+            # given the *relative* range of samples, now just add that to the actual depth samples 
+            final_samples = sensor_depth.unsqueeze(1).expand(number_of_pixels, self.args.number_of_samples_outward_per_raycast) + depth_samples
+
+            clipped_final_samples = torch.clip(input=final_samples, min=0.0, max=2.0)
+
+            return clipped_final_samples
+
+        else:
+            raycast_distances = torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).to(self.device)
+            raycast_distances = raycast_distances.unsqueeze(0).expand(number_of_pixels, self.args.number_of_samples_outward_per_raycast)
+
+            if add_noise:
+                depth_noise = torch.rand((number_of_pixels, self.args.number_of_samples_outward_per_raycast), device=self.device, dtype=torch.float32)  # (N_pixels, N_samples)
+                depth_noise = depth_noise * (self.far - self.near) / self.args.number_of_samples_outward_per_raycast # (N_pixels, N_samples)
+                raycast_distances = raycast_distances + depth_noise  # (N_pixels, N_samples)
+
+            return raycast_distances
+
+
     def train(self):
 
         if self.epoch == self.args.early_termination_epoch:
@@ -723,21 +791,27 @@ class SceneModel:
         # get pixel directions
         pixel_directions_selected = self.pixel_directions[pixel_rows, pixel_cols]  # (N_pixels, 3)
 
-        depth_samples = torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast, device=self.device)  # N_samples
+        # sample about sensor depth, with increasing standard deviations for longer depths
+        depth_samples = self.get_raycast_samples_per_pixel(sensor_depth, add_noise=True)           
 
         # render an image using selected rays, pose, sample intervals, and the network
-        render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples)  # (N_pixels, 3)
+        render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, perturb_depths=False, rgb_image=rgb)  # (N_pixels, 3)
 
         rgb_rendered = render_result['rgb_rendered']  # (N_pixels, 3)
         nerf_depth = render_result['depth_map'] # (N_pixels)
         
         # compute the mean squared difference between the sensor depth and the NeRF depth
-        depth_loss = (nerf_depth - sensor_depth)**2
+        depth_loss = (nerf_depth * 1000 - sensor_depth * 1000)**2
         depth_loss = torch.mean(depth_loss)
 
         # compute the mean squared difference between the RGB render of the neural network and the original image
-        rgb_loss = (rgb_rendered - rgb)**2
+        rgb_loss = (rgb_rendered * 255 - rgb * 255)**2
         rgb_loss = torch.mean(rgb_loss)
+
+
+        # to-do: implement perceptual color difference minimizer
+        #  torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
+
 
         # get the relative importance between depth and RGB loss
         depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
@@ -756,13 +830,13 @@ class SceneModel:
             optimizer.zero_grad()
 
         if self.epoch % self.args.log_frequency == 0:
-            wandb.log({"RGB Inverse Render Loss": rgb_loss,
-                       "Depth Loss": depth_loss,
+            wandb.log({"RGB Inverse Render Loss": torch.sqrt(rgb_loss),
+                       "Depth Loss": torch.sqrt(depth_loss),
                        })
 
         if self.epoch % self.args.log_frequency == 0:
             minutes_into_experiment = (int(time.time())-int(self.start_time)) / 60
-            print("({} at {:.2f} minutes) - RGB Loss: {:.5f}, Depth Loss: {:.5f}, Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, minutes_into_experiment, rgb_loss, depth_loss, focal_length_x, focal_length_y))
+            print("({} at {:.2f} minutes) - RGB Loss: {:.3f} (out of 255), Depth Loss: {:.3f}mm, Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, minutes_into_experiment, torch.sqrt(rgb_loss), torch.sqrt(depth_loss), focal_length_x, focal_length_y))
 
         # update the learning rate schedulers
         for scheduler in self.schedulers.values():
@@ -772,13 +846,13 @@ class SceneModel:
         self.epoch += 1
 
 
-    def render(self, poses, pixel_directions, sampling_depths):
+    def render(self, poses, pixel_directions, sampling_depths, perturb_depths=False, rgb_image=None):
         # poses := (N_pixels, 4, 4)
         # pixel_directions := (N_pixels, 3)
         # sampling_depths := (N_samples)
 
         # (N_pixels, N_sample, 3), (N_pixels, 3), (N_pixels, N_samples)    
-        pixel_xyz_positions, pixel_directions_world, resampled_depths = volume_sampling(poses=poses, pixel_directions=pixel_directions, sampling_depths=sampling_depths)
+        pixel_xyz_positions, pixel_directions_world, resampled_depths = volume_sampling(poses=poses, pixel_directions=pixel_directions, sampling_depths=sampling_depths, perturb_depths=perturb_depths)
 
         # encode position: (H, W, N_sample, (2L+1)*C = 63)
         xyz_position_encoding = encode_position(pixel_xyz_positions, levels=self.args.positional_encoding_fourier_frequencies)
@@ -796,10 +870,10 @@ class SceneModel:
                 density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)
 
         if self.epoch >= self.args.start_training_color_epoch:
-            rgb = self.models["color"](features, angular_directional_encoding)  # (N_pixels, N_sample, 4)
+            rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
         else:
             with torch.no_grad():
-                rgb = self.models["color"](features, angular_directional_encoding)  # (N_pixels, N_sample, 4)
+                rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
 
         render_result = volume_rendering(rgb, density, resampled_depths)
 
@@ -835,10 +909,11 @@ class SceneModel:
         # compute the ray directions using the latest focal lengths, derived for the first image
         focal_length_x, focal_length_y = self.models["focal"](0)
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
-        depth_samples = torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast, device=self.device)  # (N_sample,)
+        # depth_samples = torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast, device=self.device)  # (N_sample,)
 
         color_images = []
         depth_images = []
+        pcds = []
         for test_image_index in self.test_image_indices:
             # get the pixel indices that match with this image only
             pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == test_image_index)
@@ -854,13 +929,22 @@ class SceneModel:
             pixel_directions_for_this_image = self.pixel_directions[pixel_rows, pixel_cols]
             pixel_directions_for_this_image = torch.squeeze(pixel_directions_for_this_image)
 
+            # get sensor depth data for this image
+            rgbd = self.rgbd[torch.squeeze(pixel_indices_for_this_image)].to(self.device)  # (N_pixels, 4)
+
+            sensor_depth = rgbd[:,3].to(self.device) # (N_pixels) 
+
+            depth_samples = self.get_raycast_samples_per_pixel(sensor_depth, add_noise=False)
+
             pixel_directions_rows = pixel_directions_for_this_image.split(self.args.number_of_rows_in_test_renders, dim=0)
             poses_rows = selected_poses.split(self.args.number_of_rows_in_test_renders, dim=0)
+            depth_samples_rows = depth_samples.split(self.args.number_of_rows_in_test_renders, dim=0)
+
             all_rendered_image_rows = []
             all_depth_image_rows = []
-            for poses_row, pixel_directions_row in zip(poses_rows, pixel_directions_rows):
+            for poses_row, pixel_directions_row, depth_samples_row in zip(poses_rows, pixel_directions_rows, depth_samples_rows):
                 # compute the render and extract out RGB and depth map
-                rendered_data = self.render(poses=poses_row, pixel_directions=pixel_directions_row, sampling_depths=depth_samples)  # (N_pixels, 3)
+                rendered_data = self.render(poses=poses_row, pixel_directions=pixel_directions_row, sampling_depths=depth_samples_row, perturb_depths=False)  # (N_pixels, 3)
                 rendered_image = rendered_data['rgb_rendered']
                 rendered_depth = rendered_data['depth_map']
                 all_rendered_image_rows.append(rendered_image)
@@ -895,14 +979,15 @@ class SceneModel:
             color_images.append(rendered_color_for_file)
 
             # get depth map and convert it to Turbo Color Map
-            rendered_depth_for_file = depth_canvas.cpu().numpy() 
-            rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_for_file)
+            rendered_depth_data = depth_canvas.cpu().numpy() 
+            rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_data)
             rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)
             depth_images.append(rendered_depth_for_file)
 
             # show a point cloud derived from this view to validate its sanity
-            if epoch % self.args.visualize_point_cloud_frequency == 0 and epoch % self.args.render_test_video_frequency != 0:
-                self.save_neural_network_point_cloud(poses, rendered_depth, rendered_image, view=image_index)
+            if epoch % self.args.save_point_cloud_frequency == 0:
+                pcd = self.get_point_cloud(pose=selected_poses[0], depth=depth_canvas, rgb=rendered_rgb, label=image_ids[0], save=True)
+                pcds.append(pcd)
 
             # define file saving parameters
             image_out_dir = "{}/hyperparam_experiments".format(self.args.base_directory)
@@ -945,6 +1030,8 @@ class SceneModel:
                     color_file_name = os.path.join(color_out_dir, str(test_image_index).zfill(4) + '_color_{}.png'.format(epoch))
                     depth_file_name = os.path.join(depth_out_dir, str(test_image_index).zfill(4) + '_depth_{}.png'.format(epoch))
 
+        if epoch % self.args.visualize_point_cloud_frequency == 0:
+            o3d.visualization.draw_geometries(pcds)
 
         if epoch > 0:
             if epoch % self.args.render_test_video_frequency == 0:
