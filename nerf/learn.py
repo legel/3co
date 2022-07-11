@@ -40,15 +40,15 @@ def parse_args():
     # Define number of epochs, and timing by epoch for when to start training per network
     parser.add_argument('--number_of_epochs', default=200001, type=int, help='Number of epochs for training, used in learning rate schedules')
     parser.add_argument('--early_termination_epoch', default=200001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
-    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=150, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
-    parser.add_argument('--start_training_intrinsics_epoch', type=int, default=1500, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
+    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=0, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
+    parser.add_argument('--start_training_intrinsics_epoch', type=int, default=1000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_color_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging frequency and parameters
-    parser.add_argument('--test_frequency', default=2500, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--test_frequency', default=5000, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
-    parser.add_argument('--save_point_cloud_frequency', default=2500, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=5000, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--render_test_video_frequency', default=200001, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=15, type=int, help='Radius of sampled poses around the evaluation pose for video')
@@ -78,7 +78,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.1, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.0, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -90,7 +90,7 @@ def parse_args():
     parser.add_argument('--directional_encoding_fourier_frequencies', type=int, default=10, help='The number of frequencies that are generated for positional encoding of (pitch, yaw)')
 
     # Define sampling parameters, including how many samples per raycast (outward), number of samples randomly selected per image, and (if masking is used) ratio of good to masked samples
-    parser.add_argument('--pixel_samples_per_epoch', type=int, default=4096, help='The number of rows of samples to randomly collect for each image during training')
+    parser.add_argument('--pixel_samples_per_epoch', type=int, default=3072, help='The number of rows of samples to randomly collect for each image during training')
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=128, help='The number of samples per raycast to collect (linearly)')
     parser.add_argument('--percent_of_sensor_depth_as_standard_deviation', type=float, default=0.003, help='The standard deviation of sampling by depth')
     parser.add_argument('--gaussian_sampling_around_depth_sensor', type=bool, default=False, help='An unproven technique that could be useful if refined')
@@ -180,7 +180,7 @@ class SceneModel:
         return xyz_inside_range.to(device=self.device)
 
 
-    def load_image_and_depth_data_within_xyz_bounds(self, visualize_masks=True):
+    def load_image_and_depth_data_within_xyz_bounds(self, visualize_masks=True, save_raw_point_clouds=True):
         self.rgbd = []
         self.image_ids_per_pixel = []
         self.pixel_rows = []
@@ -225,6 +225,9 @@ class SceneModel:
             # script for visualizing mask
             if visualize_masks and i in self.test_image_indices:
                 self.visualize_mask(pixels_to_visualize=xyz_coordinates_on_or_off, mask_index=image_id, colors=image)
+
+            if save_raw_point_clouds and i in self.test_image_indices:
+                pcd = self.get_point_cloud(pose=self.poses[i*self.args.skip_every_n_images_for_training], depth=depth, rgb=image, label="raw_{}".format(image_id), save=True)
 
 
         # bring the data together
@@ -493,7 +496,7 @@ class SceneModel:
         self.schedulers["pose"] = self.create_polynomial_learning_rate_schedule(model = "pose")
 
 
-    def load_pretrained_models(self, path="models", epoch=200000):
+    def load_pretrained_models(self, path="models", epoch=150001):
         for model_name in self.models.keys():
             model = self.models[model_name]
             model_path = "{}/{}_{}.pth".format(path, model_name, epoch)
@@ -771,13 +774,13 @@ class SceneModel:
 
         # get all camera poses from model
         if self.epoch >= self.args.start_training_extrinsics_epoch:
-            poses = self.models["pose"](0) # (N_pixels, 4, 4)
+            poses = self.models["pose"](0) # (N_images, 4, 4)
         else:
             with torch.no_grad():
-                poses = self.models["pose"](0)  # (N_pixels, 4, 4)
+                poses = self.models["pose"](0)  # (N_images, 4, 4)
 
         # get a tensor with the poses per pixel
-        image_ids = self.image_ids_per_pixel[indices_of_random_pixels].to(self.device) # (N)
+        image_ids = self.image_ids_per_pixel[indices_of_random_pixels].to(self.device) # (N_pixels)
         selected_poses = poses[image_ids].to(self.device) # (N_pixels, 4, 4)
 
         # get the pixel rows and columns that we've selected (across all images)
@@ -817,8 +820,8 @@ class SceneModel:
         depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
 
         # if the RGB network is not yet training, then ignore the loss at this point
-        if self.epoch < self.args.start_training_color_epoch:
-            rgb_loss = torch.tensor(0.0)
+        # if self.epoch < self.args.start_training_color_epoch:
+        #     rgb_loss = torch.tensor(0.0)
 
         # compute loss and backward propagate the gradients to update the values which are parameters to this loss
         weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss
@@ -863,17 +866,17 @@ class SceneModel:
         angular_directional_encoding = angular_directional_encoding.unsqueeze(1).expand(-1, self.args.number_of_samples_outward_per_raycast, -1)  # (N_pixels, N_sample, 27)
 
         # inference rgb and density using position and direction encoding.
-        if self.epoch >= self.args.start_training_geometry_epoch:
-            density, features = self.models["geometry"](xyz_position_encoding)  # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)
-        else:
-            with torch.no_grad():
-                density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)
+        # if self.epoch >= self.args.start_training_geometry_epoch:
+        #     density, features = self.models["geometry"](xyz_position_encoding)  # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)
+        # else:
+        #     with torch.no_grad():
+        density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)
 
-        if self.epoch >= self.args.start_training_color_epoch:
-            rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
-        else:
-            with torch.no_grad():
-                rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
+        #if self.epoch >= self.args.start_training_color_epoch:
+        #    rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
+        #else:
+        #    with torch.no_grad():
+        rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
 
         render_result = volume_rendering(rgb, density, resampled_depths)
 
@@ -897,7 +900,7 @@ class SceneModel:
             model.eval()
 
         # get all poses
-        poses = self.models["pose"](0)
+        poses = self.models["pose"](0) # N_images
         
         if epoch % self.args.render_test_video_frequency == 0 and epoch > 0:
             poses = self.generate_poses_on_sphere_around_object(pose=pose, 
