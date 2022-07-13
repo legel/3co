@@ -29,8 +29,6 @@ class NeRFDensity(nn.Module):
             nn.Linear(D, D), nn.ReLU()
         )
 
-        # self.batch_norm_1 = nn.BatchNorm2d(D)
-        # self.batch_norm_2 = nn.BatchNorm2d(D)
 
         self.fc_density = nn.Linear(D, 1)
         self.fc_feature = nn.Linear(D, D)
@@ -64,9 +62,8 @@ class NeRFColor(nn.Module):
             nn.Linear(D_density + dir_in_dims, D_color//2), nn.ReLU()
             )
         self.fc_rgb = nn.Linear(D_color//2, 3)
-        self.fc_rgb.bias.data = torch.tensor([0.02, 0.02, 0.02]).float()
 
-    def forward(self, feat, dir_enc):
+    def forward(self, feat, dir_enc, rgb_image):
         """
         :param feat: # (H, W, N_sample, D) features from density network
         :param dir_enc: (H, W, N_sample, dir_in_dims) encoded directions
@@ -76,4 +73,5 @@ class NeRFColor(nn.Module):
         x = torch.cat([feat, dir_enc], dim=2)  # (N_pixels, N_sample, D+dir_in_dims)
         x = self.rgb_layers(x)  # (H, W, N_sample, D/2)
         rgb = self.fc_rgb(x)  # (H, W, N_sample, 3)
+
         return rgb
