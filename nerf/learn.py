@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--images_data_type', type=str, default='jpg', help='Whether images are jpg or png')
     parser.add_argument('--skip_every_n_images_for_training', type=int, default=60, help='When loading all of the training data, ignore every N images')
     parser.add_argument('--save_models_frequency', type=int, default=50000, help='Save model every this number of epochs')
-    parser.add_argument('--load_pretrained_models', type=bool, default=False, help='Whether to start training from models loaded with load_pretrained_models()')
+    parser.add_argument('--load_pretrained_models', type=bool, default=True, help='Whether to start training from models loaded with load_pretrained_models()')
 
     # Define number of epochs, and timing by epoch for when to start training per network
     parser.add_argument('--number_of_epochs', default=200001, type=int, help='Number of epochs for training, used in learning rate schedules')
@@ -46,16 +46,17 @@ def parse_args():
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging frequency and parameters
-    parser.add_argument('--test_frequency', default=5000, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--test_frequency', default=1, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--save_point_cloud_frequency', default=5000, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
-    parser.add_argument('--render_test_video_frequency', default=200001, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
-    parser.add_argument('--spherical_radius_of_test_video', default=15, type=int, help='Radius of sampled poses around the evaluation pose for video')
-    parser.add_argument('--number_of_poses_in_test_video', default=36, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=4, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--render_test_video_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
+    parser.add_argument('--spherical_radius_of_test_video', default=1, type=int, help='Radius of sampled poses around the evaluation pose for video')
+    parser.add_argument('--number_of_poses_in_test_video', default=4, type=int, help='Number of poses in test video to render for the total animation')
+    parser.add_argument('--number_of_test_images', default=1, type=int, help='Index in the training data set of the image to show during testing')
     parser.add_argument('--skip_every_n_images_for_testing', default=20, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')
-    parser.add_argument('--number_of_rows_in_test_renders', default=100, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')
+    parser.add_argument('--number_of_rows_in_test_renders', default=100, type=int, help='Rows that the input will be split up into, to make rendering more efficient')
+    parser.add_argument('--number_of_rows_in_test_renders_for_videos', default=200, type=int, help='Rows that the input will be split up into, to make rendering more efficient')
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
     parser.add_argument('--nerf_density_lr_start', default=0.0010, type=float, help="Learning rate start for NeRF geometry network")
@@ -204,6 +205,12 @@ class SceneModel:
             pixel_cols_selected = pixel_indices_selected[:,1]
             self.pixel_rows.append(pixel_rows_selected)
             self.pixel_cols.append(pixel_cols_selected)
+
+            # save general pixel indices one time here for rendering of all pixels, later
+            if i == 0:
+                all_pixel_indices = torch.argwhere(xyz_coordinates[:,:,0] >= torch.tensor(-np.inf))
+                self.all_pixel_rows = all_pixel_indices[:,0]
+                self.all_pixel_cols = all_pixel_indices[:,1]
 
             # get the corresponding (x,y,z) coordinates and depth values selected by the mask
             xyz_coordinates_selected = xyz_coordinates[pixel_rows_selected, pixel_cols_selected, :]
@@ -620,58 +627,34 @@ class SceneModel:
                 o3d.io.write_point_cloud("ground_truth_visualization_{}.ply".format(image_number), pcd)
 
 
-    def generate_poses_on_sphere_around_object(self, pose, sensor_depth, sphere_angle, number_of_poses):
+    def generate_poses_on_sphere_around_object(self, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
         camera_rotation_matrix = pose[:3, :3] # rotation matrix (3,3)
         camera_xyz = pose[:3, 3]  # translation vector (3)
 
-        center_of_image_h = int(self.H / 2)
-        center_of_image_w = int(self.W / 2)
-
-        distance_from_camera_for_pixel = sensor_depth[center_of_image_h, center_of_image_w] # (1)
-
         # transform rays from camera coordinate to world coordinate
         ray_dir_world = torch.matmul(camera_rotation_matrix.view(1, 1, 3, 3), self.pixel_directions.unsqueeze(3)).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
-        ray_dir_for_pixel = ray_dir_world[center_of_image_h, center_of_image_w, :] # (3) orientation for this pixel from the camera
+        ray_dir_for_pixel = ray_dir_world[center_pixel_row, center_pixel_col, :] # (3) orientation for this pixel from the camera
 
-        pixel_xyz = camera_xyz + ray_dir_for_pixel * distance_from_camera_for_pixel 
+        pixel_xyz = camera_xyz + ray_dir_for_pixel * center_pixel_distance 
+        pixel_xyz = pixel_xyz[0]
+
         pixel_x = pixel_xyz[0]
         pixel_y = pixel_xyz[1]
         pixel_z = pixel_xyz[2]
 
         # By subtracting the pixel_xyz from itself, and the camera_xyz, then we have the pixel_xyz become the origin
-        camera_xyz_ = camera_xyz - pixel_xyz
-        cam_x = camera_xyz_[0]
-        cam_y = camera_xyz_[1]
-        cam_z = camera_xyz_[2]
+        cam_zoom_direction_xyz = camera_xyz - pixel_xyz
+        zoom_distance_x = cam_zoom_direction_xyz[0]
+        zoom_distance_y = cam_zoom_direction_xyz[1]
+        zoom_distance_z = cam_zoom_direction_xyz[2]
 
-        # Now convert to spherical coordinates, where we move on a circle on a sphere, with the center of the circle the original camera view
-        sphere_radius = distance_from_camera_for_pixel
-
-        if cam_x == 0.0:
-            cam_theta = torch.tensor(0.0)
-        else:
-            cam_theta = torch.arctan(cam_y / cam_x)
-
-        cam_phi = torch.arccos(cam_z / sphere_radius)
-
-        # define number_of_poses along sphere, around the original pose defined in spherical coordinates
+        # define number_of_poses along a path from the original camera pose zooming into the object
         poses = []
-        for i, angle in enumerate(np.linspace(0, 2 * np.pi, number_of_poses + 1)):
-            angle = torch.from_numpy(np.asarray(angle))
-
-            # first move along the sphere in spherical coordinates
-            next_cam_theta = torch.deg2rad(torch.cos(angle) * sphere_angle) + cam_theta
-            next_cam_phi = torch.deg2rad(torch.sin(angle) * sphere_angle) + cam_phi
-
+        for i, zoom_percent in enumerate(np.linspace(0, 0.75, number_of_poses)):
             # then convert back to euclidian coordinates
-            next_cam_x = sphere_radius * torch.sin(next_cam_phi) * torch.cos(next_cam_theta)
-            next_cam_y = sphere_radius * torch.sin(next_cam_phi) * torch.sin(next_cam_theta)
-            next_cam_z = sphere_radius * torch.cos(next_cam_phi)
-
-            # put back into a global (world) coordinate system by adding back in the object's (x,y,z) coordinate
-            next_cam_x = next_cam_x + pixel_x
-            next_cam_y = next_cam_y + pixel_y
-            next_cam_z = next_cam_z + pixel_z
+            next_cam_x = camera_xyz[0] - zoom_distance_x * zoom_percent
+            next_cam_y = camera_xyz[1] - zoom_distance_y * zoom_percent
+            next_cam_z = camera_xyz[2] - zoom_distance_z * zoom_percent
 
             next_cam_pose = torch.zeros((3,4))
             next_cam_pose[:3,:3] = camera_rotation_matrix
@@ -685,8 +668,7 @@ class SceneModel:
         return poses
 
 
-    def get_raycast_samples_per_pixel(self, sensor_depth, add_noise=True):
-        number_of_pixels = sensor_depth.shape[0]
+    def get_raycast_samples_per_pixel(self, number_of_pixels, sensor_depth=None, add_noise=True):
 
         if self.args.gaussian_sampling_around_depth_sensor:
             # sample about sensor depth, with increasing standard deviations for longer depths
@@ -795,7 +777,7 @@ class SceneModel:
         pixel_directions_selected = self.pixel_directions[pixel_rows, pixel_cols]  # (N_pixels, 3)
 
         # sample about sensor depth, with increasing standard deviations for longer depths
-        depth_samples = self.get_raycast_samples_per_pixel(sensor_depth, add_noise=True)           
+        depth_samples = self.get_raycast_samples_per_pixel(number_of_pixels=sensor_depth.shape[0], add_noise=True)           
 
         # render an image using selected rays, pose, sample intervals, and the network
         render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, perturb_depths=False, rgb_image=rgb)  # (N_pixels, 3)
@@ -902,13 +884,6 @@ class SceneModel:
         # get all poses
         poses = self.models["pose"](0) # N_images
         
-        if epoch % self.args.render_test_video_frequency == 0 and epoch > 0:
-            poses = self.generate_poses_on_sphere_around_object(pose=pose, 
-                                                                sensor_depth=sensor_depth, 
-                                                                sphere_angle=self.args.spherical_radius_of_test_video,
-                                                                number_of_poses=self.args.number_of_poses_in_test_video)
-
-
         # compute the ray directions using the latest focal lengths, derived for the first image
         focal_length_x, focal_length_y = self.models["focal"](0)
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
@@ -917,7 +892,7 @@ class SceneModel:
         color_images = []
         depth_images = []
         pcds = []
-        for test_image_index in self.test_image_indices:
+        for i, test_image_index in enumerate(self.test_image_indices):
             # get the pixel indices that match with this image only
             pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == test_image_index)
             image_ids = self.image_ids_per_pixel[pixel_indices_for_this_image].to(self.device) # (N)
@@ -937,114 +912,170 @@ class SceneModel:
 
             sensor_depth = rgbd[:,3].to(self.device) # (N_pixels) 
 
-            depth_samples = self.get_raycast_samples_per_pixel(sensor_depth, add_noise=False)
+            # initialize a data structure to potentially handle renders for multiple poses (multiple images), if this is the test video frequency
+            all_pixel_directions_rows = []
+            all_poses_rows = []
+            all_depth_samples_rows = []
 
-            pixel_directions_rows = pixel_directions_for_this_image.split(self.args.number_of_rows_in_test_renders, dim=0)
-            poses_rows = selected_poses.split(self.args.number_of_rows_in_test_renders, dim=0)
-            depth_samples_rows = depth_samples.split(self.args.number_of_rows_in_test_renders, dim=0)
+            generate_video = epoch % self.args.render_test_video_frequency == 0 and epoch > 0 and i == 0
+            # generate poses around the first test pose if this is the time to do so
+            if generate_video:
+                # take the median pixel (randomly) and get its depth
+                center_pixel_distance = sensor_depth[int(len(sensor_depth) / 2)]
+                center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
+                center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]
 
-            all_rendered_image_rows = []
-            all_depth_image_rows = []
-            for poses_row, pixel_directions_row, depth_samples_row in zip(poses_rows, pixel_directions_rows, depth_samples_rows):
-                # compute the render and extract out RGB and depth map
-                rendered_data = self.render(poses=poses_row, pixel_directions=pixel_directions_row, sampling_depths=depth_samples_row, perturb_depths=False)  # (N_pixels, 3)
-                rendered_image = rendered_data['rgb_rendered']
-                rendered_depth = rendered_data['depth_map']
-                all_rendered_image_rows.append(rendered_image)
-                all_depth_image_rows.append(rendered_depth)
+                video_poses = self.generate_poses_on_sphere_around_object(pose=selected_poses[0], 
+                                                                          center_pixel_distance=center_pixel_distance, 
+                                                                          center_pixel_row=center_pixel_row,
+                                                                          center_pixel_col=center_pixel_col,
+                                                                          sphere_angle=self.args.spherical_radius_of_test_video,
+                                                                          number_of_poses=self.args.number_of_poses_in_test_video)
 
-            # combine rows to images
-            rendered_image = torch.cat(all_rendered_image_rows, dim=0) # (N_samples, 3)
-            rendered_depth = torch.cat(all_depth_image_rows, dim=0)  # (N_samples)
+                for pose in video_poses:
+                    # create pose, pixel directions, and depth samples for every image pixel
+                    poses_for_all_pixels = pose.unsqueeze(0).expand(self.H * self.W, -1, -1)
+                    pixel_directions_for_all_pixels = torch.flatten(self.pixel_directions, start_dim=0, end_dim=1) 
+                    depth_samples_for_all_pixels = self.get_raycast_samples_per_pixel(number_of_pixels=self.H * self.W, add_noise=False)
 
-            # extract out the color data
-            rendered_r = rendered_image[:,0]
-            rendered_g = rendered_image[:,1]
-            rendered_b = rendered_image[:,2]
+                    pixel_directions_rows = pixel_directions_for_all_pixels.split(self.args.number_of_rows_in_test_renders_for_videos, dim=0)
+                    poses_rows = poses_for_all_pixels.split(self.args.number_of_rows_in_test_renders_for_videos, dim=0)
+                    depth_samples_rows = depth_samples_for_all_pixels.split(self.args.number_of_rows_in_test_renders_for_videos, dim=0)
 
-            # create blank images for color and depth
-            color_canvas_r = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
-            color_canvas_g = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
-            color_canvas_b = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
-            depth_canvas = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
+                    all_pixel_directions_rows.append(pixel_directions_rows)
+                    all_poses_rows.append(poses_rows)
+                    all_depth_samples_rows.append(depth_samples_rows)
 
-            pixel_rows = torch.squeeze(pixel_rows)
-            pixel_cols = torch.squeeze(pixel_cols)
+            else:
+                # if this is not the time to make a test video, then we just need split up the rendering information for this test pose
+                new_generated_poses = None
+                depth_samples = self.get_raycast_samples_per_pixel(number_of_pixels=sensor_depth.shape[0], add_noise=False)
+                
+                # split each of the rendering inputs into smaller batches, which speeds up GPU processing
+                pixel_directions_rows = pixel_directions_for_this_image.split(self.args.number_of_rows_in_test_renders, dim=0)
+                poses_rows = selected_poses.split(self.args.number_of_rows_in_test_renders, dim=0)
+                depth_samples_rows = depth_samples.split(self.args.number_of_rows_in_test_renders, dim=0)
 
-            # now pop the rendered colors and depth onto our canvases
-            color_canvas_r[pixel_rows, pixel_cols] = rendered_r
-            color_canvas_g[pixel_rows, pixel_cols] = rendered_g
-            color_canvas_b[pixel_rows, pixel_cols] = rendered_b
-            depth_canvas[pixel_rows, pixel_cols] = rendered_depth
+                # add to a list which will be iterated through
+                all_pixel_directions_rows.append(pixel_directions_rows)
+                all_poses_rows.append(poses_rows)
+                all_depth_samples_rows.append(depth_samples_rows)
 
-            rendered_rgb = torch.stack([color_canvas_r,color_canvas_g,color_canvas_b], dim=2)
-            rendered_color_for_file = (rendered_rgb.cpu().numpy() * 255).astype(np.uint8)
-            color_images.append(rendered_color_for_file)
+            for video_pose_index, (poses_rows, pixel_directions_rows, depth_samples_rows) in enumerate(zip(all_poses_rows, all_pixel_directions_rows, all_depth_samples_rows)):
+                all_rendered_image_rows = []
+                all_depth_image_rows = []
+                for poses_row, pixel_directions_row, depth_samples_row in zip(poses_rows, pixel_directions_rows, depth_samples_rows):
+                    # compute the render and extract out RGB and depth map
+                    rendered_data = self.render(poses=poses_row, pixel_directions=pixel_directions_row, sampling_depths=depth_samples_row, perturb_depths=False)  # (N_pixels, 3)
+                    rendered_image = rendered_data['rgb_rendered']
+                    rendered_depth = rendered_data['depth_map']
+                    all_rendered_image_rows.append(rendered_image)
+                    all_depth_image_rows.append(rendered_depth)
 
-            # get depth map and convert it to Turbo Color Map
-            rendered_depth_data = depth_canvas.cpu().numpy() 
-            rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_data)
-            rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)
-            depth_images.append(rendered_depth_for_file)
+                # combine rows to images
+                rendered_image = torch.cat(all_rendered_image_rows, dim=0) # (N_samples, 3)
+                rendered_depth = torch.cat(all_depth_image_rows, dim=0)  # (N_samples)
 
-            # show a point cloud derived from this view to validate its sanity
-            if epoch % self.args.save_point_cloud_frequency == 0:
-                pcd = self.get_point_cloud(pose=selected_poses[0], depth=depth_canvas, rgb=rendered_rgb, label=image_ids[0], save=True)
-                pcds.append(pcd)
+                # extract out the color data
+                rendered_r = rendered_image[:,0]
+                rendered_g = rendered_image[:,1]
+                rendered_b = rendered_image[:,2]
 
-            # define file saving parameters
-            image_out_dir = "{}/hyperparam_experiments".format(self.args.base_directory)
-            number_of_samples_outward_per_raycasts = "{}".format(self.args.number_of_samples_outward_per_raycast)
-            experiment_params = "depth_loss_{}_to_{}_k{}_N{}_NeRF_Density_LR_{}_to_{}_k{}_N{}_pose_LR_{}_to_{}_k{}_N{}".format( self.args.depth_to_rgb_loss_start,
-                                                                                                                                self.args.depth_to_rgb_loss_end,
-                                                                                                                                self.args.depth_to_rgb_loss_exponential_index,
-                                                                                                                                self.args.depth_to_rgb_loss_curvature_shape,
-                                                                                                                                self.args.nerf_density_lr_start,
-                                                                                                                                self.args.nerf_density_lr_end,
-                                                                                                                                self.args.nerf_density_lr_exponential_index,
-                                                                                                                                self.args.nerf_density_lr_curvature_shape,
-                                                                                                                                self.args.pose_lr_start,
-                                                                                                                                self.args.pose_lr_end,
-                                                                                                                                self.args.pose_lr_exponential_index,
-                                                                                                                                self.args.pose_lr_curvature_shape)
+                # create blank images for color and depth
+                color_canvas_r = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
+                color_canvas_g = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
+                color_canvas_b = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
+                depth_canvas = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
 
-            experiment_label = "{}_{}".format(self.start_time, experiment_params)
-            
-            experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
-            experiment_dir.mkdir(parents=True, exist_ok=True)
-            self.experiment_dir = experiment_dir
+                squeezed_pixel_rows = torch.squeeze(pixel_rows)
+                squeezed_pixel_cols = torch.squeeze(pixel_cols)
+
+                if generate_video:
+                    # save data for all image pixels
+                    color_canvas_r[self.all_pixel_rows, self.all_pixel_cols] = rendered_r
+                    color_canvas_g[self.all_pixel_rows, self.all_pixel_cols] = rendered_g
+                    color_canvas_b[self.all_pixel_rows, self.all_pixel_cols] = rendered_b
+                    depth_canvas[self.all_pixel_rows, self.all_pixel_cols] = rendered_depth
+                else: 
+                    # now pop the rendered colors and depth onto our canvases
+                    color_canvas_r[squeezed_pixel_rows, squeezed_pixel_cols] = rendered_r
+                    color_canvas_g[squeezed_pixel_rows, squeezed_pixel_cols] = rendered_g
+                    color_canvas_b[squeezed_pixel_rows, squeezed_pixel_cols] = rendered_b
+                    depth_canvas[squeezed_pixel_rows, squeezed_pixel_cols] = rendered_depth                    
+
+                rendered_rgb = torch.stack([color_canvas_r,color_canvas_g,color_canvas_b], dim=2)
+                rendered_color_for_file = (rendered_rgb.cpu().numpy() * 255).astype(np.uint8)
+                if generate_video:
+                    color_images.append(rendered_color_for_file)
+
+                # get depth map and convert it to Turbo Color Map
+                rendered_depth_data = depth_canvas.cpu().numpy() 
+                rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_data)
+                rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)
+                if generate_video:
+                    depth_images.append(rendered_depth_for_file)
+
+                # show a point cloud derived from this view to validate its sanity
+                if epoch % self.args.save_point_cloud_frequency == 0:
+                    pcd = self.get_point_cloud(pose=selected_poses[0], depth=depth_canvas, rgb=rendered_rgb, label=image_ids[0], save=True)
+                    pcds.append(pcd)
+
+                # define file saving parameters
+                image_out_dir = "{}/hyperparam_experiments".format(self.args.base_directory)
+                number_of_samples_outward_per_raycasts = "{}".format(self.args.number_of_samples_outward_per_raycast)
+                experiment_params = "depth_loss_{}_to_{}_k{}_N{}_NeRF_Density_LR_{}_to_{}_k{}_N{}_pose_LR_{}_to_{}_k{}_N{}".format( self.args.depth_to_rgb_loss_start,
+                                                                                                                                    self.args.depth_to_rgb_loss_end,
+                                                                                                                                    self.args.depth_to_rgb_loss_exponential_index,
+                                                                                                                                    self.args.depth_to_rgb_loss_curvature_shape,
+                                                                                                                                    self.args.nerf_density_lr_start,
+                                                                                                                                    self.args.nerf_density_lr_end,
+                                                                                                                                    self.args.nerf_density_lr_exponential_index,
+                                                                                                                                    self.args.nerf_density_lr_curvature_shape,
+                                                                                                                                    self.args.pose_lr_start,
+                                                                                                                                    self.args.pose_lr_end,
+                                                                                                                                    self.args.pose_lr_exponential_index,
+                                                                                                                                    self.args.pose_lr_curvature_shape)
+
+                experiment_label = "{}_{}".format(self.start_time, experiment_params)
+                
+                experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
+                experiment_dir.mkdir(parents=True, exist_ok=True)
+                self.experiment_dir = experiment_dir
+
+                if epoch > 0:
+                    if epoch % self.args.render_test_video_frequency != 0:
+                        color_out_dir = Path("{}/color_nerf_out/".format(experiment_dir))
+                        color_out_dir.mkdir(parents=True, exist_ok=True)
+                        depth_out_dir = Path("{}/depth_nerf_out/".format(experiment_dir))
+                        depth_out_dir.mkdir(parents=True, exist_ok=True)
+                        color_file_name = os.path.join(color_out_dir, str(test_image_index).zfill(4) + '_color_{}.png'.format(epoch))
+                        depth_file_name = os.path.join(depth_out_dir, str(test_image_index).zfill(4) + '_depth_{}.png'.format(epoch))
+                        imageio.imwrite(color_file_name, rendered_color_for_file)
+                        imageio.imwrite(depth_file_name, rendered_depth_for_file)
+
+                    else:
+                        color_out_dir = Path("{}/video_color_nerf_out/".format(experiment_dir))
+                        color_out_dir.mkdir(parents=True, exist_ok=True)
+                        depth_out_dir = Path("{}/video_depth_nerf_out/".format(experiment_dir))
+                        depth_out_dir.mkdir(parents=True, exist_ok=True)
+                        color_file_name = os.path.join(color_out_dir, str(test_image_index).zfill(4) + '_color_{}_{}.png'.format(video_pose_index, epoch))
+                        depth_file_name = os.path.join(depth_out_dir, str(test_image_index).zfill(4) + '_depth_{}_{}.png'.format(video_pose_index, epoch))
+                        imageio.imwrite(color_file_name, rendered_color_for_file)
+                        imageio.imwrite(depth_file_name, rendered_depth_for_file)
 
             if epoch > 0:
-                if epoch % self.args.render_test_video_frequency != 0:
-                    color_out_dir = Path("{}/color_nerf_out/".format(experiment_dir))
-                    color_out_dir.mkdir(parents=True, exist_ok=True)
-                    depth_out_dir = Path("{}/depth_nerf_out/".format(experiment_dir))
-                    depth_out_dir.mkdir(parents=True, exist_ok=True)
-                    color_file_name = os.path.join(color_out_dir, str(test_image_index).zfill(4) + '_color_{}.png'.format(epoch))
-                    depth_file_name = os.path.join(depth_out_dir, str(test_image_index).zfill(4) + '_depth_{}.png'.format(epoch))
-                    imageio.imwrite(color_file_name, rendered_color_for_file)
-                    imageio.imwrite(depth_file_name, rendered_depth_for_file)
+                if generate_video:
+                    # create .mp4 movie
+                    imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.mp4'.format(epoch)), color_images, fps=15, quality=9)
+                    imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.mp4'.format(epoch)), depth_images, fps=15, quality=9)
 
-                else:
-                    color_out_dir = Path("{}/video_color_nerf_out/".format(experiment_dir))
-                    color_out_dir.mkdir(parents=True, exist_ok=True)
-                    depth_out_dir = Path("{}/video_depth_nerf_out/".format(experiment_dir))
-                    depth_out_dir.mkdir(parents=True, exist_ok=True)
-                    color_file_name = os.path.join(color_out_dir, str(test_image_index).zfill(4) + '_color_{}.png'.format(epoch))
-                    depth_file_name = os.path.join(depth_out_dir, str(test_image_index).zfill(4) + '_depth_{}.png'.format(epoch))
+                    # create a cool GIF with cats
+                    imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.gif'.format(epoch)), color_images, fps=15)
+                    imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.gif'.format(epoch)), depth_images, fps=15)
 
         if epoch % self.args.visualize_point_cloud_frequency == 0:
             o3d.visualization.draw_geometries(pcds)
 
-        if epoch > 0:
-            if epoch % self.args.render_test_video_frequency == 0:
-                # create .mp4 movie
-                imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.mp4'.format(epoch)), color_images, fps=15, quality=9)
-                imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.mp4'.format(epoch)), depth_images, fps=15, quality=9)
-
-                # create a cool GIF with cats
-                imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.gif'.format(epoch)), color_images, fps=15)
-                imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.gif'.format(epoch)), depth_images, fps=15)
 
 
     def save_models(self):
