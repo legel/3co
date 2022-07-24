@@ -1,5 +1,5 @@
 import torch
-from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles 
+from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
 from scipy.spatial.transform import Rotation
 from torchsummary import summary
 import cv2
@@ -23,6 +23,8 @@ from utils.training_utils import PolynomialDecayLearningRate, heatmap_to_pseudo_
 from models.intrinsics import CameraIntrinsicsModel
 from models.poses import CameraPoseModel
 from models.nerf_models import NeRFDensity, NeRFColor
+
+import matplotlib.pyplot as plt
 
 set_randomness()
 
@@ -503,7 +505,7 @@ class SceneModel:
         self.schedulers["pose"] = self.create_polynomial_learning_rate_schedule(model = "pose")
 
 
-    def load_pretrained_models(self, path="models", epoch=150001):
+    def load_pretrained_models(self, path="models/pillow_small_exp1", epoch=150001):
         for model_name in self.models.keys():
             model = self.models[model_name]
             model_path = "{}/{}_{}.pth".format(path, model_name, epoch)
@@ -626,8 +628,145 @@ class SceneModel:
             for image_number, pcd in enumerate(pcds):
                 o3d.io.write_point_cloud("ground_truth_visualization_{}.ply".format(image_number), pcd)
 
+    def rotate_pose_in_global_space(pose, d_pitch, d_roll, d_yaw):
+        pose_rotation_matrix = pose[:3,:3]
+        pose_axis_angles = matrix_to_axis_angle(camera_rotation_matrix)
+        new_axis_angles = pose_axis_angles + torch.FloatTensor([d_pitch, d_roll, d_yaw])
+        new_quaternian = axis_angle_to_quaternion(new_axis_angles)
+        new_camera_rotation_matrix = quaternion_to_matrix(new_quaternian)
 
-    def generate_poses_on_sphere_around_object(self, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = new_camera_rotation_matrix
+        new_pose[:3,3] = pose[:3,3]
+        new_pose[3,3] = 1.0
+
+        return new_pose
+
+    def rotate_pose_in_camera_space(self, pose, d_pitch, d_roll, d_yaw):
+        camera_rotation_matrix = pose[:3,:3]
+        
+        pose_quaternion = matrix_to_quaternion(camera_rotation_matrix)
+        new_quaternion = quaternion_multiply(pose_quaternion, axis_angle_to_quaternion(torch.FloatTensor([d_pitch,d_roll,d_yaw])))
+
+        new_camera_rotation_matrix = quaternion_to_matrix(new_quaternion)
+
+        new_camera_axis_angles = matrix_to_axis_angle(new_camera_rotation_matrix)
+        #print("new axis angles:")
+        #print(new_camera_axis_angles)
+
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = new_camera_rotation_matrix
+        new_pose[:3,3] = pose[:3,3]
+        new_pose[3,3] = 1.0
+
+        return new_pose        
+        
+    def translate_pose_in_global_space(self, pose, d_x, d_y, d_z):        
+        camera_rotation_matrix = pose[:3,:3]
+        translation = torch.FloatTensor([d_x,d_y,d_z])
+
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = pose[:3,:3]
+        new_pose[:3,3] = pose[:3,3] + translation
+        new_pose[3,3] = 1.0
+
+        return new_pose
+
+    def translate_pose_in_camera_space(self, pose, d_x, d_y, d_z):        
+        camera_rotation_matrix = pose[:3,:3]
+        transformed_translation = torch.matmul(camera_rotation_matrix, torch.FloatTensor([d_x,d_y,d_z]))           
+
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = pose[:3,:3]
+        new_pose[:3,3] = pose[:3,3] + transformed_translation
+        new_pose[3,3] = 1.0
+                        
+        return new_pose
+
+    def construct_pose(self, pitch, yaw, roll, x, y, z):
+        pose = torch.zeros((4,4))
+        pose_quaternion = axis_angle_to_quaternion(torch.FloatTensor([pitch, yaw, roll]))
+        pose_rotation_matrix = quaternion_to_matrix(pose_quaternion)
+        pose[:3,:3] = pose_rotation_matrix
+        pose[:3,3] = torch.FloatTensor([x,y,z])
+        pose[3,3] = 1.0
+
+        return pose        
+
+    def generate_spin_poses(self, number_of_poses):
+
+        pose = self.poses[0]        
+        camera_rotation_matrix = pose[:3,:3]
+        camera_xyz = pose[:3, 3]
+        
+        # modify the first pose to obtain a good start position for the video
+        initial_pose_axis_angles = matrix_to_axis_angle(pose[:3,:3])        
+        initial_pitch = initial_pose_axis_angles[0]
+        initial_yaw = initial_pose_axis_angles[1]
+        initial_roll = initial_pose_axis_angles[2] 
+        d_pitch = 1.0 * (-np.pi/2 - initial_pitch + 3.0 * np.pi / 50 + 1.1*np.pi/30)
+        d_yaw = 0.0
+        d_roll = -1.0 * np.pi/24
+        d_x = -0.05 #0.05 * 2  # + is move right, - is move left
+        d_y = 0.05 * 13 # + is move down, - is move up
+        d_z = -0.2 # + is move forward, - is move back        
+        rotation = torch.FloatTensor([d_pitch, d_yaw, d_roll])        
+        translation = torch.FloatTensor([d_x, d_y, d_z])
+        pose = self.rotate_pose_in_camera_space(pose, rotation[0], rotation[1], rotation[2])        
+        pose = self.translate_pose_in_camera_space(pose, translation[0], translation[1], translation[2])        
+
+        # get the xyz coordinates of the center pixel of the (pre-modified) initial image
+        pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == 0)
+        pixel_rows = self.pixel_rows[pixel_indices_for_this_image]
+        pixel_cols = self.pixel_cols[pixel_indices_for_this_image]
+        rgbd = self.rgbd[torch.squeeze(pixel_indices_for_this_image)].to(self.device)  # (N_pixels, 4)
+        sensor_depth = rgbd[:,3].to(self.device) # (N_pixels) 
+        center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
+        center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]        
+        center_pixel_distance = sensor_depth[int(len(sensor_depth) / 2)]        
+        ray_dir_world = torch.matmul(camera_rotation_matrix.view(1, 1, 3, 3), self.pixel_directions.unsqueeze(3)).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
+        ray_dir_for_pixel = ray_dir_world[center_pixel_row, center_pixel_col, :] # (3) orientation for this pixel from the camera        
+        pixel_xyz = camera_xyz + ray_dir_for_pixel * center_pixel_distance 
+        center_pixel_xyz = pixel_xyz[0]
+        
+        poses = [pose]
+        pose_debug = []
+        next_cam_pose = np.zeros((4,4))
+        next_cam_pose = pose[:4,:4]
+        
+        for i in range(0, number_of_poses):
+                        
+            x = next_cam_pose[0,3]
+            y = next_cam_pose[2,3]
+
+            # convert to polar coordinates with center_pixel_xyz as origin
+            r = math.dist([pose[0,3],pose[1,3],pose[2,3]], [center_pixel_xyz[0], center_pixel_xyz[1], center_pixel_xyz[2]])                  
+            theta = torch.atan2(torch.FloatTensor([y]),torch.FloatTensor([x]))            
+
+            # rotate
+            theta = theta + 2.0*np.pi/number_of_poses
+
+            # convert back to cartesian coordinates
+            xp = r * math.cos(theta)
+            yp = r * math.sin(theta)
+
+            # translate then rotate
+            next_cam_pose = self.translate_pose_in_global_space(next_cam_pose, 1.0 * (xp - x), 0.0, 1.0 * (yp - y))
+            next_cam_pose = self.rotate_pose_in_camera_space(next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)            
+
+            pose_debug.append([next_cam_pose[0,3], next_cam_pose[2,3]])                        
+            poses.append(next_cam_pose)            
+
+        #plt.plot([x[0] for x in pose_debug], [x[1] for x in pose_debug])
+        #plt.show()
+
+        poses = torch.stack(poses, 0)
+        poses = convert3x4_4x4(poses).to(self.device)
+
+        return poses
+
+
+    def generate_zoom_poses(self, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
         camera_rotation_matrix = pose[:3, :3] # rotation matrix (3,3)
         camera_xyz = pose[:3, 3]  # translation vector (3)
 
@@ -924,13 +1063,9 @@ class SceneModel:
                 center_pixel_distance = sensor_depth[int(len(sensor_depth) / 2)]
                 center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
                 center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]
-
-                video_poses = self.generate_poses_on_sphere_around_object(pose=selected_poses[0], 
-                                                                          center_pixel_distance=center_pixel_distance, 
-                                                                          center_pixel_row=center_pixel_row,
-                                                                          center_pixel_col=center_pixel_col,
-                                                                          sphere_angle=self.args.spherical_radius_of_test_video,
-                                                                          number_of_poses=self.args.number_of_poses_in_test_video)
+                
+                video_poses = self.generate_spin_poses(number_of_poses=self.args.number_of_poses_in_test_video)
+                                                        
 
                 for pose in video_poses:
                     # create pose, pixel directions, and depth samples for every image pixel
@@ -1068,7 +1203,8 @@ class SceneModel:
                     # create .mp4 movie
                     imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.mp4'.format(epoch)), color_images, fps=15, quality=9)
                     imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.mp4'.format(epoch)), depth_images, fps=15, quality=9)
-
+                    quit()
+                    
                     # create a cool GIF with cats
                     imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.gif'.format(epoch)), color_images, fps=15)
                     imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.gif'.format(epoch)), depth_images, fps=15)
