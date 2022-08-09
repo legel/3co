@@ -19,7 +19,12 @@ def heatmap_to_pseudo_color(heatmap, min_depth=0.0, max_depth=3.0):
 
     # minimum_depth_value = 0.04
     # maximum_depth_value = 0.30
-    x = (x - minimum_depth_value) / (maximum_depth_value - minimum_depth_value)
+    numerator = x - minimum_depth_value
+    denominator = maximum_depth_value - minimum_depth_value
+
+    #x = (x - minimum_depth_value) / (maximum_depth_value - minimum_depth_value)
+
+    x = np.divide(numerator, denominator, out=np.zeros_like(numerator), where=denominator != 0)
 
     x = x.clip(0, 1)
     a = (x * 255).astype(int)
@@ -122,11 +127,11 @@ def set_randomness(random_seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def load_ckpt_to_net(ckpt_path, net, map_location=None, strict=True):
+def load_model(path, net, map_location=None, strict=True):
     if map_location is None:
-        ckpt = torch.load(ckpt_path)
+        ckpt = torch.load(path)
     else:
-        ckpt = torch.load(ckpt_path, map_location=map_location)
+        ckpt = torch.load(path, map_location=map_location)
 
     weights = ckpt['model_state_dict']
 
@@ -136,3 +141,4 @@ def load_ckpt_to_net(ckpt_path, net, map_location=None, strict=True):
         net.load_state_dict(weights, strict=strict)
 
     return net
+

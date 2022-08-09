@@ -24,13 +24,16 @@ from models.intrinsics import CameraIntrinsicsModel
 from models.poses import CameraPoseModel
 from models.nerf_models import NeRFDensity, NeRFColor
 
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
+
 set_randomness()
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
     # Define path to relevant data for training, and decide on number of images to use in training
-    parser.add_argument('--base_directory', type=str, default='./data/pillow_large', help='The base directory to load and save information from')
+    parser.add_argument('--base_directory', type=str, default='./data/pillow_small', help='The base directory to load and save information from')
     parser.add_argument('--images_directory', type=str, default='color', help='The specific group of images to use during training')
     parser.add_argument('--images_data_type', type=str, default='jpg', help='Whether images are jpg or png')
     parser.add_argument('--skip_every_n_images_for_training', type=int, default=60, help='When loading all of the training data, ignore every N images')
@@ -40,23 +43,25 @@ def parse_args():
     # Define number of epochs, and timing by epoch for when to start training per network
     parser.add_argument('--number_of_epochs', default=200001, type=int, help='Number of epochs for training, used in learning rate schedules')
     parser.add_argument('--early_termination_epoch', default=200001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
-    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=0, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
-    parser.add_argument('--start_training_intrinsics_epoch', type=int, default=1000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
+    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=500, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
+    parser.add_argument('--start_training_intrinsics_epoch', type=int, default=5000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_color_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging frequency and parameters
-    parser.add_argument('--test_frequency', default=1, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--test_frequency', default=100, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
-    parser.add_argument('--save_point_cloud_frequency', default=5000, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
-    parser.add_argument('--render_test_video_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
+    parser.add_argument('--render_test_video_frequency', default=50000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=1, type=int, help='Radius of sampled poses around the evaluation pose for video')
-    parser.add_argument('--number_of_poses_in_test_video', default=4, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=1, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--number_of_poses_in_test_video', default=10, type=int, help='Number of poses in test video to render for the total animation')
+    parser.add_argument('--number_of_test_images', default=5, type=int, help='Index in the training data set of the image to show during testing')
     parser.add_argument('--skip_every_n_images_for_testing', default=20, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')
     parser.add_argument('--number_of_rows_in_test_renders', default=100, type=int, help='Rows that the input will be split up into, to make rendering more efficient')
     parser.add_argument('--number_of_rows_in_test_renders_for_videos', default=200, type=int, help='Rows that the input will be split up into, to make rendering more efficient')
+    parser.add_argument('--show_debug_visualization_in_testing', default=False, type=bool, help='Whether or not to show the cool Matplotlib 3D view of rays + weights + colors')
+    parser.add_argument('--save_raw_raycast_densities_for_test_renders', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
     parser.add_argument('--nerf_density_lr_start', default=0.0010, type=float, help="Learning rate start for NeRF geometry network")
@@ -79,7 +84,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.0, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.5, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -91,8 +96,8 @@ def parse_args():
     parser.add_argument('--directional_encoding_fourier_frequencies', type=int, default=10, help='The number of frequencies that are generated for positional encoding of (pitch, yaw)')
 
     # Define sampling parameters, including how many samples per raycast (outward), number of samples randomly selected per image, and (if masking is used) ratio of good to masked samples
-    parser.add_argument('--pixel_samples_per_epoch', type=int, default=3072, help='The number of rows of samples to randomly collect for each image during training')
-    parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=128, help='The number of samples per raycast to collect (linearly)')
+    parser.add_argument('--pixel_samples_per_epoch', type=int, default=512, help='The number of rows of samples to randomly collect for each image during training')
+    parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=1028, help='The number of samples per raycast to collect (linearly)')
     parser.add_argument('--percent_of_sensor_depth_as_standard_deviation', type=float, default=0.003, help='The standard deviation of sampling by depth')
     parser.add_argument('--gaussian_sampling_around_depth_sensor', type=bool, default=False, help='An unproven technique that could be useful if refined')
 
@@ -126,8 +131,7 @@ class SceneModel:
         self.load_all_images_ids()
 
         # define bounds (self.min_x, self.max_x), (self.min_y, self.max_y), (self.min_z, self.max_z) in which all points should initially project inside, or else not be included
-        self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=280, max_pixel_row=1230, min_pixel_col=480, max_pixel_col=1380)
-        # self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=280, max_pixel_row=580, min_pixel_col=700, max_pixel_col=1000)
+        self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=0, max_pixel_row=self.H, min_pixel_col=0, max_pixel_col=self.W)
 
         # prepare test evaluation indices
         self.prepare_test_data()
@@ -503,7 +507,7 @@ class SceneModel:
         self.schedulers["pose"] = self.create_polynomial_learning_rate_schedule(model = "pose")
 
 
-    def load_pretrained_models(self, path="models", epoch=150001):
+    def load_pretrained_models(self, path="models", epoch=100001):
         for model_name in self.models.keys():
             model = self.models[model_name]
             model_path = "{}/{}_{}.pth".format(path, model_name, epoch)
@@ -573,27 +577,6 @@ class SceneModel:
 
         return global_xyz
 
-
-    # def get_point_cloud(self, i, min_row=None, max_row=None, min_col=None, max_col=None):
-    #     # compute 3D coordinates in global coordinate system
-    #     xyz_coordinates = self.get_sensor_xyz_coordinates(i) # (H, W, 3)
-
-    #     # get image colors
-    #     image_colors = self.images[i].to(self.device)  # (H, W, 3)
-
-    #     if type(min_row) != type(None) or type(max_row) != type(None):
-    #         xyz_coordinates = xyz_coordinates[min_row:max_row, :, :]
-    #         image_colors = image_colors[min_row:max_row, :, :]
-    #     if type(min_col) != type(None) or type(max_col) != type(None):
-    #         xyz_coordinates = xyz_coordinates[:, min_col:max_col, :]
-    #         image_colors = image_colors[:, min_col:max_col, :]
-
-    #     # create a point cloud in Open3D format
-    #     pcd = self.create_point_cloud(xyz_coordinates, image_colors, label="pose_{}".format(i), flatten_xyz=True, flatten_image=True)
-
-    #     return pcd, xyz_coordinates, image_colors
-
-
     def create_point_cloud(self, xyz_coordinates, colors, label=0, flatten_xyz=True, flatten_image=True):
         pcd = o3d.geometry.PointCloud()
         if flatten_xyz:
@@ -626,6 +609,183 @@ class SceneModel:
             for image_number, pcd in enumerate(pcds):
                 o3d.io.write_point_cloud("ground_truth_visualization_{}.ply".format(image_number), pcd)
 
+    def rotate_pose_in_global_space(pose, d_pitch, d_roll, d_yaw):
+        pose_rotation_matrix = pose[:3,:3]
+        pose_axis_angles = matrix_to_axis_angle(camera_rotation_matrix)
+        new_axis_angles = pose_axis_angles + torch.FloatTensor([d_pitch, d_roll, d_yaw])
+        new_quaternian = axis_angle_to_quaternion(new_axis_angles)
+        new_camera_rotation_matrix = quaternion_to_matrix(new_quaternian)
+
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = new_camera_rotation_matrix
+        new_pose[:3,3] = pose[:3,3]
+        new_pose[3,3] = 1.0
+
+        return new_pose
+
+    def rotate_pose_in_camera_space(self, pose, d_pitch, d_roll, d_yaw):
+        camera_rotation_matrix = pose[:3,:3]
+        
+        pose_quaternion = matrix_to_quaternion(camera_rotation_matrix)
+        new_quaternion = quaternion_multiply(pose_quaternion, axis_angle_to_quaternion(torch.FloatTensor([d_pitch,d_roll,d_yaw])))
+
+        new_camera_rotation_matrix = quaternion_to_matrix(new_quaternion)
+
+        new_camera_axis_angles = matrix_to_axis_angle(new_camera_rotation_matrix)
+        #print("new axis angles:")
+        #print(new_camera_axis_angles)
+
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = new_camera_rotation_matrix
+        new_pose[:3,3] = pose[:3,3]
+        new_pose[3,3] = 1.0
+
+        return new_pose        
+        
+    def translate_pose_in_global_space(self, pose, d_x, d_y, d_z):        
+        camera_rotation_matrix = pose[:3,:3]
+        translation = torch.FloatTensor([d_x,d_y,d_z])
+
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = pose[:3,:3]
+        new_pose[:3,3] = pose[:3,3] + translation
+        new_pose[3,3] = 1.0
+
+        return new_pose
+
+    def translate_pose_in_camera_space(self, pose, d_x, d_y, d_z):        
+        camera_rotation_matrix = pose[:3,:3]
+        transformed_translation = torch.matmul(camera_rotation_matrix, torch.FloatTensor([d_x,d_y,d_z]))           
+
+        new_pose = torch.zeros((4,4))
+        new_pose[:3,:3] = pose[:3,:3]
+        new_pose[:3,3] = pose[:3,3] + transformed_translation
+        new_pose[3,3] = 1.0
+                        
+        return new_pose
+
+    def construct_pose(self, pitch, yaw, roll, x, y, z):
+        pose = torch.zeros((4,4))
+        pose_quaternion = axis_angle_to_quaternion(torch.FloatTensor([pitch, yaw, roll]))
+        pose_rotation_matrix = quaternion_to_matrix(pose_quaternion)
+        pose[:3,:3] = pose_rotation_matrix
+        pose[:3,3] = torch.FloatTensor([x,y,z])
+        pose[3,3] = 1.0
+
+        return pose        
+
+    def generate_spin_poses(self, number_of_poses):
+
+        pose = self.poses[0]        
+        camera_rotation_matrix = pose[:3,:3]
+        camera_xyz = pose[:3, 3]
+        
+        # modify the first pose to obtain a good start position for the video
+        initial_pose_axis_angles = matrix_to_axis_angle(pose[:3,:3])        
+        initial_pitch = initial_pose_axis_angles[0]
+        initial_yaw = initial_pose_axis_angles[1]
+        initial_roll = initial_pose_axis_angles[2] 
+        d_pitch = 1.0 * (-np.pi/2 - initial_pitch + 3.0 * np.pi / 50 + 1.1*np.pi/30)
+        d_yaw = 0.0
+        d_roll = -1.0 * np.pi/24
+        d_x = -0.05 #0.05 * 2  # + is move right, - is move left
+        d_y = 0.05 * 13 # + is move down, - is move up
+        d_z = -0.2 # + is move forward, - is move back        
+        rotation = torch.FloatTensor([d_pitch, d_yaw, d_roll])        
+        translation = torch.FloatTensor([d_x, d_y, d_z])
+        pose = self.rotate_pose_in_camera_space(pose, rotation[0], rotation[1], rotation[2])        
+        pose = self.translate_pose_in_camera_space(pose, translation[0], translation[1], translation[2])        
+
+        # get the xyz coordinates of the center pixel of the (pre-modified) initial image
+        pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == 0)
+        pixel_rows = self.pixel_rows[pixel_indices_for_this_image]
+        pixel_cols = self.pixel_cols[pixel_indices_for_this_image]
+        rgbd = self.rgbd[torch.squeeze(pixel_indices_for_this_image)].to(self.device)  # (N_pixels, 4)
+        sensor_depth = rgbd[:,3].to(self.device) # (N_pixels) 
+        center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
+        center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]        
+        center_pixel_distance = sensor_depth[int(len(sensor_depth) / 2)]        
+        ray_dir_world = torch.matmul(camera_rotation_matrix.view(1, 1, 3, 3), self.pixel_directions.unsqueeze(3)).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
+        ray_dir_for_pixel = ray_dir_world[center_pixel_row, center_pixel_col, :] # (3) orientation for this pixel from the camera        
+        pixel_xyz = camera_xyz + ray_dir_for_pixel * center_pixel_distance 
+        center_pixel_xyz = pixel_xyz[0]
+        
+        poses = [pose]
+        pose_debug = []
+        next_cam_pose = np.zeros((4,4))
+        next_cam_pose = pose[:4,:4]
+        
+        for i in range(0, number_of_poses):
+                        
+            x = next_cam_pose[0,3]
+            y = next_cam_pose[2,3]
+
+            # convert to polar coordinates with center_pixel_xyz as origin
+            r = math.dist([pose[0,3],pose[1,3],pose[2,3]], [center_pixel_xyz[0], center_pixel_xyz[1], center_pixel_xyz[2]])                  
+            theta = torch.atan2(torch.FloatTensor([y]),torch.FloatTensor([x]))            
+
+            # rotate
+            theta = theta + 2.0*np.pi/number_of_poses
+
+            # convert back to cartesian coordinates
+            xp = r * math.cos(theta)
+            yp = r * math.sin(theta)
+
+            # translate then rotate
+            next_cam_pose = self.translate_pose_in_global_space(next_cam_pose, 1.0 * (xp - x), 0.0, 1.0 * (yp - y))
+            next_cam_pose = self.rotate_pose_in_camera_space(next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)            
+
+            pose_debug.append([next_cam_pose[0,3], next_cam_pose[2,3]])                        
+            poses.append(next_cam_pose)            
+
+        #plt.plot([x[0] for x in pose_debug], [x[1] for x in pose_debug])
+        #plt.show()
+
+        poses = torch.stack(poses, 0)
+        poses = convert3x4_4x4(poses).to(self.device)
+
+        return poses
+
+
+    def generate_zoom_poses(self, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
+        camera_rotation_matrix = pose[:3, :3] # rotation matrix (3,3)
+        camera_xyz = pose[:3, 3]  # translation vector (3)
+
+        # transform rays from camera coordinate to world coordinate
+        ray_dir_world = torch.matmul(camera_rotation_matrix.view(1, 1, 3, 3), self.pixel_directions.unsqueeze(3)).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
+        ray_dir_for_pixel = ray_dir_world[center_pixel_row, center_pixel_col, :] # (3) orientation for this pixel from the camera
+
+        pixel_xyz = camera_xyz + ray_dir_for_pixel * center_pixel_distance 
+        pixel_xyz = pixel_xyz[0]
+
+        pixel_x = pixel_xyz[0]
+        pixel_y = pixel_xyz[1]
+        pixel_z = pixel_xyz[2]
+
+        # By subtracting the pixel_xyz from itself, and the camera_xyz, then we have the pixel_xyz become the origin
+        cam_zoom_direction_xyz = camera_xyz - pixel_xyz
+        zoom_distance_x = cam_zoom_direction_xyz[0]
+        zoom_distance_y = cam_zoom_direction_xyz[1]
+        zoom_distance_z = cam_zoom_direction_xyz[2]
+
+        # define number_of_poses along a path from the original camera pose zooming into the object
+        poses = []
+        for i, zoom_percent in enumerate(np.linspace(0, 0.75, number_of_poses)):
+            # then convert back to euclidian coordinates
+            next_cam_x = camera_xyz[0] - zoom_distance_x * zoom_percent
+            next_cam_y = camera_xyz[1] - zoom_distance_y * zoom_percent
+            next_cam_z = camera_xyz[2] - zoom_distance_z * zoom_percent
+
+            next_cam_pose = torch.zeros((3,4))
+            next_cam_pose[:3,:3] = camera_rotation_matrix
+            next_cam_pose[:3,3] = torch.tensor([next_cam_x, next_cam_y, next_cam_z])
+
+            poses.append(next_cam_pose)
+
+        poses = torch.stack(poses, 0)
+        poses = convert3x4_4x4(poses).to(self.device)
+
+        return poses
 
     def generate_poses_on_sphere_around_object(self, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
         camera_rotation_matrix = pose[:3, :3] # rotation matrix (3,3)
@@ -739,6 +899,7 @@ class SceneModel:
         else:
             self.models["geometry"].eval()
 
+
         # shuffle training batch indices
         indices_of_random_pixels = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)
 
@@ -783,11 +944,26 @@ class SceneModel:
         render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, perturb_depths=False, rgb_image=rgb)  # (N_pixels, 3)
 
         rgb_rendered = render_result['rgb_rendered']  # (N_pixels, 3)
-        nerf_depth = render_result['depth_map'] # (N_pixels)
-        
+        nerf_depth_weights = render_result['depth_weights'] # (N_pixels, N_samples)
+                
         # compute the mean squared difference between the sensor depth and the NeRF depth
-        depth_loss = (nerf_depth * 1000 - sensor_depth * 1000)**2
-        depth_loss = torch.mean(depth_loss)
+        number_of_depth_samples = depth_samples.shape[1]
+        sensor_depth_per_sample = sensor_depth.unsqueeze(1).expand(-1,number_of_depth_samples)
+        distance_metric = (sensor_depth_per_sample * 1000 - depth_samples * 1000) ** 2
+        neural_sensor_weights_overlap = distance_metric * nerf_depth_weights
+        depth_loss = torch.mean(neural_sensor_weights_overlap)
+
+        # cross-entropy depth loss, which penalizes distributions away from the Delta
+        # min_distance, min_distance_sample_index = torch.min(torch.abs(sensor_depth_per_sample - depth_samples), dim=1) # (N_pixels, N_samples) -> (N_pixels)
+        # one_hot_encoded_sample_distance = torch.zeros(size=sensor_depth_per_sample.shape).to(self.device) # (N_pixels, N_samples)
+        # one_hot_encoded_sample_distance[:,min_distance_sample_index] = 1.0
+        # cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='sum') 
+        # cross_entropy_depth_loss = torch.mean((nerf_depth_weights * 100 - one_hot_encoded_sample_distance * 100)**2) # 
+        # cross_entropy_depth_loss = cross_entropy_loss(input=nerf_depth_weights, target=min_distance_sample_index)
+        # max_depth_weight loss
+        # one-hot encoding the sensor_depth, as a means of learning the relative distribution!
+        # sensor_depth_per_sample = sensor_depth.unsqueeze(1).expand(-1,number_of_depth_samples)
+        # max_weight_depth_loss = torch.mean((sensor_depth * 1000 - depths_max_weight * 1000) ** 2) # (N_pixel - N_pixel)
 
         # compute the mean squared difference between the RGB render of the neural network and the original image
         rgb_loss = (rgb_rendered * 255 - rgb * 255)**2
@@ -796,7 +972,6 @@ class SceneModel:
 
         # to-do: implement perceptual color difference minimizer
         #  torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
-
 
         # get the relative importance between depth and RGB loss
         depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
@@ -822,7 +997,6 @@ class SceneModel:
         if self.epoch % self.args.log_frequency == 0:
             minutes_into_experiment = (int(time.time())-int(self.start_time)) / 60
             print("({} at {:.2f} minutes) - RGB Loss: {:.3f} (out of 255), Depth Loss: {:.3f}mm, Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, minutes_into_experiment, torch.sqrt(rgb_loss), torch.sqrt(depth_loss), focal_length_x, focal_length_y))
-
         # update the learning rate schedulers
         for scheduler in self.schedulers.values():
             scheduler.step()
@@ -848,17 +1022,8 @@ class SceneModel:
         angular_directional_encoding = angular_directional_encoding.unsqueeze(1).expand(-1, self.args.number_of_samples_outward_per_raycast, -1)  # (N_pixels, N_sample, 27)
 
         # inference rgb and density using position and direction encoding.
-        # if self.epoch >= self.args.start_training_geometry_epoch:
-        #     density, features = self.models["geometry"](xyz_position_encoding)  # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)
-        # else:
-        #     with torch.no_grad():
         density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)
-
-        #if self.epoch >= self.args.start_training_color_epoch:
-        #    rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
-        #else:
-        #    with torch.no_grad():
-        rgb = self.models["color"](features, angular_directional_encoding, rgb_image)  # (N_pixels, N_sample, 4)
+        rgb = self.models["color"](features, angular_directional_encoding)  # (N_pixels, N_sample, 4)
 
         render_result = volume_rendering(rgb, density, resampled_depths)
 
@@ -867,12 +1032,66 @@ class SceneModel:
             'pixel_xyz_positions': pixel_xyz_positions,    # (N_pixels, N_sample, 3)
             'depth_map': render_result['depth_map'],       # (N_pixels)
             'depth_weights': render_result['weight'],      # (N_pixels, N_sample),
-            'rgb': rgb,                                    # (N_pixels, N_sample, 4),
-            'density': density,                            # (N_pixels, N_sample),
-            'resampled_depths': resampled_depths           # (N_samples)
+            'rgb': render_result['rgb'],                   # (N_pixels, N_sample, 3),
+            'density': render_result['density'],                            # (N_pixels, N_sample),
+            'alpha': render_result['alpha'],               # (N_pixels, N_sample),
+            'acc_transmittance': render_result['acc_transmittance'], # (N_pixels, N_sample),
+            'resampled_depths': resampled_depths,           # (N_samples)
         }
 
         return result
+
+
+    def debug_visualization(self, rgb, xyz, depth_weights, rendered_image, downsample_ratio=50):
+        # rgb := (N_pixels, N_samples, 3)
+        # xyz :- (N_pixels, N_samples, 3)
+        # depth_weights := (N_pixels, N_samples)
+
+        fig = plt.figure()
+        ax = fig.gca(projection="3d")
+        ax.clear()
+        ax.set_title("Visualization of RGB + Depth Weights Per 128 raycast samples Per Pixel")
+        all_visible_indices = []
+        number_of_pixels, number_of_samples, _ = rgb.shape
+        for sample in range(1, number_of_samples):
+            sample_rgb = rgb[:,sample,:].cpu().detach().numpy()[int(number_of_pixels/3):int(2*number_of_pixels/3)][::downsample_ratio] # (N_pixels / 10, 3)
+            sample_xyz = xyz[:,sample,:].cpu().detach().numpy()[int(number_of_pixels/3):int(2*number_of_pixels/3)][::downsample_ratio] # (N_pixels / 10, 3)
+            sample_depth_weight = depth_weights[:,sample].cpu().detach().numpy()[int(number_of_pixels/3):int(2*number_of_pixels/3)][::downsample_ratio] # (N_pixels / 10)
+            rgba = np.concatenate([sample_rgb, np.expand_dims(sample_depth_weight, axis=1)], axis=1) # (N_pixels / 10, 4)
+
+            clearly_visible_point_indices = np.argwhere(rgba[:,3] > 0.05)
+            selected_rgba = rgba[clearly_visible_point_indices,:]
+
+            selected_x = sample_xyz[clearly_visible_point_indices,0]
+            selected_y = sample_xyz[clearly_visible_point_indices,1]
+            selected_z = sample_xyz[clearly_visible_point_indices,2]
+
+            ax.scatter(selected_x, selected_y, selected_z, color=selected_rgba, marker=".", s=400)
+            all_visible_indices.extend(clearly_visible_point_indices.flatten())
+        
+        # now show raycasts to get a sense of what the final colors are
+        all_visible_indices_in_set = list(set(all_visible_indices))
+        pixel_xyz_visible_start = xyz[int(number_of_pixels/3):int(2*number_of_pixels/3)].cpu().detach().numpy()[::downsample_ratio][all_visible_indices_in_set, 0, :]
+        pixel_xyz_visible_end = xyz[int(number_of_pixels/3):int(2*number_of_pixels/3)].cpu().detach().numpy()[::downsample_ratio][all_visible_indices_in_set, -1, :]
+        rendered_colors_of_visible_pixels = rendered_image[int(number_of_pixels/3):int(2*number_of_pixels/3), :].cpu().detach().numpy()[::downsample_ratio][all_visible_indices_in_set, :]
+
+        pixel_raycast_x = np.stack([pixel_xyz_visible_start[:,0], pixel_xyz_visible_end[:,0]]) # (N_selected_pixels, 2)
+        pixel_raycast_y = np.stack([pixel_xyz_visible_start[:,1], pixel_xyz_visible_end[:,1]]) # (N_selected_pixels, 2)
+        pixel_raycast_z = np.stack([pixel_xyz_visible_start[:,2], pixel_xyz_visible_end[:,2]]) # (N_selected_pixels, 2)
+
+        number_start_stop, number_of_pixels_to_raycast = pixel_raycast_x.shape
+        for ray in range(number_of_pixels_to_raycast):
+            xs = pixel_raycast_x[:,ray]
+            ys = pixel_raycast_y[:,ray]
+            zs = pixel_raycast_z[:,ray]
+            color = rendered_colors_of_visible_pixels[ray,:]
+            ax.plot3D(xs, ys, zs, color=color, linewidth=0.1)
+
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_zlabel("z")
+
+        plt.show()
 
 
     def test(self):
@@ -925,12 +1144,7 @@ class SceneModel:
                 center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
                 center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]
 
-                video_poses = self.generate_poses_on_sphere_around_object(pose=selected_poses[0], 
-                                                                          center_pixel_distance=center_pixel_distance, 
-                                                                          center_pixel_row=center_pixel_row,
-                                                                          center_pixel_col=center_pixel_col,
-                                                                          sphere_angle=self.args.spherical_radius_of_test_video,
-                                                                          number_of_poses=self.args.number_of_poses_in_test_video)
+                video_poses = self.generate_spin_poses(number_of_poses=self.args.number_of_poses_in_test_video)
 
                 for pose in video_poses:
                     # create pose, pixel directions, and depth samples for every image pixel
@@ -964,17 +1178,60 @@ class SceneModel:
             for video_pose_index, (poses_rows, pixel_directions_rows, depth_samples_rows) in enumerate(zip(all_poses_rows, all_pixel_directions_rows, all_depth_samples_rows)):
                 all_rendered_image_rows = []
                 all_depth_image_rows = []
+                if self.args.show_debug_visualization_in_testing or self.args.save_raw_raycast_densities_for_test_renders:
+                    all_rgb_model_outputs_for_samples = []
+                    all_depth_weights_for_samples = []
+                    all_xyz_for_samples = []
+
                 for poses_row, pixel_directions_row, depth_samples_row in zip(poses_rows, pixel_directions_rows, depth_samples_rows):
                     # compute the render and extract out RGB and depth map
                     rendered_data = self.render(poses=poses_row, pixel_directions=pixel_directions_row, sampling_depths=depth_samples_row, perturb_depths=False)  # (N_pixels, 3)
-                    rendered_image = rendered_data['rgb_rendered']
-                    rendered_depth = rendered_data['depth_map']
+                    rendered_image = rendered_data['rgb_rendered'] # (N_pixels/N_rows, 3)
+                    rendered_depth = rendered_data['depth_map'] # (N_pixels/N_rows)
                     all_rendered_image_rows.append(rendered_image)
                     all_depth_image_rows.append(rendered_depth)
 
+                    if self.args.show_debug_visualization_in_testing or self.args.save_raw_raycast_densities_for_test_renders:
+                        rgb_for_samples = rendered_data['rgb'] # (N_pixels/N_rows, N_samples, 3)
+                        xyz_for_samples = rendered_data['pixel_xyz_positions']
+                        depth_weights_for_samples = rendered_data['depth_weights'] # (N_pixels/N_rows, N_samples) # .unsqueeze(2)
+
+                        all_rgb_model_outputs_for_samples.append(rgb_for_samples.cpu())
+                        all_depth_weights_for_samples.append(depth_weights_for_samples.cpu())
+                        all_xyz_for_samples.append(xyz_for_samples.cpu())
+
                 # combine rows to images
-                rendered_image = torch.cat(all_rendered_image_rows, dim=0) # (N_samples, 3)
-                rendered_depth = torch.cat(all_depth_image_rows, dim=0)  # (N_samples)
+                rendered_image = torch.cat(all_rendered_image_rows, dim=0) # (N_pixels, 3)
+                rendered_depth = torch.cat(all_depth_image_rows, dim=0)  # (N_pixels)
+
+                if self.args.show_debug_visualization_in_testing or self.args.save_raw_raycast_densities_for_test_renders:
+                    rgb_for_all_samples = torch.cat(all_rgb_model_outputs_for_samples, dim=0)  # (N_pixels, N_samples, 3)
+                    depth_weights_for_all_samples = torch.cat(all_depth_weights_for_samples, dim=0)  # (N_pixels, N_samples)
+                    xyz_for_all_samples = torch.cat(all_xyz_for_samples, dim=0)  # (N_pixels, N_samples, 3)
+
+                if self.args.show_debug_visualization_in_testing:
+                    self.debug_visualization(rgb=rgb_for_all_samples, xyz=xyz_for_all_samples, depth_weights=depth_weights_for_all_samples, rendered_image=rendered_image)
+
+                squeezed_pixel_rows = torch.squeeze(pixel_rows)
+                squeezed_pixel_cols = torch.squeeze(pixel_cols)
+
+                if self.args.save_raw_raycast_densities_for_test_renders:
+                    r_per_sample = rgb_for_all_samples[:,:,0] # (N_pixels, N_samples)
+                    g_per_sample = rgb_for_all_samples[:,:,1]
+                    b_per_sample = rgb_for_all_samples[:,:,2]
+                    depth_weight_per_sample = depth_weights_for_all_samples
+                    x_per_sample = xyz_for_all_samples[:,:,0]
+                    y_per_sample = xyz_for_all_samples[:,:,1]
+                    z_per_sample = xyz_for_all_samples[:,:,2]
+
+                    rgbdxyz_for_all_samples = torch.stack([r_per_sample, g_per_sample, b_per_sample, depth_weight_per_sample, x_per_sample, y_per_sample, z_per_sample], dim=2).cpu()
+                    output_file_name = "rgbdxyz_{}.npy".format(test_image_index)
+                    print("Saving RGBDXYZ for test image {} to {}".format(test_image_index, output_file_name)) # (N_pixels, N_samples, 7)
+                    rgbdxyz = rgbdxyz_for_all_samples.detach().numpy()
+
+                    with open(output_file_name, 'wb') as output_file:
+                        np.save(output_file, rgbdxyz)
+
 
                 # extract out the color data
                 rendered_r = rendered_image[:,0]
@@ -986,9 +1243,6 @@ class SceneModel:
                 color_canvas_g = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
                 color_canvas_b = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
                 depth_canvas = torch.full(size=[self.H, self.W], fill_value=0.0).to(device=self.device)
-
-                squeezed_pixel_rows = torch.squeeze(pixel_rows)
-                squeezed_pixel_cols = torch.squeeze(pixel_cols)
 
                 if generate_video:
                     # save data for all image pixels

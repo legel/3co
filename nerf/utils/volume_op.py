@@ -66,12 +66,15 @@ def volume_rendering(rgb, density, depths):
 
     # (N_pixels, N_sample, 1) * (N_pixels, N_sample, 3) = (N_pixels, N_sample, 3) -> (N_pixels, 3)
     rgb_rendered = torch.sum(weight.unsqueeze(2) * rgb, dim=1)
-
     depth_map = torch.sum(weight * depths, dim=1)  # (N_pixels)
 
     result = {
         'rgb_rendered': rgb_rendered,  # (N_pixels, 3)
         'weight': weight,  # (N_pixels, N_sample)
+        'density': density, # (N_pixels, N_sample)))
         'depth_map': depth_map,  # (N_pixels)
+        'alpha': alpha,
+        'acc_transmittance': acc_transmittance,
+        'rgb': rgb,
     }
     return result
