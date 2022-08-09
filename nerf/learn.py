@@ -1,5 +1,5 @@
 import torch
-from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles 
+from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
 from scipy.spatial.transform import Rotation
 from torchsummary import summary
 import cv2
@@ -787,7 +787,8 @@ class SceneModel:
 
         return poses
 
-    def generate_poses_on_sphere_around_object(self, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
+
+    def generate_zoom_poses(self, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
         camera_rotation_matrix = pose[:3, :3] # rotation matrix (3,3)
         camera_xyz = pose[:3, 3]  # translation vector (3)
 
@@ -953,32 +954,15 @@ class SceneModel:
         neural_sensor_weights_overlap = distance_metric * nerf_depth_weights
         depth_loss = torch.mean(neural_sensor_weights_overlap)
 
-        # cross-entropy depth loss, which penalizes distributions away from the Delta
-        # min_distance, min_distance_sample_index = torch.min(torch.abs(sensor_depth_per_sample - depth_samples), dim=1) # (N_pixels, N_samples) -> (N_pixels)
-        # one_hot_encoded_sample_distance = torch.zeros(size=sensor_depth_per_sample.shape).to(self.device) # (N_pixels, N_samples)
-        # one_hot_encoded_sample_distance[:,min_distance_sample_index] = 1.0
-        # cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='sum') 
-        # cross_entropy_depth_loss = torch.mean((nerf_depth_weights * 100 - one_hot_encoded_sample_distance * 100)**2) # 
-        # cross_entropy_depth_loss = cross_entropy_loss(input=nerf_depth_weights, target=min_distance_sample_index)
-        # max_depth_weight loss
-        # one-hot encoding the sensor_depth, as a means of learning the relative distribution!
-        # sensor_depth_per_sample = sensor_depth.unsqueeze(1).expand(-1,number_of_depth_samples)
-        # max_weight_depth_loss = torch.mean((sensor_depth * 1000 - depths_max_weight * 1000) ** 2) # (N_pixel - N_pixel)
-
         # compute the mean squared difference between the RGB render of the neural network and the original image
         rgb_loss = (rgb_rendered * 255 - rgb * 255)**2
         rgb_loss = torch.mean(rgb_loss)
-
 
         # to-do: implement perceptual color difference minimizer
         #  torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
 
         # get the relative importance between depth and RGB loss
         depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
-
-        # if the RGB network is not yet training, then ignore the loss at this point
-        # if self.epoch < self.args.start_training_color_epoch:
-        #     rgb_loss = torch.tensor(0.0)
 
         # compute loss and backward propagate the gradients to update the values which are parameters to this loss
         weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss
@@ -1144,7 +1128,7 @@ class SceneModel:
                 center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
                 center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]
 
-                video_poses = self.generate_spin_poses(number_of_poses=self.args.number_of_poses_in_test_video)
+                video_poses = self.generate_spin_poses(number_of_poses=self.args.number_of_poses_in_test_video)            
 
                 for pose in video_poses:
                     # create pose, pixel directions, and depth samples for every image pixel
@@ -1322,7 +1306,8 @@ class SceneModel:
                     # create .mp4 movie
                     imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.mp4'.format(epoch)), color_images, fps=15, quality=9)
                     imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.mp4'.format(epoch)), depth_images, fps=15, quality=9)
-
+                    quit()
+                    
                     # create a cool GIF with cats
                     imageio.mimwrite(os.path.join(experiment_dir, 'color_{}.gif'.format(epoch)), color_images, fps=15)
                     imageio.mimwrite(os.path.join(experiment_dir, 'depth_{}.gif'.format(epoch)), depth_images, fps=15)
