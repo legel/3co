@@ -21,6 +21,7 @@ def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=Tru
         far = torch.max(sampling_depths)
         depth_noise = torch.rand((N_pixels, N_samples), device=poses.device, dtype=torch.float32)  # (N_pixels, N_samples)
         depth_noise = depth_noise * (far - near) / N_samples # (N_pixels, N_samples)
+        #resampled_depths = sampling_depths.view(1, N_samples) + depth_noise  # (N_pixels, N_samples)
         resampled_depths = sampling_depths.view(1, N_samples) + depth_noise  # (N_pixels, N_samples)
     else:
         resampled_depths = sampling_depths #sampling_depths.view(1, N_samples).expand(N_pixels, N_samples)
@@ -43,7 +44,7 @@ def volume_rendering(rgb, density, depths):
     N_pixels, N_samples = depths.shape[0], depths.shape[1]
 
     rgb = torch.sigmoid(rgb)
-    density = torch.squeeze(density.relu())  # (N_pixels, N_sample)
+    density = torch.squeeze(density.relu(), dim=2)  # (N_pixels, N_sample)
 
     # Compute distances between samples.
     # 1. compute the distances among first (N-1) samples
@@ -76,5 +77,6 @@ def volume_rendering(rgb, density, depths):
         'alpha': alpha,
         'acc_transmittance': acc_transmittance,
         'rgb': rgb,
+        'distances': dists,
     }
     return result
