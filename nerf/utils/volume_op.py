@@ -43,7 +43,7 @@ def volume_rendering(rgb, density, depths):
     N_pixels, N_samples = depths.shape[0], depths.shape[1]
 
     rgb = torch.sigmoid(rgb)
-    density = torch.squeeze(density.relu())  # (N_pixels, N_sample)
+    density = torch.squeeze(density.relu(), dim=2)  # (N_pixels, N_sample)
 
     # Compute distances between samples.
     # 1. compute the distances among first (N-1) samples
@@ -76,5 +76,6 @@ def volume_rendering(rgb, density, depths):
         'alpha': alpha,
         'acc_transmittance': acc_transmittance,
         'rgb': rgb,
+        'distances': dists,
     }
     return result
