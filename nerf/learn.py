@@ -1116,8 +1116,8 @@ class SceneModel:
                                                                                                                                                                                         weighted_loss,
                                                                                                                                                                                         (1 - depth_to_rgb_importance) * rgb_loss, 
                                                                                                                                                                                         interpretable_rgb_loss_per_pixel, 
-                                                                                                                                                                                         depth_loss, 
-                                                                                                                                                                                        depth_to_rgb_importance * interpretable_depth_loss_per_pixel, 
+                                                                                                                                                                                        depth_to_rgb_importance * depth_loss, 
+                                                                                                                                                                                        interpretable_depth_loss_per_pixel, 
                                                                                                                                                                                         focal_length_x, 
                                                                                                                                                                                         focal_length_y))
         # update the learning rate schedulers
