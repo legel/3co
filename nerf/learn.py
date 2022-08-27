@@ -87,7 +87,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.05, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.015, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -1111,13 +1111,13 @@ class SceneModel:
 
         if self.epoch % self.args.log_frequency == 0:
             minutes_into_experiment = (int(time.time())-int(self.start_time)) / 60
-            print("({} at {:.2f} minutes) - Total Loss: {:.6f}, RGB Loss: {:.3f} ({:.3f} of 255), Depth Loss: {:.3f} ({:3f} mm), Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, 
+            print("({} at {:.2f} minutes) - Total Loss: {:.6f}, RGB Loss: {:.6f} ({:.3f} of 255), Depth Loss: {:.6f} ({:3f} mm), Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, 
                                                                                                                                                                                         minutes_into_experiment, 
                                                                                                                                                                                         weighted_loss,
-                                                                                                                                                                                        rgb_loss, 
+                                                                                                                                                                                        (1 - depth_to_rgb_importance) * rgb_loss, 
                                                                                                                                                                                         interpretable_rgb_loss_per_pixel, 
-                                                                                                                                                                                        depth_loss, 
-                                                                                                                                                                                        interpretable_depth_loss_per_pixel, 
+                                                                                                                                                                                         depth_loss, 
+                                                                                                                                                                                        depth_to_rgb_importance * interpretable_depth_loss_per_pixel, 
                                                                                                                                                                                         focal_length_x, 
                                                                                                                                                                                         focal_length_y))
         # update the learning rate schedulers
