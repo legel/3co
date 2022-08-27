@@ -4,6 +4,7 @@ from scipy.spatial.transform import Rotation
 from torchsummary import summary
 import cv2
 import open3d as o3d
+from pytorch3d.ops.knn import knn_points
 import imageio
 from PIL import Image
 import numpy as np
@@ -48,8 +49,8 @@ def parse_args():
     parser.add_argument('--start_training_color_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
-    # Define evaluation/logging frequency and parameters
-    parser.add_argument('--test_frequency', default=100, type=int, help='Frequency of epochs to render an evaluation image')
+    # Define evaluation/logging/saving frequency and parameters
+    parser.add_argument('--test_frequency', default=2000, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--save_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
@@ -61,6 +62,9 @@ def parse_args():
     parser.add_argument('--number_of_pixels_per_batch_in_test_renders', default=128, type=int, help='Size in pixels of each batch input to rendering')
     parser.add_argument('--show_debug_visualization_in_testing', default=False, type=bool, help='Whether or not to show the cool Matplotlib 3D view of rays + weights + colors')
     parser.add_argument('--export_test_data_for_post_processing', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
+    parser.add_argument('--save_ply_point_clouds_of_sensor_data', default=False, type=bool, help='Whether to save a .ply file at start of training showing the initial projected sensor data in 3D global coordinates')
+    parser.add_argument('--recompute_sensor_variance_from_initial_data', default=False, type=bool, help='If True, then it starts the optimization by computing and saving files representing estimate of sensor error, based on the KNN distance of each 3D point; if False, looks to load previous computation from saved file')
+    parser.add_argument('--number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error', default=10, type=int, help='N for the KNN on every 3D point at start of optimization, of which distances for N points are used as metric of variance')
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
     parser.add_argument('--nerf_density_lr_start', default=0.0010, type=float, help="Learning rate start for NeRF geometry network")
@@ -83,7 +87,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.5, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.05, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -132,15 +136,16 @@ class SceneModel:
         self.load_all_images_ids()
 
         # define bounds (self.min_x, self.max_x), (self.min_y, self.max_y), (self.min_z, self.max_z) in which all points should initially project inside, or else not be included
-        self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=0, max_pixel_row=self.H, min_pixel_col=0, max_pixel_col=self.W)
-        #self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=200, max_pixel_row=400, min_pixel_col=250, max_pixel_col=450)
-        #self.set_xyz_bounds_from_pixel_bounds(index_to_filter=0, min_pixel_row=110, max_pixel_row=390, min_pixel_col=170, max_pixel_col=450)
+        self.set_xyz_bounds_from_crop_of_image(index_to_filter=0, min_pixel_row=0, max_pixel_row=self.H, min_pixel_col=0, max_pixel_col=self.W) # pre-trained model with min_pixel_row=200, max_pixel_row=400, min_pixel_col=250, max_pixel_col=450; tight-clipping for small image is min_pixel_row=110, max_pixel_row=390, min_pixel_col=170, max_pixel_col=450
 
         # prepare test evaluation indices
         self.prepare_test_data()
 
         # now load only the necessary data that falls within bounds defined
         self.load_image_and_depth_data_within_xyz_bounds()
+
+        # compute/load estimates of sensor variance
+        self.load_estimates_of_depth_sensor_error()
 
         # initialize all models
         self.initialize_models()
@@ -373,11 +378,12 @@ class SceneModel:
         return xyz_inside_range.to(device=self.device)
 
 
-    def load_image_and_depth_data_within_xyz_bounds(self, visualize_masks=True, save_raw_point_clouds=True):
+    def load_image_and_depth_data_within_xyz_bounds(self, visualize_masks=True):
         self.rgbd = []
         self.image_ids_per_pixel = []
         self.pixel_rows = []
         self.pixel_cols = []
+        self.initial_selected_xyz = []
         self.test_poses_processed = 0
         number_of_test_images_saved = 0
 
@@ -408,6 +414,10 @@ class SceneModel:
 
             # get the corresponding (x,y,z) coordinates and depth values selected by the mask
             xyz_coordinates_selected = xyz_coordinates[pixel_rows_selected, pixel_cols_selected, :]
+
+            if self.args.recompute_sensor_variance_from_initial_data:
+                self.initial_selected_xyz.append(xyz_coordinates_selected)
+
             depth_selected = depth[pixel_rows_selected, pixel_cols_selected] # (N selected)
 
             # now, load the (r,g,b) image and filter the pixels we're only focusing on
@@ -438,7 +448,7 @@ class SceneModel:
             if visualize_masks and i in self.test_image_indices:
                 self.visualize_mask(pixels_to_visualize=xyz_coordinates_on_or_off, mask_index=number_of_test_images_saved, colors=image)
 
-            if save_raw_point_clouds and i in self.test_image_indices:
+            if self.args.save_ply_point_clouds_of_sensor_data and i in self.test_image_indices:
                 pcd = self.get_point_cloud(pose=self.initial_poses[i*self.args.skip_every_n_images_for_training], depth=depth, rgb=image, label="raw_{}".format(image_id), save=True)
 
 
@@ -457,6 +467,66 @@ class SceneModel:
 
 
         print("Loaded {} images with {:,} pixels selected".format(i+1, self.number_of_pixels ))
+
+
+    def load_estimates_of_depth_sensor_error(self):
+        self.average_nearest_neighbor_distance_per_pixel = []
+
+        if self.args.recompute_sensor_variance_from_initial_data:
+            sensor_variance_dir = Path("{}/sensor_variance".format(self.args.base_directory))
+            sensor_variance_dir.mkdir(parents=True, exist_ok=True)
+            
+            print("Recomputing estimates of depth sensor error based on KNN for each point initially projected in 3D")
+            number_of_views = len(self.initial_selected_xyz)
+            for view, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
+                this_view_xyz = self.initial_selected_xyz[view] # (N_pixels, 3)
+                number_of_points_in_this_view = this_view_xyz.shape[0]
+
+                # we compare against the view immediately prior and immediately after, as long as they exist
+                comparison_views = []
+                for comparison_view in [view-1, view+1]:
+                    if comparison_view >= 0 and comparison_view <= number_of_views - 1:
+                        comparison_views.append(comparison_view)
+
+                # we will compute an error metric per pixel, which is the average distance to the nearest neighbor, for the nearby view(s)
+                distances_to_nearest_neighbors_in_nearest_views = torch.zeros(size=[number_of_points_in_this_view]).to(device=self.device)
+
+                for comparison_view in comparison_views:
+                    # get (x,y,z) coordinates for this view and other view
+                    other_view_xyz = self.initial_selected_xyz[comparison_view] # (N_pixels, 3)
+                    number_of_points_in_other_view = other_view_xyz.shape[0]
+
+                    distances, indices, nn = knn_points(p1=torch.unsqueeze(this_view_xyz, dim=0), p2=torch.unsqueeze(other_view_xyz, dim=0), K=self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error)
+                    for nearest_neighbor_index in range(self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error):
+                        nearest_neighbor_distance = distances[0,:,nearest_neighbor_index] # 0th batch, all points, i-th nearest neighbor
+                        distances_to_nearest_neighbors_in_nearest_views += nearest_neighbor_distance
+
+                average_nearest_neighbor_distance_per_pixel = distances_to_nearest_neighbors_in_nearest_views / (self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error * len(comparison_views))
+                error_metric_file_name = "image_id_{}_estimated_sensor_error_from_top_{}_knn_distances.npy".format(image_id, self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error)
+                print("Saving average of {} nearest neighbor distances (e.g. {}mm for pixels 0,1,2) for view {} vs. views {}, located in file {}".format(self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error,
+                                                                                                                                              average_nearest_neighbor_distance_per_pixel[0:3] * 1000,
+                                                                                                                                              view,
+                                                                                                                                              comparison_views,
+                                                                                                                                              error_metric_file_name))
+                file_path = "{}/sensor_variance/{}".format(self.args.base_directory, error_metric_file_name)
+                with open(file_path, "wb") as f:
+                    np.save(f, average_nearest_neighbor_distance_per_pixel.cpu().numpy())
+
+                self.average_nearest_neighbor_distance_per_pixel.append(average_nearest_neighbor_distance_per_pixel)
+
+            # clear data from RAM
+            self.initial_selected_xyz = None
+
+        else:
+            # otherwise we presume that we've already computed the above, and try to load the data directly
+            for view, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
+                error_metric_file_name = "image_id_{}_estimated_sensor_error_from_top_{}_knn_distances.npy".format(image_id, self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error)
+                file_path = "{}/sensor_variance/{}".format(self.args.base_directory, error_metric_file_name)
+                error_metric_data =  torch.from_numpy(np.load(file_path))
+                self.average_nearest_neighbor_distance_per_pixel.append(error_metric_data)
+
+        # now we need to flatten the sensor variance estimates, just like the rest of the data
+        self.estimated_sensor_error = torch.cat(self.average_nearest_neighbor_distance_per_pixel, dim=0)
 
 
     def derive_xyz_coordinates(self, camera_world_position, camera_world_rotation, pixel_directions, pixel_depths):
@@ -517,8 +587,7 @@ class SceneModel:
         return min_x, max_x, min_y, max_y, min_z, max_z
 
 
-
-    def set_xyz_bounds_from_pixel_bounds(self, index_to_filter, min_pixel_row, max_pixel_row, min_pixel_col, max_pixel_col):
+    def set_xyz_bounds_from_crop_of_image(self, index_to_filter, min_pixel_row, max_pixel_row, min_pixel_col, max_pixel_col):
         image_id = self.image_ids[index_to_filter]
 
         # get depth data for that image
@@ -962,6 +1031,9 @@ class SceneModel:
         
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
 
+        number_of_pixels = self.args.pixel_samples_per_epoch
+        number_of_raycast_samples = self.args.number_of_samples_outward_per_raycast
+
         # get all camera poses from model
         if self.epoch >= self.args.start_training_extrinsics_epoch:
             poses = self.models["pose"](0) # (N_images, 4, 4)
@@ -981,14 +1053,12 @@ class SceneModel:
         rgb = rgbd[:,:3].to(self.device) # (N_pixels, 3)
         sensor_depth = rgbd[:,3].to(self.device) # (N_pixels) 
         
-
         # get pixel directions
         pixel_directions_selected = self.pixel_directions[pixel_rows, pixel_cols]  # (N_pixels, 3)
 
         # sample about sensor depth, with increasing standard deviations for longer depths
-        # {note: doesn't look like noise is a function of depth magnitude?}
-        depth_samples = self.get_raycast_samples_per_pixel(number_of_pixels=sensor_depth.shape[0], add_noise=True)      
-        sensor_depth_per_sample = sensor_depth.unsqueeze(1).expand(-1,depth_samples.shape[1])     
+        depth_samples = self.get_raycast_samples_per_pixel(number_of_pixels=sensor_depth.shape[0], add_noise=True) # (N_pixels, N_samples) 
+        sensor_depth_per_sample = sensor_depth.unsqueeze(1).expand(-1,depth_samples.shape[1]) # (N_pixels, N_samples) 
 
         # render an image using selected rays, pose, sample intervals, and the network
         render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, perturb_depths=False, rgb_image=rgb)  # (N_pixels, 3)
@@ -999,16 +1069,24 @@ class SceneModel:
 
         nerf_depth_weights = nerf_depth_weights + self.args.epsilon
 
-        kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples * 1000 - sensor_depth_per_sample * 1000) ** 2 / (2 * self.args.depth_sensor_error)) * nerf_sample_bin_lengths * 1000                                
+        # get the estimated sensor error for these randomly selected pixels
+        sensor_error = self.estimated_sensor_error[indices_of_random_pixels].to(self.device) # (N_pixels)
+        sensor_error = sensor_error.unsqueeze(1).expand(number_of_pixels, number_of_raycast_samples) # (N_pixels, N_samples)
+
+        kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples * 1000 - sensor_depth_per_sample * 1000) ** 2 / (2 * sensor_error)) * nerf_sample_bin_lengths * 1000                                
         kl_divergence_pixels = torch.sum(kl_divergence_bins, 1)
         depth_loss = torch.mean(kl_divergence_pixels)
         
         # get a metric in Euclidian space that we can output via prints for human review/intuition; not actually used in backpropagation
         interpretable_depth_loss = torch.sum(nerf_depth_weights * torch.sqrt((depth_samples * 1000 - sensor_depth_per_sample * 1000) ** 2), dim=1)
-        interpretable_depth_loss_per_pixel = torch.mean(interpretable_depth_loss_for_humans)
-                
-        # compute the mean squared difference between the RGB render of the neural network and the original image
-        rgb_loss = (rgb_rendered * 255 - rgb * 255)**2
+        interpretable_depth_loss_per_pixel = torch.mean(interpretable_depth_loss)
+
+        # get a metric in (0-255) (R,G,B) space that we can output via prints for human review/intuition; not actually used in backpropagation
+        interpretable_rgb_loss = torch.sqrt((rgb_rendered * 255 - rgb * 255) ** 2)
+        interpretable_rgb_loss_per_pixel = torch.mean(interpretable_rgb_loss)
+
+        # compute the mean squared difference between the RGB render of the neural network and the original image     
+        rgb_loss = (rgb_rendered - rgb)**2
         rgb_loss = torch.mean(rgb_loss)
 
         # to-do: implement perceptual color difference minimizer
@@ -1027,13 +1105,21 @@ class SceneModel:
             optimizer.zero_grad()
 
         if self.epoch % self.args.log_frequency == 0:
-            wandb.log({"RGB Inverse Render Loss": torch.sqrt(rgb_loss),
-                       "Depth Loss": depth_loss,
+            wandb.log({"RGB Inverse Render Loss (0-255 per pixel)": interpretable_rgb_loss_per_pixel,
+                       "Depth Sensor Loss (average millimeters error vs. sensor)": interpretable_depth_loss_per_pixel,
                        })
 
         if self.epoch % self.args.log_frequency == 0:
             minutes_into_experiment = (int(time.time())-int(self.start_time)) / 60
-            print("({} at {:.2f} minutes) - RGB Loss: {:.3f} (out of 255), Depth Loss: {:.3f} ({:3f} mm), Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, minutes_into_experiment, torch.sqrt(rgb_loss), depth_loss, interpretable_depth_loss_per_pixel, focal_length_x, focal_length_y))
+            print("({} at {:.2f} minutes) - Total Loss: {:.6f}, RGB Loss: {:.3f} ({:.3f} of 255), Depth Loss: {:.3f} ({:3f} mm), Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, 
+                                                                                                                                                                                        minutes_into_experiment, 
+                                                                                                                                                                                        weighted_loss,
+                                                                                                                                                                                        rgb_loss, 
+                                                                                                                                                                                        interpretable_rgb_loss_per_pixel, 
+                                                                                                                                                                                        depth_loss, 
+                                                                                                                                                                                        interpretable_depth_loss_per_pixel, 
+                                                                                                                                                                                        focal_length_x, 
+                                                                                                                                                                                        focal_length_y))
         # update the learning rate schedulers
         for scheduler in self.schedulers.values():
             scheduler.step()
@@ -1099,7 +1185,6 @@ if __name__ == '__main__':
         scene.test()
 
     for epoch in range(1, scene.args.number_of_epochs + 1):
-        print("epoch {}".format(epoch))
         scene.train()
 
         if epoch % scene.args.test_frequency == 0:
