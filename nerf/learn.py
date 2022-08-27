@@ -1051,10 +1051,10 @@ class SceneModel:
         # compute the ray directions using the latest focal lengths, derived for the first image
         focal_length_x, focal_length_y = self.models["focal"](0)
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
-
         image_index = 0
         render_result = self.render_prediction_for_train_image(image_index)
         #render_result = scene.render_prediction(scene.poses[80])
+
 
         # define file saving parameters
         image_out_dir = "{}/hyperparam_experiments".format(self.args.base_directory)
