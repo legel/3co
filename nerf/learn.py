@@ -50,15 +50,15 @@ def parse_args():
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=2000, type=int, help='Frequency of epochs to render an evaluation image')
-    parser.add_argument('--visualize_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
-    parser.add_argument('--save_point_cloud_frequency', default=200000, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--test_frequency', default=100, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--visualize_point_cloud_frequency', default=200001, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=50000, type=int, help='Frequency of epochs to save point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--render_test_video_frequency', default=50000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=1, type=int, help='Radius of sampled poses around the evaluation pose for video')
     parser.add_argument('--number_of_poses_in_test_video', default=10, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=5, type=int, help='Index in the training data set of the image to show during testing')
-    parser.add_argument('--skip_every_n_images_for_testing', default=20, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
+    parser.add_argument('--number_of_test_images', default=1, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--skip_every_n_images_for_testing', default=1, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
     parser.add_argument('--number_of_pixels_per_batch_in_test_renders', default=128, type=int, help='Size in pixels of each batch input to rendering')
     parser.add_argument('--show_debug_visualization_in_testing', default=False, type=bool, help='Whether or not to show the cool Matplotlib 3D view of rays + weights + colors')
     parser.add_argument('--export_test_data_for_post_processing', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
@@ -159,6 +159,8 @@ class SceneModel:
             # compute the ray directions using the latest focal lengths, derived for the first image
             focal_length_x, focal_length_y = self.models["focal"](0)
             self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
+
+            self.save_cam_xyz()
         else:
             print("Training from scratch")
 
@@ -360,6 +362,21 @@ class SceneModel:
         imageio.imwrite(color_out_path, filtered_mask)
 
 
+    def save_cam_xyz(self):
+        number_of_test_images_saved = 0
+        # now loop through all of the data, and filter out (only load and save as necessary) based on whether the points land within our focus area
+        for i, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
+            if i in self.test_image_indices:
+                poses = self.models["pose"](0)
+                pose = poses[i, :, :]
+                cam_xyz = pose[:3,3].cpu().detach().numpy()
+                # print("Saving camera (x,y,z) for test pose {}: ({:.4f},{:.4f},{:.4f})".format(self.test_poses_processed, cam_xyz[0], cam_xyz[1], cam_xyz[2]))
+                cam_xyz_file = "cam_xyz_{}.npy".format(i)
+                with open(cam_xyz_file, "wb") as f:
+                    np.save(f, cam_xyz)
+                self.test_poses_processed += 1
+
+
     def get_xyz_inside_range(self, xyz_coordinates):
         x_coordinates = xyz_coordinates[:,:,0]
         y_coordinates = xyz_coordinates[:,:,1]
@@ -437,8 +454,8 @@ class SceneModel:
             if i in self.test_image_indices and self.args.export_test_data_for_post_processing:
                 pixel_rows_to_save = pixel_rows_selected.cpu().numpy()
                 pixel_cols_to_save = pixel_cols_selected.cpu().numpy()
-                pixel_rows_file = "selected_pixel_rows_{}.npy".format(number_of_test_images_saved)
-                pixel_cols_file = "selected_pixel_cols_{}.npy".format(number_of_test_images_saved)
+                pixel_rows_file = "selected_pixel_rows_{}.npy".format(i)
+                pixel_cols_file = "selected_pixel_cols_{}.npy".format(i)
                 with open(pixel_rows_file, "wb") as f:
                     np.save(f, pixel_rows_to_save)
                 with open(pixel_cols_file, "wb") as f:
@@ -446,7 +463,7 @@ class SceneModel:
 
             # script for visualizing mask
             if visualize_masks and i in self.test_image_indices:
-                self.visualize_mask(pixels_to_visualize=xyz_coordinates_on_or_off, mask_index=number_of_test_images_saved, colors=image)
+                self.visualize_mask(pixels_to_visualize=xyz_coordinates_on_or_off, mask_index=i, colors=image)
 
             if self.args.save_ply_point_clouds_of_sensor_data and i in self.test_image_indices:
                 pcd = self.get_point_cloud(pose=self.initial_poses[i*self.args.skip_every_n_images_for_training], depth=depth, rgb=image, label="raw_{}".format(image_id), save=True)
@@ -756,6 +773,89 @@ class SceneModel:
             return raycast_distances
 
 
+    def export_geometry_data(self, depth_weight_per_sample, xyz_for_all_samples, test_view_number=0, top_n_depth_weights = 15):
+        # wrap up NeRF and baseline data for offline post-processing
+        print("Exporting data for test image {}...".format(test_view_number))
+        
+        x_per_sample = xyz_for_all_samples[:,:,0] # (N_pixels, N_samples)
+        y_per_sample = xyz_for_all_samples[:,:,1]
+        z_per_sample = xyz_for_all_samples[:,:,2]
+
+        number_of_pixels = x_per_sample.shape[0]
+        number_of_samples = x_per_sample.shape[1]
+
+        sorted_depth_weights = torch.argsort(depth_weight_per_sample, dim=1, descending=True)
+
+        all_xyz_depth = []
+        all_xyz_slopes = []
+        all_xyz_intercepts = []
+        all_depth_weights = []
+
+        all_x_slope = []
+        all_y_slope = []
+        all_z_slope = []
+
+        all_x_intercept = []
+        all_y_intercept = []
+        all_z_intercept = []
+
+        for pixel_index in range(0, number_of_pixels):                         
+            # first, grab our "focus" geometry
+            top_sample_indices = sorted_depth_weights[pixel_index,:top_n_depth_weights]
+
+            # now, get the minimum and maximum (x,y,z) points along the ray, and save information for this line: we will fit only between these
+            min_top_index = torch.min(top_sample_indices)
+            max_top_index = torch.max(top_sample_indices)
+
+            # min (x,y,z) along raycast
+            x1 = x_per_sample[pixel_index, min_top_index]
+            y1 = y_per_sample[pixel_index, min_top_index]
+            z1 = z_per_sample[pixel_index, min_top_index]
+
+            # max (x,y,z) along raycast
+            x2 = x_per_sample[pixel_index, max_top_index]
+            y2 = y_per_sample[pixel_index, max_top_index]
+            z2 = z_per_sample[pixel_index, max_top_index]
+
+            # save information for the line that is defined by the minimum to maximum points along the ray, i.e. x = x_slope * t + x_intercept where x_slope = x_2 - x_1 and x_intercept = x_1
+            xyz_slope = torch.stack([x2 - x1, y2 - y1, z2 - z1], dim=0)
+            all_xyz_slopes.append(xyz_slope)
+
+            xyz_intercept = torch.stack([x1, y1, z1], dim=0)
+            all_xyz_intercepts.append(xyz_intercept)
+
+            # get all of the (x,y,z) for the top depth weights and save them for later analysis
+            top_depth_x = x_per_sample[pixel_index, top_sample_indices]
+            top_depth_y = y_per_sample[pixel_index, top_sample_indices]
+            top_depth_z = z_per_sample[pixel_index, top_sample_indices]
+            top_depth_xyz = torch.stack([top_depth_x, top_depth_y, top_depth_z], dim=0)
+            all_xyz_depth.append(top_depth_xyz)
+
+            # get the top weights and normalize them so that they sum to 1.0
+            top_weights = depth_weight_per_sample[pixel_index, top_sample_indices]
+            normalized_top_weights = torch.nn.functional.normalize(top_weights, p=1, dim=0)
+            all_depth_weights.append(normalized_top_weights)
+
+            if pixel_index % 1000 == 0:
+                print("(TEST VIEW {}) {} Indices: {} with Min Index: {}, Max Index: {}\n >>> Weights: {}".format(test_view_number, pixel_index, top_sample_indices, min_top_index, max_top_index, top_weights))
+
+        xyz_depths = torch.stack(all_xyz_depth, dim=0)
+        xyz_slopes = torch.stack(all_xyz_slopes, dim=0)
+        xyz_intercepts = torch.stack(all_xyz_intercepts, dim=0)
+        depth_weights = torch.stack(all_depth_weights, dim=0)
+
+        with open("xyz_depths_view_{}.npy".format(test_view_number), "wb") as f:
+            np.save(f, xyz_depths.cpu().numpy())
+
+        with open("xyz_slopes_view_{}.npy".format(test_view_number), "wb") as f:
+            np.save(f, xyz_slopes.cpu().numpy())
+
+        with open("xyz_intercepts_view_{}.npy".format(test_view_number), "wb") as f:
+            np.save(f, xyz_intercepts.cpu().numpy())
+
+        with open("depth_weights_view_{}.npy".format(test_view_number), "wb") as f:
+            np.save(f, depth_weights.cpu().numpy())
+
 
     def render(self, poses, pixel_directions, sampling_depths, perturb_depths=False, rgb_image=None):
         # poses := (N_pixels, 4, 4)
@@ -862,7 +962,7 @@ class SceneModel:
         if self.args.export_test_data_for_post_processing:
             depth_weight_per_sample = torch.cat(depth_weights_batches, dim=0)
             xyz_for_all_samples = torch.cat(pixel_xyz_positions_batches, dim=0)
-            export_geometry_data(depth_weight_per_sample=depth_weight_per_sample, xyz_for_all_samples=xyz_for_all_samples, test_view_number=train_image_index, top_n_depth_weights = 10)
+            self.export_geometry_data(depth_weight_per_sample=depth_weight_per_sample, xyz_for_all_samples=xyz_for_all_samples, test_view_number=train_image_index, top_n_depth_weights = 10)
 
         rendered_image = torch.zeros(self.H * self.W, 3)
         rendered_depth = torch.zeros(self.H * self.W)
@@ -888,10 +988,10 @@ class SceneModel:
 
 
     # process raw rendered pixel data and save into images
-    def save_render_as_png(scene_model, render_result, color_file_name, depth_file_name):
+    def save_render_as_png(self, render_result, color_file_name, depth_file_name):
 
-        rendered_rgb = render_result['rendered_image'].reshape(scene_model.H, scene_model.W, 3)
-        rendered_depth = render_result['rendered_depth'].reshape(scene_model.H, scene_model.W)
+        rendered_rgb = render_result['rendered_image'].reshape(self.H, self.W, 3)
+        rendered_depth = render_result['rendered_depth'].reshape(self.H, self.W)
 
         rendered_color_for_file = (rendered_rgb.cpu().numpy() * 255).astype(np.uint8)    
 
@@ -902,90 +1002,6 @@ class SceneModel:
 
         imageio.imwrite(color_file_name, rendered_color_for_file)
         imageio.imwrite(depth_file_name, rendered_depth_for_file)   
-
-
-    def export_geometry_data(depth_weight_per_sample, xyz_for_all_samples, test_view_number=0, top_n_depth_weights = 10):
-        # wrap up NeRF and baseline data for offline post-processing
-        print("Exporting data for test image {}...".format(test_view_number))
-        
-        x_per_sample = xyz_for_all_samples[:,:,0] # (N_pixels, N_samples)
-        y_per_sample = xyz_for_all_samples[:,:,1]
-        z_per_sample = xyz_for_all_samples[:,:,2]
-
-        number_of_pixels = x_per_sample.shape[0]
-        number_of_samples = x_per_sample.shape[1]
-
-        sorted_depth_weights = torch.argsort(depth_weight_per_sample, dim=1, descending=True)
-
-        all_xyz_depth = []
-        all_xyz_slopes = []
-        all_xyz_intercepts = []
-        all_depth_weights = []
-
-        all_x_slope = []
-        all_y_slope = []
-        all_z_slope = []
-
-        all_x_intercept = []
-        all_y_intercept = []
-        all_z_intercept = []
-
-        for pixel_index in range(0, number_of_pixels):                         
-            # first, grab our "focus" geometry
-            top_sample_indices = sorted_depth_weights[pixel_index,:top_n_depth_weights]
-
-            # now, get the minimum and maximum (x,y,z) points along the ray, and save information for this line: we will fit only between these
-            min_top_index = torch.min(top_sample_indices)
-            max_top_index = torch.max(top_sample_indices)
-
-            # min (x,y,z) along raycast
-            x1 = x_per_sample[pixel_index, min_top_index]
-            y1 = y_per_sample[pixel_index, min_top_index]
-            z1 = z_per_sample[pixel_index, min_top_index]
-
-            # max (x,y,z) along raycast
-            x2 = x_per_sample[pixel_index, max_top_index]
-            y2 = y_per_sample[pixel_index, max_top_index]
-            z2 = z_per_sample[pixel_index, max_top_index]
-
-            # save information for the line that is defined by the minimum to maximum points along the ray, i.e. x = x_slope * t + x_intercept where x_slope = x_2 - x_1 and x_intercept = x_1
-            xyz_slope = torch.stack([x2 - x1, y2 - y1, z2 - z1], dim=0)
-            all_xyz_slopes.append(xyz_slope)
-
-            xyz_intercept = torch.stack([x1, y1, z1], dim=0)
-            all_xyz_intercepts.append(xyz_intercept)
-
-            # get all of the (x,y,z) for the top depth weights and save them for later analysis
-            top_depth_x = x_per_sample[pixel_index, top_sample_indices]
-            top_depth_y = y_per_sample[pixel_index, top_sample_indices]
-            top_depth_z = z_per_sample[pixel_index, top_sample_indices]
-            top_depth_xyz = torch.stack([top_depth_x, top_depth_y, top_depth_z], dim=0)
-            all_xyz_depth.append(top_depth_xyz)
-
-            # get the top weights and normalize them so that they sum to 1.0
-            top_weights = depth_weight_per_sample[pixel_index, top_sample_indices]
-            normalized_top_weights = torch.nn.functional.normalize(top_weights, p=1, dim=0)
-            all_depth_weights.append(normalized_top_weights)
-
-            if pixel_index % 1000 == 0:
-                print("(TEST VIEW {}) {} Indices: {} with Min Index: {}, Max Index: {}\n >>> Weights: {}".format(test_view_number, pixel_index, top_sample_indices, min_top_index, max_top_index, top_weights))
-
-        xyz_depths = torch.stack(all_xyz_depth, dim=0)
-        xyz_slopes = torch.stack(all_xyz_slopes, dim=0)
-        xyz_intercepts = torch.stack(all_xyz_intercepts, dim=0)
-        depth_weights = torch.stack(all_depth_weights, dim=0)
-
-        with open("xyz_depths_view_{}.npy".format(test_view_number), "wb") as f:
-            np.save(f, xyz_depths.cpu().numpy())
-
-        with open("xyz_slopes_view_{}.npy".format(test_view_number), "wb") as f:
-            np.save(f, xyz_slopes.cpu().numpy())
-
-        with open("xyz_intercepts_view_{}.npy".format(test_view_number), "wb") as f:
-            np.save(f, xyz_intercepts.cpu().numpy())
-
-        with open("depth_weights_view_{}.npy".format(test_view_number), "wb") as f:
-            np.save(f, depth_weights.cpu().numpy())
 
 
     def train(self):
@@ -1137,43 +1153,48 @@ class SceneModel:
         # compute the ray directions using the latest focal lengths, derived for the first image
         focal_length_x, focal_length_y = self.models["focal"](0)
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
-        image_index = 0
-        render_result = self.render_prediction_for_train_image(image_index)
-        #render_result = scene.render_prediction(scene.poses[80])
 
+        for image_index in self.test_image_indices:
+            render_result = self.render_prediction_for_train_image(image_index)
 
-        # define file saving parameters
-        image_out_dir = "{}/hyperparam_experiments".format(self.args.base_directory)
-        number_of_samples_outward_per_raycasts = "{}".format(self.args.number_of_samples_outward_per_raycast)
-        experiment_params = "depth_loss_{}_to_{}_k{}_N{}_NeRF_Density_LR_{}_to_{}_k{}_N{}_pose_LR_{}_to_{}_k{}_N{}".format( self.args.depth_to_rgb_loss_start,
-                                                                                                                            self.args.depth_to_rgb_loss_end,
-                                                                                                                            self.args.depth_to_rgb_loss_exponential_index,
-                                                                                                                            self.args.depth_to_rgb_loss_curvature_shape,
-                                                                                                                            self.args.nerf_density_lr_start,
-                                                                                                                            self.args.nerf_density_lr_end,
-                                                                                                                            self.args.nerf_density_lr_exponential_index,
-                                                                                                                            self.args.nerf_density_lr_curvature_shape,
-                                                                                                                            self.args.pose_lr_start,
-                                                                                                                            self.args.pose_lr_end,
-                                                                                                                            self.args.pose_lr_exponential_index,
-                                                                                                                            self.args.pose_lr_curvature_shape)
+            # define file saving parameters
+            image_out_dir = "{}/hyperparam_experiments".format(self.args.base_directory)
+            number_of_samples_outward_per_raycasts = "{}".format(self.args.number_of_samples_outward_per_raycast)
+            experiment_params = "depth_loss_{}_to_{}_k{}_N{}_NeRF_Density_LR_{}_to_{}_k{}_N{}_pose_LR_{}_to_{}_k{}_N{}".format( self.args.depth_to_rgb_loss_start,
+                                                                                                                                self.args.depth_to_rgb_loss_end,
+                                                                                                                                self.args.depth_to_rgb_loss_exponential_index,
+                                                                                                                                self.args.depth_to_rgb_loss_curvature_shape,
+                                                                                                                                self.args.nerf_density_lr_start,
+                                                                                                                                self.args.nerf_density_lr_end,
+                                                                                                                                self.args.nerf_density_lr_exponential_index,
+                                                                                                                                self.args.nerf_density_lr_curvature_shape,
+                                                                                                                                self.args.pose_lr_start,
+                                                                                                                                self.args.pose_lr_end,
+                                                                                                                                self.args.pose_lr_exponential_index,
+                                                                                                                                self.args.pose_lr_curvature_shape)
 
-        experiment_label = "{}_{}".format(self.start_time, experiment_params)
-        
-        experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
-        experiment_dir.mkdir(parents=True, exist_ok=True)
-        self.experiment_dir = experiment_dir
+            experiment_label = "{}_{}".format(self.start_time, experiment_params)
+            
+            experiment_dir = Path(os.path.join(image_out_dir, experiment_label))
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+            self.experiment_dir = experiment_dir
 
-        out_file_suffix = str(image_index)
-        color_out_dir = Path("{}/color_nerf_{}/".format(experiment_dir, str(epoch)))
-        color_out_dir.mkdir(parents=True, exist_ok=True)
-        depth_out_dir = Path("{}/depth_nerf_{}/".format(experiment_dir, str(epoch)))
-        depth_out_dir.mkdir(parents=True, exist_ok=True)
-        color_file_name = os.path.join(color_out_dir, str(out_file_suffix).zfill(4) + '_color.png')
-        depth_file_name = os.path.join(depth_out_dir, str(out_file_suffix).zfill(4) + '_depth.png')
+            out_file_suffix = str(image_index)
+            color_out_dir = Path("{}/color_nerf_{}/".format(experiment_dir, str(epoch)))
+            color_out_dir.mkdir(parents=True, exist_ok=True)
+            depth_out_dir = Path("{}/depth_nerf_{}/".format(experiment_dir, str(epoch)))
+            depth_out_dir.mkdir(parents=True, exist_ok=True)
+            color_file_name = os.path.join(color_out_dir, str(out_file_suffix).zfill(4) + '_color.png')
+            depth_file_name = os.path.join(depth_out_dir, str(out_file_suffix).zfill(4) + '_depth.png')
 
+            self.save_render_as_png(render_result, color_file_name, depth_file_name) 
 
-        self.save_render_as_png(render_result, color_file_name, depth_file_name)                
+            if epoch % self.args.save_point_cloud_frequency == 0:
+                print("Saving .ply for view {}".format(image_index))
+                pose = self.models['pose'](0)[image_index].to(device=self.device)
+                depth = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
+                rgb = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
+                self.get_point_cloud(pose=pose, depth=depth, rgb=rgb, label="10000k_KL_divergence_view_{}".format(image_index), save=True)               
 
 
 if __name__ == '__main__':
