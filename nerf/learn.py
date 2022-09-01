@@ -34,7 +34,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # Define path to relevant data for training, and decide on number of images to use in training
-    parser.add_argument('--base_directory', type=str, default='./data/pillow_small', help='The base directory to load and save information from')
+    parser.add_argument('--base_directory', type=str, default='./data/dragon_scale', help='The base directory to load and save information from')
     parser.add_argument('--images_directory', type=str, default='color', help='The specific group of images to use during training')
     parser.add_argument('--images_data_type', type=str, default='jpg', help='Whether images are jpg or png')
     parser.add_argument('--skip_every_n_images_for_training', type=int, default=60, help='When loading all of the training data, ignore every N images')
@@ -42,28 +42,29 @@ def parse_args():
     parser.add_argument('--load_pretrained_models', type=bool, default=False, help='Whether to start training from models loaded with load_pretrained_models()')
 
     # Define number of epochs, and timing by epoch for when to start training per network
-    parser.add_argument('--number_of_epochs', default=200001, type=int, help='Number of epochs for training, used in learning rate schedules')
-    parser.add_argument('--early_termination_epoch', default=200001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
+    parser.add_argument('--number_of_epochs', default=100001, type=int, help='Number of epochs for training, used in learning rate schedules')
+    parser.add_argument('--early_termination_epoch', default=100001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
     parser.add_argument('--start_training_extrinsics_epoch', type=int, default=500, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_intrinsics_epoch', type=int, default=5000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_color_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=100, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--test_frequency', default=1000, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200001, type=int, help='Frequency of epochs to visualize point clouds')
-    parser.add_argument('--save_point_cloud_frequency', default=50000, type=int, help='Frequency of epochs to save point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=20000, type=int, help='Frequency of epochs to save point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--render_test_video_frequency', default=50000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=1, type=int, help='Radius of sampled poses around the evaluation pose for video')
     parser.add_argument('--number_of_poses_in_test_video', default=10, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=1, type=int, help='Index in the training data set of the image to show during testing')
-    parser.add_argument('--skip_every_n_images_for_testing', default=1, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
+    parser.add_argument('--number_of_test_images', default=5, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--skip_every_n_images_for_testing', default=20, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
     parser.add_argument('--number_of_pixels_per_batch_in_test_renders', default=128, type=int, help='Size in pixels of each batch input to rendering')
     parser.add_argument('--show_debug_visualization_in_testing', default=False, type=bool, help='Whether or not to show the cool Matplotlib 3D view of rays + weights + colors')
     parser.add_argument('--export_test_data_for_post_processing', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
-    parser.add_argument('--save_ply_point_clouds_of_sensor_data', default=False, type=bool, help='Whether to save a .ply file at start of training showing the initial projected sensor data in 3D global coordinates')
-    parser.add_argument('--recompute_sensor_variance_from_initial_data', default=False, type=bool, help='If True, then it starts the optimization by computing and saving files representing estimate of sensor error, based on the KNN distance of each 3D point; if False, looks to load previous computation from saved file')
+    parser.add_argument('--save_ply_point_clouds_of_sensor_data', default=True, type=bool, help='Whether to save a .ply file at start of training showing the initial projected sensor data in 3D global coordinates')
+    parser.add_argument('--save_ply_point_clouds_of_sensor_data_with_learned_poses', default=True, type=bool, help='Whether to save a .ply file after loading a pre-trained model to see how the sensor data projects to 3D global coordinates with better poses')
+    parser.add_argument('--recompute_sensor_variance_from_initial_data', default=True, type=bool, help='If True, then it starts the optimization by computing and saving files representing estimate of sensor error, based on the KNN distance of each 3D point; if False, looks to load previous computation from saved file')
     parser.add_argument('--number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error', default=10, type=int, help='N for the KNN on every 3D point at start of optimization, of which distances for N points are used as metric of variance')
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
@@ -159,6 +160,9 @@ class SceneModel:
             # compute the ray directions using the latest focal lengths, derived for the first image
             focal_length_x, focal_length_y = self.models["focal"](0)
             self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
+
+            if self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses:
+                self.save_point_clouds_with_sensor_depths()
 
             self.save_cam_xyz()
         else:
@@ -327,12 +331,17 @@ class SceneModel:
         return pcd
 
 
-    def get_point_cloud(self, pose, depth, rgb, label=0, save=False, remove_zero_depths=True):
+    def get_point_cloud(self, pose, depth, rgb, label=0, save=False, remove_zero_depths=True, save_raw_xyz=False):
         camera_world_position = pose[:3, 3].view(1, 1, 3)     # (1, 1, 3)
         camera_world_rotation = pose[:3, :3].view(1, 1, 3, 3) # (1, 1, 3, 3)
         pixel_directions = self.pixel_directions.unsqueeze(3) # (H, W, 3, 1)
 
         xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth)
+
+        if save_raw_xyz:
+            file_path = "{}/{}_xyz_raw.npy".format(self.args.base_directory, label)
+            with open(file_path, "wb") as f:
+                np.save(f, xyz_coordinates.cpu().detach().numpy())
 
         if remove_zero_depths:
             non_zero_depth = torch.where(depth!=0.0)
@@ -343,8 +352,12 @@ class SceneModel:
 
         pcd = self.create_point_cloud(xyz_coordinates, rgb, label="point_cloud_{}".format(label), flatten_xyz=False, flatten_image=False)
         if save:
-            file_name = "view_{}_training_data_{}.ply".format(label, self.epoch-1)
+            file_name = "{}/view_{}_training_data_{}.ply".format(self.args.base_directory, label, self.epoch-1)
             o3d.io.write_point_cloud(file_name, pcd)
+
+
+
+
         return pcd
 
 
@@ -371,7 +384,7 @@ class SceneModel:
                 pose = poses[i, :, :]
                 cam_xyz = pose[:3,3].cpu().detach().numpy()
                 # print("Saving camera (x,y,z) for test pose {}: ({:.4f},{:.4f},{:.4f})".format(self.test_poses_processed, cam_xyz[0], cam_xyz[1], cam_xyz[2]))
-                cam_xyz_file = "cam_xyz_{}.npy".format(i)
+                cam_xyz_file = "{}/cam_xyz_{}.npy".format(self.args.base_directory,i)
                 with open(cam_xyz_file, "wb") as f:
                     np.save(f, cam_xyz)
                 self.test_poses_processed += 1
@@ -454,8 +467,8 @@ class SceneModel:
             if i in self.test_image_indices and self.args.export_test_data_for_post_processing:
                 pixel_rows_to_save = pixel_rows_selected.cpu().numpy()
                 pixel_cols_to_save = pixel_cols_selected.cpu().numpy()
-                pixel_rows_file = "selected_pixel_rows_{}.npy".format(i)
-                pixel_cols_file = "selected_pixel_cols_{}.npy".format(i)
+                pixel_rows_file = "{}/selected_pixel_rows_{}.npy".format(self.args.base_directory,i)
+                pixel_cols_file = "{}/selected_pixel_cols_{}.npy".format(self.args.base_directory,i)
                 with open(pixel_rows_file, "wb") as f:
                     np.save(f, pixel_rows_to_save)
                 with open(pixel_cols_file, "wb") as f:
@@ -546,14 +559,26 @@ class SceneModel:
         self.estimated_sensor_error = torch.cat(self.average_nearest_neighbor_distance_per_pixel, dim=0)
 
 
-    def derive_xyz_coordinates(self, camera_world_position, camera_world_rotation, pixel_directions, pixel_depths):
-        # transform rays from camera coordinate to world coordinate
-        pixel_world_directions = torch.matmul(camera_world_rotation, pixel_directions).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)
+    def derive_xyz_coordinates(self, camera_world_position, camera_world_rotation, pixel_directions, pixel_depths, flattened=False):
+        if not flattened:
+            # transform rays from camera coordinate to world coordinate
+            pixel_world_directions = torch.matmul(camera_world_rotation, pixel_directions).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)
 
-        # Get sample position in the world (1, 1, 3) + (H, W, 3) * (H, W, 1) -> (H, W, 3)
-        global_xyz = camera_world_position + pixel_world_directions * pixel_depths.unsqueeze(2)
+            # Get sample position in the world (1, 1, 3) + (H, W, 3) * (H, W, 1) -> (H, W, 3)
+            global_xyz = camera_world_position + pixel_world_directions * pixel_depths.unsqueeze(2)
+
+        # else:
+        #     pixel_directions_world = torch.matmul(poses[:,:3, :3], pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3) 
+        #     poses_xyz = poses[:, :3, 3]  # the translation vectors (N, 3)
+        #     pixel_depth_samples_world_directions = pixel_directions_world.unsqueeze(1) * resampled_depths.unsqueeze(2) # (N_pixels, N_samples, 3)
+        #     pixel_xyz_positions = poses_xyz.unsqueeze(1).expand(N_pixels, N_samples, 3) + pixel_depth_samples_world_directions # (N_pixels, N_samples, 3)
+
 
         return global_xyz
+
+
+
+
 
 
     def get_sensor_xyz_coordinates(self, i=None, pose_data=None, depth_data=None):
@@ -620,7 +645,7 @@ class SceneModel:
             xyz_coordinates = xyz_coordinates[:, min_pixel_col:max_pixel_col, :]
 
         # now define the bounds in (x,y,z) space through which we will filter all future pixels by their projected points
-        self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates, padding=0.025)
+        self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates, padding=1.0)
  
 
 
@@ -723,6 +748,13 @@ class SceneModel:
             print("Saving {} model...".format(topic))
             save_checkpoint(epoch=self.epoch, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}'.format(topic, self.epoch))
 
+    def save_point_clouds_with_sensor_depths(self):
+        for i, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
+            print("Saving with learned poses and intrinsics the raw sensor colors and sensor depth for view {}".format(i))
+            image, _ = self.load_image_data(image_id=image_id)
+            depth, _, _ = self.load_depth_data(image_id=image_id)
+            pose = self.models['pose'](0)[i].to(device=self.device)
+            self.get_point_cloud(pose=pose, depth=depth, rgb=image, label="raw_sensor_with_learned_poses_intrinsics_{}".format(i), save=True, save_raw_xyz=True)               
 
 
     #########################################################################
@@ -844,16 +876,16 @@ class SceneModel:
         xyz_intercepts = torch.stack(all_xyz_intercepts, dim=0)
         depth_weights = torch.stack(all_depth_weights, dim=0)
 
-        with open("xyz_depths_view_{}.npy".format(test_view_number), "wb") as f:
+        with open("{}/xyz_depths_view_{}.npy".format(self.args.base_directory, test_view_number), "wb") as f:
             np.save(f, xyz_depths.cpu().numpy())
 
-        with open("xyz_slopes_view_{}.npy".format(test_view_number), "wb") as f:
+        with open("{}/xyz_slopes_view_{}.npy".format(self.args.base_directory, test_view_number), "wb") as f:
             np.save(f, xyz_slopes.cpu().numpy())
 
-        with open("xyz_intercepts_view_{}.npy".format(test_view_number), "wb") as f:
+        with open("{}/xyz_intercepts_view_{}.npy".format(self.args.base_directory, test_view_number), "wb") as f:
             np.save(f, xyz_intercepts.cpu().numpy())
 
-        with open("depth_weights_view_{}.npy".format(test_view_number), "wb") as f:
+        with open("{}/depth_weights_view_{}.npy".format(self.args.base_directory, test_view_number), "wb") as f:
             np.save(f, depth_weights.cpu().numpy())
 
 
@@ -1146,6 +1178,9 @@ class SceneModel:
 
     def test(self):
         epoch = self.epoch - 1
+
+        if epoch == 0:
+            return
 
         for model in self.models.values():
             model.eval()
