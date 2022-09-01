@@ -50,15 +50,15 @@ def parse_args():
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=1000, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--test_frequency', default=2500, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200001, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--save_point_cloud_frequency', default=20000, type=int, help='Frequency of epochs to save point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--render_test_video_frequency', default=50000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=1, type=int, help='Radius of sampled poses around the evaluation pose for video')
     parser.add_argument('--number_of_poses_in_test_video', default=10, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=5, type=int, help='Index in the training data set of the image to show during testing')
-    parser.add_argument('--skip_every_n_images_for_testing', default=20, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
+    parser.add_argument('--number_of_test_images', default=2, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--skip_every_n_images_for_testing', default=80, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
     parser.add_argument('--number_of_pixels_per_batch_in_test_renders', default=128, type=int, help='Size in pixels of each batch input to rendering')
     parser.add_argument('--show_debug_visualization_in_testing', default=False, type=bool, help='Whether or not to show the cool Matplotlib 3D view of rays + weights + colors')
     parser.add_argument('--export_test_data_for_post_processing', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
@@ -88,7 +88,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.015, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.0075, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
