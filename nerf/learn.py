@@ -39,42 +39,42 @@ def parse_args():
     parser.add_argument('--images_data_type', type=str, default='jpg', help='Whether images are jpg or png')
     parser.add_argument('--skip_every_n_images_for_training', type=int, default=60, help='When loading all of the training data, ignore every N images')
     parser.add_argument('--save_models_frequency', type=int, default=50000, help='Save model every this number of epochs')
-    parser.add_argument('--load_pretrained_models', type=bool, default=False, help='Whether to start training from models loaded with load_pretrained_models()')
+    parser.add_argument('--load_pretrained_models', type=bool, default=True, help='Whether to start training from models loaded with load_pretrained_models()')
 
     # Define number of epochs, and timing by epoch for when to start training per network
-    parser.add_argument('--number_of_epochs', default=100001, type=int, help='Number of epochs for training, used in learning rate schedules')
-    parser.add_argument('--early_termination_epoch', default=100001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
-    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=500, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
+    parser.add_argument('--number_of_epochs', default=50001, type=int, help='Number of epochs for training, used in learning rate schedules')
+    parser.add_argument('--early_termination_epoch', default=50001, type=int, help='kill training early at this epoch (even if learning schedule not finished')
+    parser.add_argument('--start_training_extrinsics_epoch', type=int, default=5000, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_intrinsics_epoch', type=int, default=5000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_color_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=2500, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--test_frequency', default=1, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200001, type=int, help='Frequency of epochs to visualize point clouds')
-    parser.add_argument('--save_point_cloud_frequency', default=20000, type=int, help='Frequency of epochs to save point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=25000, type=int, help='Frequency of epochs to save point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
-    parser.add_argument('--render_test_video_frequency', default=50000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
+    parser.add_argument('--render_test_video_frequency', default=100000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=1, type=int, help='Radius of sampled poses around the evaluation pose for video')
     parser.add_argument('--number_of_poses_in_test_video', default=10, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=2, type=int, help='Index in the training data set of the image to show during testing')
-    parser.add_argument('--skip_every_n_images_for_testing', default=80, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
+    parser.add_argument('--number_of_test_images', default=120, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--skip_every_n_images_for_testing', default=2, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
     parser.add_argument('--number_of_pixels_per_batch_in_test_renders', default=128, type=int, help='Size in pixels of each batch input to rendering')
     parser.add_argument('--show_debug_visualization_in_testing', default=False, type=bool, help='Whether or not to show the cool Matplotlib 3D view of rays + weights + colors')
-    parser.add_argument('--export_test_data_for_post_processing', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
-    parser.add_argument('--save_ply_point_clouds_of_sensor_data', default=True, type=bool, help='Whether to save a .ply file at start of training showing the initial projected sensor data in 3D global coordinates')
-    parser.add_argument('--save_ply_point_clouds_of_sensor_data_with_learned_poses', default=True, type=bool, help='Whether to save a .ply file after loading a pre-trained model to see how the sensor data projects to 3D global coordinates with better poses')
-    parser.add_argument('--recompute_sensor_variance_from_initial_data', default=True, type=bool, help='If True, then it starts the optimization by computing and saving files representing estimate of sensor error, based on the KNN distance of each 3D point; if False, looks to load previous computation from saved file')
+    parser.add_argument('--export_test_data_for_post_processing', default=True, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
+    parser.add_argument('--save_ply_point_clouds_of_sensor_data', default=False, type=bool, help='Whether to save a .ply file at start of training showing the initial projected sensor data in 3D global coordinates')
+    parser.add_argument('--save_ply_point_clouds_of_sensor_data_with_learned_poses', default=False, type=bool, help='Whether to save a .ply file after loading a pre-trained model to see how the sensor data projects to 3D global coordinates with better poses')
+    parser.add_argument('--recompute_sensor_variance_from_initial_data', default=False, type=bool, help='If True, then it starts the optimization by computing and saving files representing estimate of sensor error, based on the KNN distance of each 3D point; if False, looks to load previous computation from saved file')
     parser.add_argument('--number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error', default=10, type=int, help='N for the KNN on every 3D point at start of optimization, of which distances for N points are used as metric of variance')
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
-    parser.add_argument('--nerf_density_lr_start', default=0.0010, type=float, help="Learning rate start for NeRF geometry network")
-    parser.add_argument('--nerf_density_lr_end', default=0.0001, type=float, help="Learning rate end for NeRF geometry network")
+    parser.add_argument('--nerf_density_lr_start', default=0.0002, type=float, help="Learning rate start for NeRF geometry network")
+    parser.add_argument('--nerf_density_lr_end', default=0.00001, type=float, help="Learning rate end for NeRF geometry network")
     parser.add_argument('--nerf_density_lr_exponential_index', default=6, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF geometry network")
     parser.add_argument('--nerf_density_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF geometry network")
 
-    parser.add_argument('--nerf_color_lr_start', default=0.001, type=float, help="Learning rate start for NeRF RGB (pitch,yaw) network")
-    parser.add_argument('--nerf_color_lr_end', default=0.0001, type=float, help="Learning rate end for NeRF RGB (pitch,yaw) network")
+    parser.add_argument('--nerf_color_lr_start', default=0.0002, type=float, help="Learning rate start for NeRF RGB (pitch,yaw) network")
+    parser.add_argument('--nerf_color_lr_end', default=0.00001, type=float, help="Learning rate end for NeRF RGB (pitch,yaw) network")
     parser.add_argument('--nerf_color_lr_exponential_index', default=4, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF RGB (pitch,yaw) network")
     parser.add_argument('--nerf_color_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF RGB (pitch,yaw) network")
 
@@ -88,7 +88,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.0075, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.0, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -726,11 +726,10 @@ class SceneModel:
         self.schedulers["pose"] = self.create_polynomial_learning_rate_schedule(model = "pose")
 
 
-    def load_pretrained_models(self, path="models", epoch=100001):
+    def load_pretrained_models(self, epoch=50001):
         for model_name in self.models.keys():
             model = self.models[model_name]
-            #model_path = "{}/{}_{}.pth".format(path, model_name, epoch)
-            model_path = "models/pillow_small_model_1/{}_{}.pth".format(model_name, epoch)
+            model_path = "{}/models/{}_{}.pth".format(self.args.base_directory, model_name, epoch)
             model = self.load_model(model_path=model_path, model=model)
             self.models[model_name] = model.to(device=self.device)
 
@@ -746,7 +745,11 @@ class SceneModel:
             model = self.models[topic]
             optimizer = self.optimizers[topic]
             print("Saving {} model...".format(topic))
-            save_checkpoint(epoch=self.epoch, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}'.format(topic, self.epoch))
+
+            save_model_path = Path("{}/models".format(self.args.base_directory))
+            save_model_path.mkdir(parents=True, exist_ok=True)
+
+            save_checkpoint(epoch=self.epoch, model=model, optimizer=optimizer, path=save_model_path, ckpt_name='{}_{}'.format(topic, self.epoch))
 
     def save_point_clouds_with_sensor_depths(self):
         for i, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
@@ -1229,7 +1232,11 @@ class SceneModel:
                 pose = self.models['pose'](0)[image_index].to(device=self.device)
                 depth = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
                 rgb = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
-                self.get_point_cloud(pose=pose, depth=depth, rgb=rgb, label="10000k_KL_divergence_view_{}".format(image_index), save=True)               
+                self.get_point_cloud(pose=pose, depth=depth, rgb=rgb, label="10000k_KL_divergence_view_{}".format(image_index), save=True)           
+
+        if self.args.export_test_data_for_post_processing:
+            print("System exiting after exporting geometry data")
+            sys.exit(0)    
 
 
 if __name__ == '__main__':
