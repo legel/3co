@@ -36,7 +36,7 @@ class DepthOptimizer(nn.Module):
         self.number_of_views = len(all_xyz_slopes)
         self.number_of_top_depth_weights = all_depth_weights[0].shape[1]
 
-        print("Working with {} views containing a total of {} weights".format(self.number_of_views, self.number_of_top_depth_weights))
+        print("Optimizing {} views each with {} NeRF weights for a total of {} epochs".format(self.number_of_views, self.number_of_top_depth_weights, number_of_epochs))
 
         for view in range(self.number_of_views):
             number_of_pixels_in_view = all_xyz_slopes[view].shape[0]
@@ -400,7 +400,7 @@ if __name__ == "__main__":
             all_voxelwise_multiview_geometry_loss += voxelwise_multiview_geometry_loss
             all_sensor_depth_deviation_loss += sensor_depth_deviation_loss
 
-        loss = all_depthwise_weighted_loss / 10 + all_pixelwise_neighbor_loss * 1000 + all_voxelwise_multiview_geometry_loss * 100000 + all_sensor_depth_deviation_loss / 10000
+        loss = all_depthwise_weighted_loss / 10 + all_pixelwise_neighbor_loss * 1000 + all_voxelwise_multiview_geometry_loss * 10000 + all_sensor_depth_deviation_loss / 10000
         
         minutes_into_experiment = (int(time.time())-int(start_time)) / 60
         if epoch > 0:
@@ -410,7 +410,7 @@ if __name__ == "__main__":
                                                                                                                                 all_depthwise_weighted_loss / 10,
                                                                                                                                 all_sensor_depth_deviation_loss / 10000,
                                                                                                                                 all_pixelwise_neighbor_loss * 1000,
-                                                                                                                                all_voxelwise_multiview_geometry_loss * 100000,
+                                                                                                                                all_voxelwise_multiview_geometry_loss * 10000,
                                                                                                                                 ))
 
         # backpropagate gradients using loss
