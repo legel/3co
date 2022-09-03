@@ -15,7 +15,7 @@ project_base_directory = "data/dragon_scale"
 number_of_epochs = 500
 device = torch.device('cuda:0') 
 
-views = [v for v in range(0,50,10)]
+views = [v for v in range(0,240,2)]
 
 load_pretrained_hypotheses = False
 
@@ -452,4 +452,4 @@ if __name__ == "__main__":
             np.save(f, rgb)
 
         pcd = model.create_point_cloud(view=i)
-        o3d.io.write_point_cloud("per_view_mesh_{}_with_{}_views.ply".format(view, len(views)), pcd)
+        o3d.io.write_point_cloud("{}/per_view_mesh_{}_with_{}_views.ply".format(project_base_directory, view, len(views)), pcd)
