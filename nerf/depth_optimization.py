@@ -113,8 +113,8 @@ class DepthOptimizer(nn.Module):
     def create_polynomial_learning_rate_schedule(self, optimizer):
         schedule = PolynomialDecayLearningRate(optimizer=optimizer, 
                                                total_steps=number_of_epochs, 
-                                               start_value=0.15, 
-                                               end_value=0.01, 
+                                               start_value=0.10, 
+                                               end_value=0.0001, 
                                                exponential_index=6, 
                                                curvature_shape=1,
                                                model_type="mesh_optimizer",
