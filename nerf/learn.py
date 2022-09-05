@@ -1,4 +1,5 @@
 import torch
+from torch.distributions import Beta
 from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
 from scipy.spatial.transform import Rotation
 from torchsummary import summary
@@ -53,31 +54,31 @@ def parse_args():
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=10000, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--test_frequency', default=1, type=int, help='Frequency of epochs to render an evaluation image')
     parser.add_argument('--visualize_point_cloud_frequency', default=200001, type=int, help='Frequency of epochs to visualize point clouds')
     parser.add_argument('--save_point_cloud_frequency', default=50000, type=int, help='Frequency of epochs to save point clouds')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--render_test_video_frequency', default=100000, type=int, help='Frequency of epochs to log outputs e.g. loss performance')
     parser.add_argument('--spherical_radius_of_test_video', default=1, type=int, help='Radius of sampled poses around the evaluation pose for video')
     parser.add_argument('--number_of_poses_in_test_video', default=10, type=int, help='Number of poses in test video to render for the total animation')
-    parser.add_argument('--number_of_test_images', default=3, type=int, help='Index in the training data set of the image to show during testing')
+    parser.add_argument('--number_of_test_images', default=1, type=int, help='Index in the training data set of the image to show during testing')
     parser.add_argument('--skip_every_n_images_for_testing', default=50, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
     parser.add_argument('--number_of_pixels_per_batch_in_test_renders', default=128, type=int, help='Size in pixels of each batch input to rendering')
     parser.add_argument('--show_debug_visualization_in_testing', default=False, type=bool, help='Whether or not to show the cool Matplotlib 3D view of rays + weights + colors')
-    parser.add_argument('--export_test_data_for_post_processing', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
+    parser.add_argument('--export_test_data_for_post_processing', default=True, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
     parser.add_argument('--save_ply_point_clouds_of_sensor_data', default=False, type=bool, help='Whether to save a .ply file at start of training showing the initial projected sensor data in 3D global coordinates')
     parser.add_argument('--save_ply_point_clouds_of_sensor_data_with_learned_poses', default=False, type=bool, help='Whether to save a .ply file after loading a pre-trained model to see how the sensor data projects to 3D global coordinates with better poses')
     parser.add_argument('--recompute_sensor_variance_from_initial_data', default=False, type=bool, help='If True, then it starts the optimization by computing and saving files representing estimate of sensor error, based on the KNN distance of each 3D point; if False, looks to load previous computation from saved file')
     parser.add_argument('--number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error', default=10, type=int, help='N for the KNN on every 3D point at start of optimization, of which distances for N points are used as metric of variance')
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
-    parser.add_argument('--nerf_density_lr_start', default=0.001, type=float, help="Learning rate start for NeRF geometry network")
-    parser.add_argument('--nerf_density_lr_end', default=0.00001, type=float, help="Learning rate end for NeRF geometry network")
+    parser.add_argument('--nerf_density_lr_start', default=0.0005, type=float, help="Learning rate start for NeRF geometry network")
+    parser.add_argument('--nerf_density_lr_end', default=0.0001, type=float, help="Learning rate end for NeRF geometry network")
     parser.add_argument('--nerf_density_lr_exponential_index', default=6, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF geometry network")
     parser.add_argument('--nerf_density_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF geometry network")
 
-    parser.add_argument('--nerf_color_lr_start', default=0.001, type=float, help="Learning rate start for NeRF RGB (pitch,yaw) network")
-    parser.add_argument('--nerf_color_lr_end', default=0.00001, type=float, help="Learning rate end for NeRF RGB (pitch,yaw) network")
+    parser.add_argument('--nerf_color_lr_start', default=0.0005, type=float, help="Learning rate start for NeRF RGB (pitch,yaw) network")
+    parser.add_argument('--nerf_color_lr_end', default=0.0001, type=float, help="Learning rate end for NeRF RGB (pitch,yaw) network")
     parser.add_argument('--nerf_color_lr_exponential_index', default=4, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF RGB (pitch,yaw) network")
     parser.add_argument('--nerf_color_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF RGB (pitch,yaw) network")
 
@@ -91,7 +92,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.001, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.0, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.0, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -726,7 +727,7 @@ class SceneModel:
         self.schedulers["pose"] = self.create_polynomial_learning_rate_schedule(model = "pose")
 
 
-    def load_pretrained_models(self, epoch=50001):
+    def load_pretrained_models(self, epoch="50001_v1"):
         for model_name in self.models.keys():
             model = self.models[model_name]
             model_path = "{}/models/{}_{}.pth".format(self.args.base_directory, model_name, epoch)
@@ -1126,6 +1127,11 @@ class SceneModel:
         kl_divergence_pixels = torch.sum(kl_divergence_bins, 1)
         depth_loss = torch.mean(kl_divergence_pixels)
         
+
+        beta_distribution = Beta(concentration1=torch.FloatTensor([2]).to(device=self.device), concentration0=torch.FloatTensor([50]).to(device=self.device))
+        non_binary_nerf_weight_distribution_loss = torch.mean(torch.sum(10**beta_distribution.log_prob(nerf_depth_weights), dim=1))
+        non_binary_nerf_weight_distribution_loss_coefficient = (1 / 10000000)
+
         # get a metric in Euclidian space that we can output via prints for human review/intuition; not actually used in backpropagation
         interpretable_depth_loss = torch.sum(nerf_depth_weights * torch.sqrt((depth_samples * 1000 - sensor_depth_per_sample * 1000) ** 2), dim=1)
         interpretable_depth_loss_per_pixel = torch.mean(interpretable_depth_loss)
@@ -1145,7 +1151,7 @@ class SceneModel:
         depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
 
         # compute loss and backward propagate the gradients to update the values which are parameters to this loss
-        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss
+        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + non_binary_nerf_weight_distribution_loss * non_binary_nerf_weight_distribution_loss_coefficient
         unweighted_loss = rgb_loss + depth_loss
         weighted_loss.backward(create_graph=False, retain_graph=False)
 
@@ -1156,6 +1162,7 @@ class SceneModel:
         if self.epoch % self.args.log_frequency == 0:
             wandb.log({"RGB Inverse Render Loss (0-255 per pixel)": interpretable_rgb_loss_per_pixel,
                        "Depth Sensor Loss (average millimeters error vs. sensor)": interpretable_depth_loss_per_pixel,
+                       "Non-binary NeRF Weight Distribution Loss": non_binary_nerf_weight_distribution_loss
                        })
 
         # if (self.epoch - 1) % iterations_per_batch == 0:
@@ -1163,13 +1170,14 @@ class SceneModel:
 
         if self.epoch % self.args.log_frequency == 0:
             minutes_into_experiment = (int(time.time())-int(self.start_time)) / 60
-            print("({} at {:.2f} minutes) - Total Loss: {:.6f}, RGB Loss: {:.6f} ({:.3f} of 255), Depth Loss: {:.6f} ({:3f} mm), Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, 
+            print("({} at {:.2f} minutes) - Total Loss: {:.6f}, RGB Loss: {:.6f} ({:.3f} of 255), Depth Loss: {:.6f} ({:3f} mm), Non-Binary Loss: {:.6f}, Focal Length X: {:.3f}, Focal Length Y: {:.3f}".format(self.epoch, 
                                                                                                                                                                                         minutes_into_experiment, 
-                                                                                                                                                                                        weighted_loss,
-                                                                                                                                                                                        (1 - depth_to_rgb_importance) * rgb_loss, 
+                                                                                                                                                                                        weighted_loss * 100000,
+                                                                                                                                                                                        (1 - depth_to_rgb_importance) * rgb_loss * 100000, 
                                                                                                                                                                                         interpretable_rgb_loss_per_pixel, 
-                                                                                                                                                                                        depth_to_rgb_importance * depth_loss, 
+                                                                                                                                                                                        depth_to_rgb_importance * depth_loss * 100000, 
                                                                                                                                                                                         interpretable_depth_loss_per_pixel, 
+                                                                                                                                                                                        non_binary_nerf_weight_distribution_loss * non_binary_nerf_weight_distribution_loss_coefficient * 100000,
                                                                                                                                                                                         focal_length_x, 
                                                                                                                                                                                         focal_length_y))
         # update the learning rate schedulers
