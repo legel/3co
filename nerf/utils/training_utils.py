@@ -51,8 +51,7 @@ class PolynomialDecayLearningRate():
 
     def step(self):
         "Step with the inner optimizer"
-        self._update_learning_rate()
-        self._optimizer.step()
+        self._update_learning_rate()        
 
     def zero_grad(self):
         "Zero out the gradients with the inner optimizer"
