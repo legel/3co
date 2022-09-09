@@ -43,12 +43,12 @@ def parse_args():
     parser.add_argument('--images_directory', type=str, default='color', help='The specific group of images to use during training')
     parser.add_argument('--images_data_type', type=str, default='jpg', help='Whether images are jpg or png')
     parser.add_argument('--skip_every_n_images_for_training', type=int, default=30, help='When loading all of the training data, ignore every N images')
-    parser.add_argument('--save_models_frequency', type=int, default=50000, help='Save model every this number of epochs')
+    parser.add_argument('--save_models_frequency', type=int, default=25000, help='Save model every this number of epochs')
     parser.add_argument('--load_pretrained_models', type=bool, default=False, help='Whether to start training from models loaded with load_pretrained_models()')
-    parser.add_argument('--pretrained_models_directory', type=str, default='./models', help='The directory storing models to load')
+    parser.add_argument('--pretrained_models_directory', type=str, default='./data/dragon_scale/hyperparam_experiments/1662755515_depth_loss_0.00075_to_0.0_k9_N1_NeRF_Density_LR_0.0005_to_0.0001_k4_N1_pose_LR_0.0025_to_1e-05_k9_N1', help='The directory storing models to load')
 
     # Define number of epochs, and timing by epoch for when to start training per network
-    parser.add_argument('--start_epoch', default=1, type=int, help='Epoch on which to begin or resume training')
+    parser.add_argument('--start_epoch', default=0, type=int, help='Epoch on which to begin or resume training')
     parser.add_argument('--number_of_epochs', default=200001, type=int, help='Number of epochs for training, used in learning rate schedules')    
     parser.add_argument('--start_training_extrinsics_epoch', type=int, default=500, help='Set to epoch number >= 0 to init poses using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_intrinsics_epoch', type=int, default=5000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
@@ -68,31 +68,29 @@ def parse_args():
     parser.add_argument('--export_test_data_for_post_processing', default=False, type=bool, help='Whether to save in external files the final render RGB + weights for all samples for all images')
     parser.add_argument('--save_ply_point_clouds_of_sensor_data', default=False, type=bool, help='Whether to save a .ply file at start of training showing the initial projected sensor data in 3D global coordinates')
     parser.add_argument('--save_ply_point_clouds_of_sensor_data_with_learned_poses', default=False, type=bool, help='Whether to save a .ply file after loading a pre-trained model to see how the sensor data projects to 3D global coordinates with better poses')
-    parser.add_argument('--recompute_sensor_variance_from_initial_data', default=False, type=bool, help='If True, then it starts the optimization by computing and saving files representing estimate of sensor error, based on the KNN distance of each 3D point; if False, looks to load previous computation from saved file')
-    parser.add_argument('--number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error', default=10, type=int, help='N for the KNN on every 3D point at start of optimization, of which distances for N points are used as metric of variance')    
 
     # Define learning rates, including start, stop, and two parameters to control curvature shape (https://arxiv.org/pdf/2004.05909v1.pdf)
-    parser.add_argument('--nerf_density_lr_start', default=0.0005, type=float, help="Learning rate start for NeRF geometry network")
+    parser.add_argument('--nerf_density_lr_start', default=0.0030, type=float, help="Learning rate start for NeRF geometry network")
     parser.add_argument('--nerf_density_lr_end', default=0.0001, type=float, help="Learning rate end for NeRF geometry network")
-    parser.add_argument('--nerf_density_lr_exponential_index', default=4, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF geometry network")
+    parser.add_argument('--nerf_density_lr_exponential_index', default=7, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF geometry network")
     parser.add_argument('--nerf_density_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF geometry network")
 
-    parser.add_argument('--nerf_color_lr_start', default=0.0005, type=float, help="Learning rate start for NeRF RGB (pitch,yaw) network")
+    parser.add_argument('--nerf_color_lr_start', default=0.0030, type=float, help="Learning rate start for NeRF RGB (pitch,yaw) network")
     parser.add_argument('--nerf_color_lr_end', default=0.0001, type=float, help="Learning rate end for NeRF RGB (pitch,yaw) network")
-    parser.add_argument('--nerf_color_lr_exponential_index', default=4, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF RGB (pitch,yaw) network")
+    parser.add_argument('--nerf_color_lr_exponential_index', default=7, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF RGB (pitch,yaw) network")
     parser.add_argument('--nerf_color_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF RGB (pitch,yaw) network")
 
-    parser.add_argument('--focal_lr_start', default=0.00250, type=float, help="Learning rate start for NeRF-- camera intrinsics network")
+    parser.add_argument('--focal_lr_start', default=0.00100, type=float, help="Learning rate start for NeRF-- camera intrinsics network")
     parser.add_argument('--focal_lr_end', default=0.00001, type=float, help="Learning rate end for NeRF-- camera intrinsics network")
     parser.add_argument('--focal_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera intrinsics network")
     parser.add_argument('--focal_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera intrinsics network")
 
-    parser.add_argument('--pose_lr_start', default=0.00250, type=float, help="Learning rate start for NeRF-- camera extrinsics network")
+    parser.add_argument('--pose_lr_start', default=0.00100, type=float, help="Learning rate start for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_end', default=0.00001, type=float, help="Learning rate end for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.00075, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.00750, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.00000, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -112,24 +110,27 @@ def parse_args():
     parser.add_argument('--directional_encoding_fourier_frequencies', type=int, default=10, help='The number of frequencies that are generated for positional encoding of (pitch, yaw)')
 
     # Define sampling parameters, including how many samples per raycast (outward), number of samples randomly selected per image, and (if masking is used) ratio of good to masked samples
-    parser.add_argument('--pixel_samples_per_epoch', type=int, default=600, help='The number of rows of samples to randomly collect for each image during training')
+    parser.add_argument('--pixel_samples_per_epoch', type=int, default=500, help='The number of rows of samples to randomly collect for each image during training')
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=1000, help='The number of samples per raycast to collect (linearly)')
 
     # Define voxel-based sampling parameters for ensuring similar parts of the density model are queried simultaneously
-    parser.add_argument('--voxel_size_for_sampling_start', default=0.50, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
+    parser.add_argument('--voxel_size_for_sampling_start', default=0.05, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_end', default=0.0025, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_exponential_index', default=12, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_curvature_shape', default=1, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxels_sampled_per_epoch', type=int, default=100, help='Minimum number of voxels sampled per epoch (in practice, actual number of voxels will be higher)')
-    parser.add_argument('--samples_per_voxel', type=int, default=6, help='Maximum number of samples per voxel (in practice, actual number of samples will be lower if voxel doesnt have as many points inside)')    
+    parser.add_argument('--samples_per_voxel', type=int, default=5, help='Maximum number of samples per voxel (in practice, actual number of samples will be lower if voxel doesnt have as many points inside)')    
+    parser.add_argument('--fraction_of_dataset_randomly_selected_for_each_voxelization', type=float, default=0.20, help='Between each epoch, we randomly select this percentage of all points, and voxelize only these (saves memory, compute)')    
 
     # Define depth sensor parameters
-    parser.add_argument('--depth_sensor_error', type=float, default=0.5, help='Variance of Gaussian depth sensor model, in millimeters')
+    parser.add_argument('--depth_sensor_error', type=float, default=0.5, help='If not using a heuristic for variance, hardcoded variance of Gaussian depth sensor model, in millimeters')
     parser.add_argument('--epsilon', type=float, default=0.0000001, help='Minimum value in log() for NeRF density weights going to 0')
+    parser.add_argument('--use_knn_as_heuristic_for_depth_sensor_error', default=False, type=bool, help='Whether to use this metric or not')
+    parser.add_argument('--number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error', default=10, type=int, help='N for the KNN on every 3D point at start of optimization, of which distances for N points are used as metric of variance')    
 
     # Additional parameters on pre-processing of depth data and coordinate systems
     parser.add_argument('--maximum_depth', type=float, default=5.0, help='All depths below this value will be clipped to this value')
-    parser.add_argument('--filter_depth_by_confidence', type=int, default=0, help='A value in [0,1,2] where 0 allows all depth data to be used, 2 filters the most and ignores that')
+    parser.add_argument('--min_confidence', type=float, default=2.0, help='A value in [0,1,2] where 0 allows all depth data to be used, 2 filters the most and ignores that')
 
     parsed_args = parser.parse_args()
 
@@ -148,8 +149,10 @@ class SceneModel:
         self.start_time = int(time.time()) 
         self.device = torch.device('cuda:0') 
         self.gpu2 = torch.device('cuda:1')
-        
-        # set cache directory
+
+        self.beta_distribution = Beta(concentration1=torch.FloatTensor([2]).to(device=self.device), concentration0=torch.FloatTensor([50]).to(device=self.device))
+
+        # # set cache directory
         os.environ['PYTORCH_KERNEL_CACHE_PATH'] = self.args.base_directory
 
         # set up location for saving experiment data
@@ -177,7 +180,11 @@ class SceneModel:
         self.initialize_models()        
         self.initialize_learning_rates()  
 
-        # self.save_cam_xyz() # does this do anything?
+        if self.args.export_test_data_for_post_processing:
+            self.save_cam_xyz()
+
+        if self.args.use_knn_as_heuristic_for_depth_sensor_error:
+            self.load_estimates_of_depth_sensor_error()
 
         if self.args.load_pretrained_models:
             print("Loading pretrained models")
@@ -246,16 +253,16 @@ class SceneModel:
         # load confidence data, which Apple provides with only three possible confidence metrics: 0 (least confident), 1 (moderate confidence), 2 (most confident)
         confidence_data = np.array(Image.open(confidence_path))
 
+        # we're now going to interpolate the confidence data, such that we will be able to have estimated confidence values for interpolated depths
+        confidence_data = cv2.resize(confidence_data, (self.W, self.H), interpolation=cv2.INTER_LINEAR)
+        confidence_data = torch.from_numpy(confidence_data).to(device=self.device)
+
         # read the 16 bit greyscale depth data which is formatted as an integer of millimeters
         depth_mm = cv2.imread(depth_path, -1).astype(np.float32)
 
         # convert data in millimeters to meters
         depth_m = depth_mm / (1000.0)  
         
-        # # filter by confidence
-        # if confidence_data is not None:
-        #     depth_m[confidence_data < self.args.filter_depth_by_confidence] = 0.0
-
         # set a cap on the maximum depth in meters; clips erroneous/irrelevant depth data from way too far out
         depth_m[depth_m > self.args.maximum_depth] = self.args.maximum_depth
 
@@ -270,7 +277,7 @@ class SceneModel:
 
         depth = torch.Tensor(resized_depth_meters).to(device=self.device) # (N_images, H_image, W_image)
 
-        return depth, near_bound, far_bound
+        return depth, near_bound, far_bound, confidence_data
 
 
     def load_camera_intrinsics(self):
@@ -353,8 +360,8 @@ class SceneModel:
 
 
     def get_point_cloud(self, pose, depth, rgb, pixel_directions, label=0, save=False, remove_zero_depths=True, save_raw_xyz=False, dir=''):        
-        camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 3)
-        camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 3, 3)
+        camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
+        camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
         pixel_directions = pixel_directions.unsqueeze(3) # (H, W, 3, 1)
         #pixel_directions = self.pixel_directions # (N_images, H, W, 3)
 
@@ -434,6 +441,7 @@ class SceneModel:
         self.pixel_rows = []
         self.pixel_cols = []
         self.xyz_per_view = []
+        self.confidence_per_pixel = []
         self.test_poses_processed = 0
         number_of_test_images_saved = 0
         
@@ -441,7 +449,7 @@ class SceneModel:
         for i, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
 
             # get depth data for this image
-            depth, near_bound, far_bound = self.load_depth_data(image_id=image_id) # (H, W)
+            depth, near_bound, far_bound, confidence = self.load_depth_data(image_id=image_id) # (H, W)
 
             # get (x,y,z) coordinates for this image
             xyz_coordinates = self.get_sensor_xyz_coordinates(pose_data=self.initial_poses[i*self.args.skip_every_n_images_for_training], depth_data=depth, i=i) # (H, W, 3)            
@@ -450,7 +458,8 @@ class SceneModel:
             xyz_coordinates_on_or_off = self.get_xyz_inside_range(xyz_coordinates) # (H, W, 3) with True if (x,y,z) inside of previously set bounds, False if outside
             
             # get the indices of the pixel rows and pixel columns where the projected (x,y,z) point is inside the target convex hull region            
-            pixel_indices_selected = torch.argwhere(xyz_coordinates_on_or_off)            
+            pixel_indices_selected = torch.argwhere(xyz_coordinates_on_or_off)          
+
             pixel_rows_selected = pixel_indices_selected[:,0]
             pixel_cols_selected = pixel_indices_selected[:,1]
             self.pixel_rows.append(pixel_rows_selected)
@@ -465,6 +474,11 @@ class SceneModel:
             # get the corresponding (x,y,z) coordinates and depth values selected by the mask
             xyz_coordinates_selected = xyz_coordinates[pixel_rows_selected, pixel_cols_selected, :]
             self.xyz_per_view.append(xyz_coordinates_selected)
+
+            # get the confidence of the selected pixels
+            # confidence = confidence.cpu()
+            selected_confidence = confidence[pixel_rows_selected, pixel_cols_selected]
+            self.confidence_per_pixel.append(selected_confidence)
 
             depth_selected = depth[pixel_rows_selected, pixel_cols_selected] # (N selected)
 
@@ -501,11 +515,16 @@ class SceneModel:
 
 
         # bring the data together
-        self.xyz = torch.cat(self.xyz_per_view, dim=0).to(device=self.device) #.to(device=torch.device('cpu'))
+        self.xyz = torch.cat(self.xyz_per_view, dim=0).to(device=self.device) # to(device=torch.device('cpu')) # 
+
+        if not self.args.use_knn_as_heuristic_for_depth_sensor_error:
+            self.xyz_per_view = None
+
         self.rgbd = torch.cat(self.rgbd, dim=0)
         self.pixel_rows = torch.cat(self.pixel_rows, dim=0)
         self.pixel_cols = torch.cat(self.pixel_cols, dim=0)
         self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0)
+        self.confidence_per_pixel = torch.cat(self.confidence_per_pixel, dim=0)
         
         # and clean up
         self.number_of_pixels = self.image_ids_per_pixel.shape[0]
@@ -513,9 +532,6 @@ class SceneModel:
         self.far = torch.max(self.rgbd[:,3])
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))
         self.initial_poses = self.initial_poses[::self.args.skip_every_n_images_for_training]
-
-        if not self.args.recompute_sensor_variance_from_initial_data:
-            self.xyz_per_view = None
         
         print("Loaded {} images with {:,} pixels selected".format(i+1, self.number_of_pixels ))
 
@@ -541,8 +557,22 @@ class SceneModel:
 
     def load_estimates_of_depth_sensor_error(self):
         self.average_nearest_neighbor_distance_per_pixel = []
+        need_to_recompute_sensor_error_estimates = False
+    
+        for view, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
+            error_metric_file_name = "image_id_{}_estimated_sensor_error_from_top_{}_knn_distances.npy".format(image_id, self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error)
+            file_path = "{}/sensor_variance/{}".format(self.args.base_directory, error_metric_file_name)
 
-        if self.args.recompute_sensor_variance_from_initial_data:
+            if os.path.exists(file_path):
+                error_metric_data =  torch.from_numpy(np.load(file_path))
+                self.average_nearest_neighbor_distance_per_pixel.append(error_metric_data)
+            else:
+                need_to_recompute_sensor_error_estimates = True
+                break
+
+        if need_to_recompute_sensor_error_estimates:
+            # otherwise, let's go ahead and compute it
+
             sensor_variance_dir = Path("{}/sensor_variance".format(self.args.base_directory))
             sensor_variance_dir.mkdir(parents=True, exist_ok=True)
             
@@ -584,14 +614,7 @@ class SceneModel:
 
                 self.average_nearest_neighbor_distance_per_pixel.append(average_nearest_neighbor_distance_per_pixel)
             
-            self.xyz_per_view = None
-        else:
-            # otherwise we presume that we've already computed the above, and try to load the data directly
-            for view, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
-                error_metric_file_name = "image_id_{}_estimated_sensor_error_from_top_{}_knn_distances.npy".format(image_id, self.args.number_of_nearest_neighbors_to_use_in_knn_distance_metric_for_estimation_of_sensor_error)
-                file_path = "{}/sensor_variance/{}".format(self.args.base_directory, error_metric_file_name)
-                error_metric_data =  torch.from_numpy(np.load(file_path))
-                self.average_nearest_neighbor_distance_per_pixel.append(error_metric_data)
+        self.xyz_per_view = None
 
         # now we need to flatten the sensor variance estimates, just like the rest of the data
         self.estimated_sensor_error = torch.cat(self.average_nearest_neighbor_distance_per_pixel, dim=0)
@@ -637,7 +660,7 @@ class SceneModel:
         image_id = self.image_ids[index_to_filter]
 
         # get depth data for that image
-        depth, near_bound, far_bound = self.load_depth_data(image_id=image_id)
+        depth, near_bound, far_bound, confidence = self.load_depth_data(image_id=image_id)
 
         # now, get (x,y,z) coordinates for the first image
         
@@ -770,7 +793,7 @@ class SceneModel:
         for i, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
             print("Saving with learned poses and intrinsics the raw sensor colors and sensor depth for view {}".format(i))
             image, _ = self.load_image_data(image_id=image_id)
-            depth, _, _ = self.load_depth_data(image_id=image_id)
+            depth, _, _, _ = self.load_depth_data(image_id=image_id)
             pose = self.models['pose'](0)[i].to(device=self.device)
             self.get_point_cloud(pose=pose, depth=depth, rgb=image, pixel_directions=self.pixel_directions[image_id], label="raw_sensor_with_learned_poses_intrinsics_{}".format(i), save=True, save_raw_xyz=True)               
 
@@ -1078,6 +1101,11 @@ class SceneModel:
         # get a tensor with the poses per pixel
         image_ids = self.image_ids_per_pixel[self.indices_of_random_pixels].to(self.device) # (N_pixels)
         selected_poses = poses[image_ids].to(self.device) # (N_pixels, 4, 4)
+
+        selected_confidences = self.confidence_per_pixel[self.indices_of_random_pixels].to(self.device)
+        confidence_loss_weights = torch.where(selected_confidences >= self.args.min_confidence, 1, 0).to(self.device)
+        number_of_pixels_with_confident_depths = torch.sum(confidence_loss_weights)
+
         selected_focal_length_x = focal_length_x[image_ids].to(self.device)
         selected_focal_length_y = focal_length_y[image_ids].to(self.device)
 
@@ -1098,6 +1126,7 @@ class SceneModel:
 
         # render an image using selected rays, pose, sample intervals, and the network
         render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, perturb_depths=False, rgb_image=rgb)  # (N_pixels, 3)
+
         rgb_rendered = render_result['rgb_rendered']  # (N_pixels, 3)
         nerf_depth_weights = render_result['depth_weights'] # (N_pixels, N_samples)
         nerf_depth = render_result['depth_map'] # (N_pixels) NeRF depth (weights x distances) for every pixel
@@ -1105,42 +1134,42 @@ class SceneModel:
 
         nerf_depth_weights = nerf_depth_weights + self.args.epsilon
 
-        # get the estimated sensor error for these randomly selected pixels
-        # sensor_error = self.estimated_sensor_error[self.indices_of_random_pixels].to(self.device) # (N_pixels)
-        # sensor_error = sensor_error.unsqueeze(1).expand(number_of_pixels, number_of_raycast_samples) # (N_pixels, N_samples)
+        if self.args.use_knn_as_heuristic_for_depth_sensor_error:
+            # get the estimated sensor error for these randomly selected pixels
+            sensor_variance = self.estimated_sensor_error[self.indices_of_random_pixels].to(self.device) # (N_pixels)
+            sensor_variance = sensor_variance.unsqueeze(1).expand(number_of_pixels, number_of_raycast_samples) # (N_pixels, N_samples)
+        else:
+            sensor_variance = self.args.depth_sensor_error
 
-        sensor_variance = 0.5
         kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples * 1000 - sensor_depth_per_sample * 1000) ** 2 / (2 * sensor_variance)) * nerf_sample_bin_lengths * 1000                                
-        kl_divergence_pixels = torch.sum(kl_divergence_bins, 1)
-        depth_loss = torch.mean(kl_divergence_pixels)
+        confidence_weighted_kl_divergence_pixels = confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
+        depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
 
         depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
         # depth_to_rgb_importance = 0.0
 
         ##################### entropy loss #######################
-        pixels_weights_entropy = -1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1)
-        entropy_depth_loss = torch.mean(pixels_weights_entropy)
-        entropy_depth_loss_weight = 0.0
         if (self.epoch > self.args.entropy_loss_tuning_start_epoch and self.epoch < self.args.entropy_loss_tuning_end_epoch):
             entropy_depth_loss_weight = 0.01
+            pixels_weights_entropy = -1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1)
+            weighted_entropy_depth_loss = entropy_depth_loss_weight * torch.mean(pixels_weights_entropy)
             print("------->entropy loss: {}".format(entropy_depth_loss))      
-            depth_to_rgb_importance = 0.0  
+            depth_to_rgb_importance = 0.0
+        else:
+            weighted_entropy_depth_loss = 0.0
         ###############################################################
 
         ##################### beta loss #######################
-        beta_loss_importance = self.get_polynomial_decay(start_value=self.args.beta_loss_importance_end, end_value=self.args.beta_loss_importance_start, exponential_index=self.args.beta_loss_importance_exponential_index, curvature_shape=self.args.beta_loss_importance_curvature_shape)
         # we *increase* the beta loss importance over time, starting from 0.0
-
-        #raw_nerf_depth_weights = nerf_depth_weights - self.args.epsilon
-        beta_distribution = Beta(concentration1=torch.FloatTensor([2]).to(device=self.device), concentration0=torch.FloatTensor([50]).to(device=self.device))
-        beta_loss = torch.mean(torch.sum(10**beta_distribution.log_prob(nerf_depth_weights), dim=1))
+        beta_loss_importance = self.get_polynomial_decay(start_value=self.args.beta_loss_importance_end, end_value=self.args.beta_loss_importance_start, exponential_index=self.args.beta_loss_importance_exponential_index, curvature_shape=self.args.beta_loss_importance_curvature_shape)
+        beta_loss = torch.mean(torch.sum(10**self.beta_distribution.log_prob(nerf_depth_weights), dim=1))
         weighted_beta_loss = beta_loss_importance * beta_loss
         ###############################################################
 
         with torch.no_grad():
             # get a metric in Euclidian space that we can output via prints for human review/intuition; not actually used in backpropagation
-            interpretable_depth_loss = torch.sum(nerf_depth_weights * torch.sqrt((depth_samples * 1000 - sensor_depth_per_sample * 1000) ** 2), dim=1)
-            interpretable_depth_loss_per_pixel = torch.mean(interpretable_depth_loss)
+            interpretable_depth_loss = confidence_loss_weights * torch.sum(nerf_depth_weights * torch.sqrt((depth_samples * 1000 - sensor_depth_per_sample * 1000) ** 2), dim=1)
+            interpretable_depth_loss_per_confident_pixel = torch.sum(interpretable_depth_loss) / number_of_pixels_with_confident_depths
 
             # get a metric in (0-255) (R,G,B) space that we can output via prints for human review/intuition; not actually used in backpropagation
             interpretable_rgb_loss = torch.sqrt((rgb_rendered * 255 - rgb * 255) ** 2)
@@ -1154,8 +1183,7 @@ class SceneModel:
         #  torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
 
         # compute loss and backward propagate the gradients to update the values which are parameters to this loss
-        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss_weight * entropy_depth_loss + weighted_beta_loss
-        unweighted_loss = rgb_loss + depth_loss
+        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + weighted_entropy_depth_loss + weighted_beta_loss
         
         for optimizer in self.optimizers.values():
             optimizer.zero_grad()        
@@ -1171,7 +1199,7 @@ class SceneModel:
 
         if self.epoch % self.args.log_frequency == 0:
             wandb.log({"RGB Inverse Render Loss (0-255 per pixel)": interpretable_rgb_loss_per_pixel,
-                       "Depth Sensor Loss (average millimeters error vs. sensor)": interpretable_depth_loss_per_pixel,
+                       "Depth Sensor Loss (average millimeters error vs. sensor)": interpretable_depth_loss_per_confident_pixel,
                        "Non-binary NeRF Weight Distribution Loss": beta_loss
                        })
 
@@ -1180,14 +1208,16 @@ class SceneModel:
 
         self.log_learning_rates()
 
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {:.2f}cm^3".format(self.epoch, 
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}, {} of {} confident), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {:.2f}cm^3".format(self.epoch, 
                                                                                                                                                                         minutes_into_experiment, 
                                                                                                                                                                         weighted_loss,
                                                                                                                                                                         (1 - depth_to_rgb_importance) * rgb_loss, 
                                                                                                                                                                         interpretable_rgb_loss_per_pixel, 
                                                                                                                                                                         depth_to_rgb_importance * depth_loss, 
-                                                                                                                                                                        interpretable_depth_loss_per_pixel,
+                                                                                                                                                                        interpretable_depth_loss_per_confident_pixel,
                                                                                                                                                                         depth_to_rgb_importance,
+                                                                                                                                                                        number_of_pixels_with_confident_depths,
+                                                                                                                                                                        self.args.pixel_samples_per_epoch,
                                                                                                                                                                         weighted_beta_loss,
                                                                                                                                                                         int(beta_loss),
                                                                                                                                                                         beta_loss_importance,                                                                                                                                                                    
@@ -1209,7 +1239,7 @@ class SceneModel:
                                                                     pixel_depths=nerf_depth, 
                                                                     flattened=True)
 
-            self.xyz[self.indices_of_random_pixels] = xyz_coordinates_from_nerf 
+            self.xyz[self.indices_of_random_pixels] = xyz_coordinates_from_nerf #.cpu()
 
 
     def sample_next_batch(self):
@@ -1218,21 +1248,28 @@ class SceneModel:
         # we will randomly sample points from one or more clusters of the latest (x,y,z) points derived from NeRF
         voxel_tensor = torch.tensor([self.voxel_size_for_sampling, self.voxel_size_for_sampling, self.voxel_size_for_sampling]).to(device=self.device)
 
+        # before voxelization, let's randomly select a (large) sub-batch to voxelize from
+        number_of_points_in_dataset = self.xyz.shape[0]
+        number_of_points_in_voxelization = torch.tensor(number_of_points_in_dataset * self.args.fraction_of_dataset_randomly_selected_for_each_voxelization, dtype=torch.int32)
+        indices_of_xyz_to_voxelize = torch.randperm(number_of_points_in_dataset, device=self.device)[:number_of_points_in_voxelization]
+
+        sub_xyz = self.xyz[indices_of_xyz_to_voxelize].to(device=self.device)
+
         # grid_clusters( ) is highly optimized clustering algorithm that is based on the same principle of voxelization: cluster by a uniform grid in 3D space
-        xyz_clusters = grid_cluster(self.xyz, size=voxel_tensor)
+        xyz_clusters = grid_cluster(sub_xyz, size=voxel_tensor)
 
         # since we have a big list of the cluster IDs (above) for every 3D point, now we check out what are the unique cluster IDs, and which belongs to which
         unique_clusters, inverse_indices = torch.unique(xyz_clusters, sorted=True, return_inverse=True)
 
         # below, by sorting by cluster ID (or voxel ID, if you will), we get a list of indices from the original (x,y,z) coordinates, which are now grouped by cluster
         sorted_cluster_indices = torch.argsort(inverse_indices)
-        sorted_xyz = self.xyz[sorted_cluster_indices]
+        sorted_xyz = sub_xyz[sorted_cluster_indices]
 
         # now, the new sampling strategy is just to take N samples that are contiguous in the sorted (x,y,z) coordinates by cluster ID
         # in practice, this will likely give us multiple clusters, but most or all of the points from each cluster
         indices_of_random_pixels_for_this_epoch = []
         for voxel_index in range(self.args.voxels_sampled_per_epoch):
-            random_start_index_into_clustered_points = np.random.randint(low=0, high=self.xyz.shape[0] - self.args.samples_per_voxel)
+            random_start_index_into_clustered_points = np.random.randint(low=0, high=sub_xyz.shape[0] - self.args.samples_per_voxel)
             random_end_index_into_clustered_points = random_start_index_into_clustered_points + self.args.samples_per_voxel
             indices_for_this_voxel = sorted_cluster_indices[random_start_index_into_clustered_points:random_end_index_into_clustered_points]
             indices_of_random_pixels_for_this_epoch.append(indices_for_this_voxel)
@@ -1362,7 +1399,7 @@ if __name__ == '__main__':
         scene.sample_next_batch()
         scene.train()
 
-        if (scene.epoch-1) % scene.args.test_frequency == 0:
+        if (scene.epoch-1) % scene.args.test_frequency == 0 and (scene.epoch-1) != 0:
             with torch.no_grad():
                 scene.test()
        
