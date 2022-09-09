@@ -114,7 +114,12 @@ def parse_args():
     # Define sampling parameters, including how many samples per raycast (outward), number of samples randomly selected per image, and (if masking is used) ratio of good to masked samples
     parser.add_argument('--pixel_samples_per_epoch', type=int, default=600, help='The number of rows of samples to randomly collect for each image during training')
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=1000, help='The number of samples per raycast to collect (linearly)')
-    parser.add_argument('--voxel_size_for_sampling', type=float, default=0.025, help='Edge size for every voxel in the pre-sampling voxelization')
+
+    # Define voxel-based sampling parameters for ensuring similar parts of the density model are queried simultaneously
+    parser.add_argument('--voxel_size_for_sampling_start', default=0.50, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
+    parser.add_argument('--voxel_size_for_sampling_end', default=0.0025, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
+    parser.add_argument('--voxel_size_for_sampling_exponential_index', default=12, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
+    parser.add_argument('--voxel_size_for_sampling_curvature_shape', default=1, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxels_sampled_per_epoch', type=int, default=100, help='Minimum number of voxels sampled per epoch (in practice, actual number of voxels will be higher)')
     parser.add_argument('--samples_per_voxel', type=int, default=6, help='Maximum number of samples per voxel (in practice, actual number of samples will be lower if voxel doesnt have as many points inside)')    
 
@@ -1175,7 +1180,7 @@ class SceneModel:
 
         self.log_learning_rates()
 
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}".format(self.epoch, 
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {:.1f}cm^3".format(self.epoch, 
                                                                                                                                                                         minutes_into_experiment, 
                                                                                                                                                                         weighted_loss,
                                                                                                                                                                         (1 - depth_to_rgb_importance) * rgb_loss, 
@@ -1187,7 +1192,8 @@ class SceneModel:
                                                                                                                                                                         int(beta_loss),
                                                                                                                                                                         beta_loss_importance,                                                                                                                                                                    
                                                                                                                                                                         torch.mean(focal_length_x),
-                                                                                                                                                                        torch.mean(focal_length_y)))
+                                                                                                                                                                        torch.mean(focal_length_y),
+                                                                                                                                                                        self.voxel_size_for_sampling * 100))
 
 
 
@@ -1207,8 +1213,10 @@ class SceneModel:
 
 
     def sample_next_batch(self):
+        self.voxel_size_for_sampling = self.get_polynomial_decay(start_value=self.args.voxel_size_for_sampling_start, end_value=self.args.voxel_size_for_sampling_end, exponential_index=self.args.voxel_size_for_sampling_exponential_index, curvature_shape=self.args.voxel_size_for_sampling_curvature_shape)
+
         # we will randomly sample points from one or more clusters of the latest (x,y,z) points derived from NeRF
-        voxel_tensor = torch.tensor([self.args.voxel_size_for_sampling, self.args.voxel_size_for_sampling, self.args.voxel_size_for_sampling]).to(device=self.device)
+        voxel_tensor = torch.tensor([self.voxel_size_for_sampling, self.voxel_size_for_sampling, self.voxel_size_for_sampling]).to(device=self.device)
 
         # grid_clusters( ) is highly optimized clustering algorithm that is based on the same principle of voxelization: cluster by a uniform grid in 3D space
         xyz_clusters = grid_cluster(self.xyz, size=voxel_tensor)
