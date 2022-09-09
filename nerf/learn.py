@@ -92,8 +92,8 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.010, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
-    parser.add_argument('--depth_to_rgb_loss_end', default=0.0000, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.00075, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_end', default=0.00000, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
 
@@ -1128,7 +1128,8 @@ class SceneModel:
 
         #raw_nerf_depth_weights = nerf_depth_weights - self.args.epsilon
         beta_distribution = Beta(concentration1=torch.FloatTensor([2]).to(device=self.device), concentration0=torch.FloatTensor([50]).to(device=self.device))
-        non_binary_nerf_weight_distribution_loss = beta_loss_importance * torch.mean(torch.sum(10**beta_distribution.log_prob(nerf_depth_weights), dim=1))
+        beta_loss = torch.mean(torch.sum(10**beta_distribution.log_prob(nerf_depth_weights), dim=1))
+        weighted_beta_loss = beta_loss_importance * beta_loss
         ###############################################################
 
         with torch.no_grad():
@@ -1148,7 +1149,7 @@ class SceneModel:
         #  torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
 
         # compute loss and backward propagate the gradients to update the values which are parameters to this loss
-        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss_weight * entropy_depth_loss + non_binary_nerf_weight_distribution_loss
+        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss_weight * entropy_depth_loss + weighted_beta_loss
         unweighted_loss = rgb_loss + depth_loss
         
         for optimizer in self.optimizers.values():
@@ -1166,7 +1167,7 @@ class SceneModel:
         if self.epoch % self.args.log_frequency == 0:
             wandb.log({"RGB Inverse Render Loss (0-255 per pixel)": interpretable_rgb_loss_per_pixel,
                        "Depth Sensor Loss (average millimeters error vs. sensor)": interpretable_depth_loss_per_pixel,
-                       "Non-binary NeRF Weight Distribution Loss": non_binary_nerf_weight_distribution_loss
+                       "Non-binary NeRF Weight Distribution Loss": beta_loss
                        })
 
         if self.epoch % self.args.log_frequency == 0:
@@ -1174,7 +1175,7 @@ class SceneModel:
 
         self.log_learning_rates()
 
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm) w/ imp. {:.5f}, Beta: {:.8f} w/ imp. {:.8f}, Focal X: {:.2f}, Focal Y: {:.2f}".format(self.epoch, 
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}".format(self.epoch, 
                                                                                                                                                                         minutes_into_experiment, 
                                                                                                                                                                         weighted_loss,
                                                                                                                                                                         (1 - depth_to_rgb_importance) * rgb_loss, 
@@ -1182,7 +1183,8 @@ class SceneModel:
                                                                                                                                                                         depth_to_rgb_importance * depth_loss, 
                                                                                                                                                                         interpretable_depth_loss_per_pixel,
                                                                                                                                                                         depth_to_rgb_importance,
-                                                                                                                                                                        non_binary_nerf_weight_distribution_loss,
+                                                                                                                                                                        weighted_beta_loss,
+                                                                                                                                                                        int(beta_loss),
                                                                                                                                                                         beta_loss_importance,                                                                                                                                                                    
                                                                                                                                                                         torch.mean(focal_length_x),
                                                                                                                                                                         torch.mean(focal_length_y)))
