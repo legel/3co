@@ -1181,7 +1181,11 @@ class SceneModel:
 
         self.log_learning_rates()
 
+<<<<<<< HEAD
         print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}".format(self.epoch, 
+=======
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {:.2f}cm^3".format(self.epoch, 
+>>>>>>> 15ab4458fcc3e46f106a5adbe0a9013e35d39734
                                                                                                                                                                         minutes_into_experiment, 
                                                                                                                                                                         weighted_loss,
                                                                                                                                                                         (1 - depth_to_rgb_importance) * rgb_loss, 
