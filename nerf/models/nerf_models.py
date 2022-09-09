@@ -63,7 +63,7 @@ class NeRFColor(nn.Module):
             )
         self.fc_rgb = nn.Linear(D_color//2, 3)
 
-    def forward(self, feat, dir_enc, rgb_image):
+    def forward(self, feat, dir_enc):
         """
         :param feat: # (H, W, N_sample, D) features from density network
         :param dir_enc: (H, W, N_sample, dir_in_dims) encoded directions
