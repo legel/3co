@@ -56,10 +56,10 @@ def parse_args():
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=2500, type=int, help='Frequency of epochs to render an evaluation image')
-    parser.add_argument('--visualize_point_cloud_frequency', default=20000, type=int, help='Frequency of epochs to visualize point clouds')
-    parser.add_argument('--save_point_cloud_frequency', default=20000, type=int, help='Frequency of epochs to save point clouds')
-    parser.add_argument('--save_depth_weights_frequency', default=20000, type=int, help='Frequency of epochs to save density depth weight visualizations')
+    parser.add_argument('--test_frequency', default=5000, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--visualize_point_cloud_frequency', default=200002, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=200002, type=int, help='Frequency of epochs to save point clouds')
+    parser.add_argument('--save_depth_weights_frequency', default=200002, type=int, help='Frequency of epochs to save density depth weight visualizations')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')        
     parser.add_argument('--number_of_test_images', default=2, type=int, help='Index in the training data set of the image to show during testing')
     parser.add_argument('--skip_every_n_images_for_testing', default=80, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
