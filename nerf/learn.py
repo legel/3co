@@ -1163,8 +1163,7 @@ class SceneModel:
         ##################### beta loss #######################
         # we *increase* the beta loss importance over time, starting from 0.0
         beta_loss_importance = self.get_polynomial_decay(start_value=self.args.beta_loss_importance_end, end_value=self.args.beta_loss_importance_start, exponential_index=self.args.beta_loss_importance_exponential_index, curvature_shape=self.args.beta_loss_importance_curvature_shape)
-        beta_loss = torch.mean(torch.sum(10**self.beta_distribution.log_prob(nerf_depth_weights), dim=1))
-        beta_loss_importance = 0.0
+        beta_loss = torch.mean(torch.sum(10**self.beta_distribution.log_prob(nerf_depth_weights), dim=1))        
         weighted_beta_loss = beta_loss_importance * beta_loss
         
         ###############################################################
