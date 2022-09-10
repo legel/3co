@@ -114,7 +114,7 @@ def parse_args():
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=1000, help='The number of samples per raycast to collect (linearly)')
 
     # Define voxel-based sampling parameters for ensuring similar parts of the density model are queried simultaneously
-    parser.add_argument('--use_voxel_sampling', default=False, type=float, help="Whether to use voxel-sampling for pixel batches or default to random pixel sampling")
+    parser.add_argument('--use_voxel_sampling', default=True, type=float, help="Whether to use voxel-sampling for pixel batches or default to random pixel sampling")
     parser.add_argument('--voxel_size_for_sampling_start', default=0.05, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_end', default=0.0025, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_exponential_index', default=12, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
@@ -1338,7 +1338,6 @@ class SceneModel:
                 
 
     def test(self):
-        print("test")
         epoch = self.epoch - 1        
         for model in self.models.values():
             model.eval()
