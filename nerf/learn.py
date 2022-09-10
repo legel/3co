@@ -1181,11 +1181,7 @@ class SceneModel:
 
         self.log_learning_rates()
 
-<<<<<<< HEAD
         print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}".format(self.epoch, 
-=======
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {:.2f}cm^3".format(self.epoch, 
->>>>>>> 15ab4458fcc3e46f106a5adbe0a9013e35d39734
                                                                                                                                                                         minutes_into_experiment, 
                                                                                                                                                                         weighted_loss,
                                                                                                                                                                         (1 - depth_to_rgb_importance) * rgb_loss, 
@@ -1208,6 +1204,7 @@ class SceneModel:
         # a new epoch has dawned
         self.epoch += 1
 
+        
         with torch.no_grad():
             # recompute NeRF-derived (x,y,z) coordinates from latest depth map for each of the pixels studied
             xyz_coordinates_from_nerf = self.derive_xyz_coordinates(camera_world_position=selected_poses[:, :3, 3], 
@@ -1215,7 +1212,6 @@ class SceneModel:
                                                                     pixel_directions=pixel_directions_selected, 
                                                                     pixel_depths=nerf_depth, 
                                                                     flattened=True)
-
             self.xyz[indices_of_random_pixels] = xyz_coordinates_from_nerf 
 
 
@@ -1302,7 +1298,7 @@ class SceneModel:
                 
 
     def test(self):
-        print("test")
+        
         epoch = self.epoch - 1        
         for model in self.models.values():
             model.eval()
@@ -1319,6 +1315,7 @@ class SceneModel:
             this_image_rgbd = self.rgbd[pixel_indices].cpu().squeeze(1)
             depth = render_result['rendered_depth']            
                         
+            
             # save rendered rgb and depth images
             out_file_suffix = str(image_index)
             color_file_name = os.path.join(self.color_out_dir, str(out_file_suffix).zfill(4) + '_color_{}.png'.format(epoch))
@@ -1336,16 +1333,19 @@ class SceneModel:
 
             # save graphs of nerf density weights visualization
             if epoch % self.args.save_depth_weights_frequency == 0:               
-                start_pixel = 160 * 640
-                for pixel_index in pixel_indices.numpy()[start_pixel:start_pixel+640]:                     
+                print("Creating depth weight graph for view {}".format(image_index))
+                start_pixel = 160 * 640                
+                
+                for pixel_index in range(start_pixel, start_pixel+640):                    
                     out_path = Path("{}/{}/".format(self.depth_weights_out_dir, epoch))
                     out_path.mkdir(parents=True, exist_ok=True)
                     sensor_depth = this_image_rgbd[pixel_index, 3]
                     predicted_depth = depth[pixel_index]
-                    raycast_distances = np.array([x for x in torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).numpy()])                                
+                    raycast_distances = np.array([x for x in torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).numpy()])                                                    
+                    weights = nerf_weights.squeeze(0)[pixel_index]
                     
                     plt.figure()                    
-                    plt.plot(raycast_distances, np.array([x for x in nerf_weights.squeeze(0)[pixel_index][0]]))
+                    plt.plot(raycast_distances, weights)                    
                     plt.scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
                     plt.scatter([predicted_depth.item()], [0], s=20, marker='o', c='blue')
                     out_file_suffix = str(image_index)
