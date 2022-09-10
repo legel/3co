@@ -31,8 +31,8 @@ def heatmap_to_pseudo_color(heatmap, min_depth=0.0, max_depth=3.0):
     b = (a + 1).clip(max=255)
     f = x * 255.0 - a
     pseudo_color = (turbo_colormap_data_np[a] + (turbo_colormap_data_np[b] - turbo_colormap_data_np[a]) * f[..., None])
-    pseudo_color[heatmap < 0.0] = 0.0
-    pseudo_color[heatmap > 1.0] = 1.0
+    pseudo_color[x < 0.0] = 0.0
+    pseudo_color[x > 1.0] = 1.0
     return pseudo_color
 
 
