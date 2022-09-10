@@ -114,6 +114,7 @@ def parse_args():
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=1000, help='The number of samples per raycast to collect (linearly)')
 
     # Define voxel-based sampling parameters for ensuring similar parts of the density model are queried simultaneously
+    parser.add_argument('--use_voxel_sampling', default=False, type=float, help="Whether to use voxel-sampling for pixel batches or default to random pixel sampling")
     parser.add_argument('--voxel_size_for_sampling_start', default=0.05, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_end', default=0.0025, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_exponential_index', default=12, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
@@ -1053,7 +1054,7 @@ class SceneModel:
         imageio.imwrite(depth_file_name, rendered_depth_for_file)   
 
 
-    def train(self, iteration=0):
+    def train(self, indices_of_random_pixels, iteration=0):
 
         # initialize whether each model is in training mode or else is just in evaluation mode (no gradient updates)
         if self.epoch >= self.args.start_training_color_epoch:
@@ -1077,7 +1078,7 @@ class SceneModel:
             self.models["geometry"].eval()
 
         # get the randomly selected RGBD data
-        rgbd = self.rgbd[self.indices_of_random_pixels].to(self.device)  # (N_pixels, 4)
+        rgbd = self.rgbd[indices_of_random_pixels].to(self.device)  # (N_pixels, 4)
 
         # get the camera intrinsics
         if self.epoch >= self.args.start_training_intrinsics_epoch:
@@ -1099,10 +1100,10 @@ class SceneModel:
                 poses = self.models["pose"](0)  # (N_images, 4, 4)
 
         # get a tensor with the poses per pixel
-        image_ids = self.image_ids_per_pixel[self.indices_of_random_pixels].to(self.device) # (N_pixels)
+        image_ids = self.image_ids_per_pixel[indices_of_random_pixels].to(self.device) # (N_pixels)
         selected_poses = poses[image_ids].to(self.device) # (N_pixels, 4, 4)
 
-        selected_confidences = self.confidence_per_pixel[self.indices_of_random_pixels].to(self.device)
+        selected_confidences = self.confidence_per_pixel[indices_of_random_pixels].to(self.device)
         confidence_loss_weights = torch.where(selected_confidences >= self.args.min_confidence, 1, 0).to(self.device)
         number_of_pixels_with_confident_depths = torch.sum(confidence_loss_weights)
 
@@ -1110,8 +1111,8 @@ class SceneModel:
         selected_focal_length_y = focal_length_y[image_ids].to(self.device)
 
         # get the pixel rows and columns that we've selected (across all images)
-        pixel_rows = self.pixel_rows[self.indices_of_random_pixels]
-        pixel_cols = self.pixel_cols[self.indices_of_random_pixels]
+        pixel_rows = self.pixel_rows[indices_of_random_pixels]
+        pixel_cols = self.pixel_cols[indices_of_random_pixels]
 
         # unpack the image RGB data and the sensor depth
         rgb = rgbd[:,:3].to(self.device) # (N_pixels, 3)
@@ -1136,7 +1137,7 @@ class SceneModel:
 
         if self.args.use_knn_as_heuristic_for_depth_sensor_error:
             # get the estimated sensor error for these randomly selected pixels
-            sensor_variance = self.estimated_sensor_error[self.indices_of_random_pixels].to(self.device) # (N_pixels)
+            sensor_variance = self.estimated_sensor_error[indices_of_random_pixels].to(self.device) # (N_pixels)
             sensor_variance = sensor_variance.unsqueeze(1).expand(number_of_pixels, number_of_raycast_samples) # (N_pixels, N_samples)
         else:
             sensor_variance = self.args.depth_sensor_error
@@ -1208,25 +1209,28 @@ class SceneModel:
 
         self.log_learning_rates()
 
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}, {} of {} confident), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {:.2f}cm^3".format(self.epoch, 
-                                                                                                                                                                        minutes_into_experiment, 
-                                                                                                                                                                        weighted_loss,
-                                                                                                                                                                        (1 - depth_to_rgb_importance) * rgb_loss, 
-                                                                                                                                                                        interpretable_rgb_loss_per_pixel, 
-                                                                                                                                                                        depth_to_rgb_importance * depth_loss, 
-                                                                                                                                                                        interpretable_depth_loss_per_confident_pixel,
-                                                                                                                                                                        depth_to_rgb_importance,
-                                                                                                                                                                        number_of_pixels_with_confident_depths,
-                                                                                                                                                                        self.args.pixel_samples_per_epoch,
-                                                                                                                                                                        weighted_beta_loss,
-                                                                                                                                                                        int(beta_loss),
-                                                                                                                                                                        beta_loss_importance,                                                                                                                                                                    
-                                                                                                                                                                        torch.mean(focal_length_x),
-                                                                                                                                                                        torch.mean(focal_length_y),
-                                                                                                                                                                        self.voxel_size_for_sampling * 100))
+        if not self.args.use_voxel_sampling:
+            voxel_size_for_sampling = "N/A"
+        else:
+            voxel_size_for_sampling = "{:.2f}".format(self.voxel_size_for_sampling * 100)
 
-
-
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}, {} of {} confident), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {}cm^3".format(self.epoch, 
+                                                                                                                                                                                                                                                minutes_into_experiment, 
+                                                                                                                                                                                                                                                weighted_loss,
+                                                                                                                                                                                                                                                (1 - depth_to_rgb_importance) * rgb_loss, 
+                                                                                                                                                                                                                                                interpretable_rgb_loss_per_pixel, 
+                                                                                                                                                                                                                                                depth_to_rgb_importance * depth_loss, 
+                                                                                                                                                                                                                                                interpretable_depth_loss_per_confident_pixel,
+                                                                                                                                                                                                                                                depth_to_rgb_importance,
+                                                                                                                                                                                                                                                number_of_pixels_with_confident_depths,
+                                                                                                                                                                                                                                                self.args.pixel_samples_per_epoch,
+                                                                                                                                                                                                                                                weighted_beta_loss,
+                                                                                                                                                                                                                                                int(beta_loss),
+                                                                                                                                                                                                                                                beta_loss_importance,                                                                                                                                                                    
+                                                                                                                                                                                                                                                torch.mean(focal_length_x),
+                                                                                                                                                                                                                                                torch.mean(focal_length_y),
+                                                                                                                                                                                                                                                voxel_size_for_sampling
+                                                                                                                                                                                                                                                ))
         
         # a new epoch has dawned
         self.epoch += 1
@@ -1239,42 +1243,50 @@ class SceneModel:
                                                                     pixel_depths=nerf_depth, 
                                                                     flattened=True)
 
-            self.xyz[self.indices_of_random_pixels] = xyz_coordinates_from_nerf #.cpu()
+
+            self.xyz[indices_of_random_pixels] = xyz_coordinates_from_nerf 
 
 
     def sample_next_batch(self):
-        self.voxel_size_for_sampling = self.get_polynomial_decay(start_value=self.args.voxel_size_for_sampling_start, end_value=self.args.voxel_size_for_sampling_end, exponential_index=self.args.voxel_size_for_sampling_exponential_index, curvature_shape=self.args.voxel_size_for_sampling_curvature_shape)
 
-        # we will randomly sample points from one or more clusters of the latest (x,y,z) points derived from NeRF
-        voxel_tensor = torch.tensor([self.voxel_size_for_sampling, self.voxel_size_for_sampling, self.voxel_size_for_sampling]).to(device=self.device)
+        if self.args.use_voxel_sampling:
+            self.voxel_size_for_sampling = self.get_polynomial_decay(start_value=self.args.voxel_size_for_sampling_start, end_value=self.args.voxel_size_for_sampling_end, exponential_index=self.args.voxel_size_for_sampling_exponential_index, curvature_shape=self.args.voxel_size_for_sampling_curvature_shape)
 
-        # before voxelization, let's randomly select a (large) sub-batch to voxelize from
-        number_of_points_in_dataset = self.xyz.shape[0]
-        number_of_points_in_voxelization = torch.tensor(number_of_points_in_dataset * self.args.fraction_of_dataset_randomly_selected_for_each_voxelization, dtype=torch.int32)
-        indices_of_xyz_to_voxelize = torch.randperm(number_of_points_in_dataset, device=self.device)[:number_of_points_in_voxelization]
+            # we will randomly sample points from one or more clusters of the latest (x,y,z) points derived from NeRF
+            voxel_tensor = torch.tensor([self.voxel_size_for_sampling, self.voxel_size_for_sampling, self.voxel_size_for_sampling]).to(device=self.device)
 
-        sub_xyz = self.xyz[indices_of_xyz_to_voxelize].to(device=self.device)
+            # before voxelization, let's randomly select a (large) sub-batch to voxelize from
+            number_of_points_in_dataset = self.xyz.shape[0]
+            number_of_points_in_voxelization = torch.tensor(number_of_points_in_dataset * self.args.fraction_of_dataset_randomly_selected_for_each_voxelization, dtype=torch.int32)
+            indices_of_xyz_to_voxelize = torch.randperm(number_of_points_in_dataset, device=self.device)[:number_of_points_in_voxelization]
 
-        # grid_clusters( ) is highly optimized clustering algorithm that is based on the same principle of voxelization: cluster by a uniform grid in 3D space
-        xyz_clusters = grid_cluster(sub_xyz, size=voxel_tensor)
+            sub_xyz = self.xyz[indices_of_xyz_to_voxelize].to(device=self.device)
 
-        # since we have a big list of the cluster IDs (above) for every 3D point, now we check out what are the unique cluster IDs, and which belongs to which
-        unique_clusters, inverse_indices = torch.unique(xyz_clusters, sorted=True, return_inverse=True)
+            # grid_clusters( ) is highly optimized clustering algorithm that is based on the same principle of voxelization: cluster by a uniform grid in 3D space
+            xyz_clusters = grid_cluster(sub_xyz, size=voxel_tensor)
 
-        # below, by sorting by cluster ID (or voxel ID, if you will), we get a list of indices from the original (x,y,z) coordinates, which are now grouped by cluster
-        sorted_cluster_indices = torch.argsort(inverse_indices)
-        sorted_xyz = sub_xyz[sorted_cluster_indices]
+            # since we have a big list of the cluster IDs (above) for every 3D point, now we check out what are the unique cluster IDs, and which belongs to which
+            unique_clusters, inverse_indices = torch.unique(xyz_clusters, sorted=True, return_inverse=True)
 
-        # now, the new sampling strategy is just to take N samples that are contiguous in the sorted (x,y,z) coordinates by cluster ID
-        # in practice, this will likely give us multiple clusters, but most or all of the points from each cluster
-        indices_of_random_pixels_for_this_epoch = []
-        for voxel_index in range(self.args.voxels_sampled_per_epoch):
-            random_start_index_into_clustered_points = np.random.randint(low=0, high=sub_xyz.shape[0] - self.args.samples_per_voxel)
-            random_end_index_into_clustered_points = random_start_index_into_clustered_points + self.args.samples_per_voxel
-            indices_for_this_voxel = sorted_cluster_indices[random_start_index_into_clustered_points:random_end_index_into_clustered_points]
-            indices_of_random_pixels_for_this_epoch.append(indices_for_this_voxel)
+            # below, by sorting by cluster ID (or voxel ID, if you will), we get a list of indices from the original (x,y,z) coordinates, which are now grouped by cluster
+            sorted_cluster_indices = torch.argsort(inverse_indices)
+            sorted_xyz = sub_xyz[sorted_cluster_indices]
 
-        self.indices_of_random_pixels = torch.cat(indices_of_random_pixels_for_this_epoch).to(device=self.device)
+            # now, the new sampling strategy is just to take N samples that are contiguous in the sorted (x,y,z) coordinates by cluster ID
+            # in practice, this will likely give us multiple clusters, but most or all of the points from each cluster
+            indices_of_random_pixels_for_this_epoch = []
+            for voxel_index in range(self.args.voxels_sampled_per_epoch):
+                random_start_index_into_clustered_points = np.random.randint(low=0, high=sub_xyz.shape[0] - self.args.samples_per_voxel)
+                random_end_index_into_clustered_points = random_start_index_into_clustered_points + self.args.samples_per_voxel
+                indices_for_this_voxel = sorted_cluster_indices[random_start_index_into_clustered_points:random_end_index_into_clustered_points]
+                indices_of_random_pixels_for_this_epoch.append(indices_for_this_voxel)
+
+            indices_of_random_pixels_for_this_epoch = torch.cat(indices_of_random_pixels_for_this_epoch).to(device=self.device)
+
+        else: # random sampling
+            indices_of_random_pixels_for_this_epoch = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)
+                    
+        return indices_of_random_pixels_for_this_epoch
 
 
     def create_experiment_directory(self):
@@ -1326,7 +1338,7 @@ class SceneModel:
                 
 
     def test(self):
-
+        print("test")
         epoch = self.epoch - 1        
         for model in self.models.values():
             model.eval()
@@ -1396,8 +1408,8 @@ if __name__ == '__main__':
     scene = SceneModel(args=parse_args())
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:
-        scene.sample_next_batch()
-        scene.train()
+        batch = scene.sample_next_batch()
+        scene.train(batch)
 
         if (scene.epoch-1) % scene.args.test_frequency == 0 and (scene.epoch-1) != 0:
             with torch.no_grad():
