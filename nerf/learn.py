@@ -90,7 +90,7 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.00750, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.0010, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.00000, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
@@ -1153,18 +1153,20 @@ class SceneModel:
         if (self.epoch > self.args.entropy_loss_tuning_start_epoch and self.epoch < self.args.entropy_loss_tuning_end_epoch):
             entropy_depth_loss_weight = 0.01
             pixels_weights_entropy = -1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1)
-            weighted_entropy_depth_loss = entropy_depth_loss_weight * torch.mean(pixels_weights_entropy)
+            entropy_depth_loss = entropy_depth_loss_weight * torch.mean(pixels_weights_entropy)
             print("------->entropy loss: {}".format(entropy_depth_loss))      
             depth_to_rgb_importance = 0.0
         else:
-            weighted_entropy_depth_loss = 0.0
+            entropy_depth_loss = 0.0
         ###############################################################
 
         ##################### beta loss #######################
         # we *increase* the beta loss importance over time, starting from 0.0
         beta_loss_importance = self.get_polynomial_decay(start_value=self.args.beta_loss_importance_end, end_value=self.args.beta_loss_importance_start, exponential_index=self.args.beta_loss_importance_exponential_index, curvature_shape=self.args.beta_loss_importance_curvature_shape)
         beta_loss = torch.mean(torch.sum(10**self.beta_distribution.log_prob(nerf_depth_weights), dim=1))
+        beta_loss_importance = 0.0
         weighted_beta_loss = beta_loss_importance * beta_loss
+        
         ###############################################################
 
         with torch.no_grad():
@@ -1184,7 +1186,7 @@ class SceneModel:
         #  torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
 
         # compute loss and backward propagate the gradients to update the values which are parameters to this loss
-        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + weighted_entropy_depth_loss + weighted_beta_loss
+        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss + weighted_beta_loss
         
         for optimizer in self.optimizers.values():
             optimizer.zero_grad()        
@@ -1235,17 +1237,24 @@ class SceneModel:
         # a new epoch has dawned
         self.epoch += 1
 
-        
-        with torch.no_grad():
-            # recompute NeRF-derived (x,y,z) coordinates from latest depth map for each of the pixels studied
-            xyz_coordinates_from_nerf = self.derive_xyz_coordinates(camera_world_position=selected_poses[:, :3, 3], 
-                                                                    camera_world_rotation=selected_poses[:, :3, :3], 
-                                                                    pixel_directions=pixel_directions_selected, 
-                                                                    pixel_depths=nerf_depth, 
-                                                                    flattened=True)
+
+        # RC: Lance, don't we need to update pixel_directions by calling 
+        #     compute_ray_direction_in_camera coordinates with the focal points that just
+        #     got updated before doing the following?
+        #     Also, why are we updating xyz only for the pixels of this batch? Aren't the poses and pixel
+        #     directions for _all_ pixels theoretically affected by the gradient of a given batch?
+        #     Lastly, can we move this to sample_next_batch?
+        if self.args.use_voxel_sampling:
+            with torch.no_grad():
+                # recompute NeRF-derived (x,y,z) coordinates from latest depth map for each of the pixels studied
+                xyz_coordinates_from_nerf = self.derive_xyz_coordinates(camera_world_position=selected_poses[:, :3, 3], 
+                                                                        camera_world_rotation=selected_poses[:, :3, :3], 
+                                                                        pixel_directions=pixel_directions_selected, 
+                                                                        pixel_depths=nerf_depth, 
+                                                                        flattened=True)
 
 
-            self.xyz[indices_of_random_pixels] = xyz_coordinates_from_nerf 
+                self.xyz[indices_of_random_pixels] = xyz_coordinates_from_nerf 
 
 
     def sample_next_batch(self):
