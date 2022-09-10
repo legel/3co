@@ -114,7 +114,7 @@ def parse_args():
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=1000, help='The number of samples per raycast to collect (linearly)')
 
     # Define voxel-based sampling parameters for ensuring similar parts of the density model are queried simultaneously
-    parser.add_argument('--use_voxel_sampling', default=True, type=float, help="Whether to use voxel-sampling for pixel batches or default to random pixel sampling")
+    parser.add_argument('--use_voxel_sampling', default=True, type=bool, help="Whether to use voxel-sampling for pixel batches or default to random pixel sampling")
     parser.add_argument('--voxel_size_for_sampling_start', default=0.05, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_end', default=0.0025, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_exponential_index', default=12, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
@@ -1368,9 +1368,9 @@ class SceneModel:
                 print("Saving .ply for view {}".format(image_index))
                 depth_view_file_name = os.path.join(self.depth_view_out_dir, str(out_file_suffix).zfill(4) + '_depth_view_{}.png'.format(epoch))
                 pose = self.models['pose'](0)[image_index].to(device=self.device)
-                depth = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
-                rgb = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
-                self.get_point_cloud(pose=pose, depth=depth, rgb=rgb, pixel_directions=self.pixel_directions[image_index], label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir)               
+                depth_img = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
+                rgb_img = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
+                self.get_point_cloud(pose=pose, depth=depth_img, rgb=rgb_img, pixel_directions=self.pixel_directions[image_index], label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir)               
 
             # save graphs of nerf density weights visualization
             if epoch % self.args.save_depth_weights_frequency == 0:               
