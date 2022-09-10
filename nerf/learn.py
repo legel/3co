@@ -114,7 +114,7 @@ def parse_args():
     parser.add_argument('--number_of_samples_outward_per_raycast', type=int, default=1000, help='The number of samples per raycast to collect (linearly)')
 
     # Define voxel-based sampling parameters for ensuring similar parts of the density model are queried simultaneously
-    parser.add_argument('--use_voxel_sampling', default=True, type=float, help="Whether to use voxel-sampling for pixel batches or default to random pixel sampling")
+    parser.add_argument('--use_voxel_sampling', default=True, type=bool, help="Whether to use voxel-sampling for pixel batches or default to random pixel sampling")
     parser.add_argument('--voxel_size_for_sampling_start', default=0.05, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_end', default=0.0025, type=float, help="Edge size for every voxel in the pre-sampling voxelization")
     parser.add_argument('--voxel_size_for_sampling_exponential_index', default=12, type=int, help="Edge size for every voxel in the pre-sampling voxelization")
@@ -1235,6 +1235,7 @@ class SceneModel:
         # a new epoch has dawned
         self.epoch += 1
 
+        
         with torch.no_grad():
             # recompute NeRF-derived (x,y,z) coordinates from latest depth map for each of the pixels studied
             xyz_coordinates_from_nerf = self.derive_xyz_coordinates(camera_world_position=selected_poses[:, :3, 3], 
@@ -1338,6 +1339,7 @@ class SceneModel:
                 
 
     def test(self):
+
         epoch = self.epoch - 1        
         for model in self.models.values():
             model.eval()
@@ -1354,6 +1356,7 @@ class SceneModel:
             this_image_rgbd = self.rgbd[pixel_indices].cpu().squeeze(1)
             depth = render_result['rendered_depth']            
                         
+            
             # save rendered rgb and depth images
             out_file_suffix = str(image_index)
             color_file_name = os.path.join(self.color_out_dir, str(out_file_suffix).zfill(4) + '_color_{}.png'.format(epoch))
@@ -1365,22 +1368,25 @@ class SceneModel:
                 print("Saving .ply for view {}".format(image_index))
                 depth_view_file_name = os.path.join(self.depth_view_out_dir, str(out_file_suffix).zfill(4) + '_depth_view_{}.png'.format(epoch))
                 pose = self.models['pose'](0)[image_index].to(device=self.device)
-                depth = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
-                rgb = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
-                self.get_point_cloud(pose=pose, depth=depth, rgb=rgb, pixel_directions=self.pixel_directions[image_index], label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir)               
+                depth_img = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
+                rgb_img = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
+                self.get_point_cloud(pose=pose, depth=depth_img, rgb=rgb_img, pixel_directions=self.pixel_directions[image_index], label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir)               
 
             # save graphs of nerf density weights visualization
             if epoch % self.args.save_depth_weights_frequency == 0:               
-                start_pixel = 160 * 640
-                for pixel_index in pixel_indices.numpy()[start_pixel:start_pixel+640]:                     
+                print("Creating depth weight graph for view {}".format(image_index))
+                start_pixel = 160 * 640                
+                
+                for pixel_index in range(start_pixel, start_pixel+640):                    
                     out_path = Path("{}/{}/".format(self.depth_weights_out_dir, epoch))
                     out_path.mkdir(parents=True, exist_ok=True)
                     sensor_depth = this_image_rgbd[pixel_index, 3]
                     predicted_depth = depth[pixel_index]
-                    raycast_distances = np.array([x for x in torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).numpy()])                                
+                    raycast_distances = np.array([x for x in torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).numpy()])                                                    
+                    weights = nerf_weights.squeeze(0)[pixel_index]
                     
                     plt.figure()                    
-                    plt.plot(raycast_distances, np.array([x for x in nerf_weights.squeeze(0)[pixel_index][0]]))
+                    plt.plot(raycast_distances, weights)                    
                     plt.scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
                     plt.scatter([predicted_depth.item()], [0], s=20, marker='o', c='blue')
                     out_file_suffix = str(image_index)
