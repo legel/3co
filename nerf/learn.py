@@ -90,13 +90,13 @@ def parse_args():
     parser.add_argument('--pose_lr_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for NeRF-- camera extrinsics network")
     parser.add_argument('--pose_lr_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for NeRF-- camera extrinsics network")
 
-    parser.add_argument('--depth_to_rgb_loss_start', default=0.00750, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_start', default=0.0010, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.00000, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
 
     parser.add_argument('--beta_loss_importance_start', default=(1 / 1000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual start is the inverse (1 - value)")
-    parser.add_argument('--beta_loss_importance_end', default=(1 / 100000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual end is the inverse (1 - value)")
+    parser.add_argument('--beta_loss_importance_end', default=(1 / 500000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual end is the inverse (1 - value)")
     parser.add_argument('--beta_loss_importance_exponential_index', default=5, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--beta_loss_importance_curvature_shape', default=5, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
 
