@@ -56,10 +56,10 @@ def parse_args():
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=2500, type=int, help='Frequency of epochs to render an evaluation image')
-    parser.add_argument('--visualize_point_cloud_frequency', default=20000, type=int, help='Frequency of epochs to visualize point clouds')
-    parser.add_argument('--save_point_cloud_frequency', default=20000, type=int, help='Frequency of epochs to save point clouds')
-    parser.add_argument('--save_depth_weights_frequency', default=20000, type=int, help='Frequency of epochs to save density depth weight visualizations')
+    parser.add_argument('--test_frequency', default=5000, type=int, help='Frequency of epochs to render an evaluation image')
+    parser.add_argument('--visualize_point_cloud_frequency', default=200002, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--save_point_cloud_frequency', default=200002, type=int, help='Frequency of epochs to save point clouds')
+    parser.add_argument('--save_depth_weights_frequency', default=200002, type=int, help='Frequency of epochs to save density depth weight visualizations')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')        
     parser.add_argument('--number_of_test_images', default=2, type=int, help='Index in the training data set of the image to show during testing')
     parser.add_argument('--skip_every_n_images_for_testing', default=80, type=int, help='Skip every Nth testing image, to ensure sufficient test view diversity in large data set')    
@@ -96,7 +96,7 @@ def parse_args():
     parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
 
     parser.add_argument('--beta_loss_importance_start', default=(1 / 1000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual start is the inverse (1 - value)")
-    parser.add_argument('--beta_loss_importance_end', default=(1 / 100000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual end is the inverse (1 - value)")
+    parser.add_argument('--beta_loss_importance_end', default=(1 / 500000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual end is the inverse (1 - value)")
     parser.add_argument('--beta_loss_importance_exponential_index', default=5, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--beta_loss_importance_curvature_shape', default=5, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
 
