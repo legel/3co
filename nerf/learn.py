@@ -1,6 +1,5 @@
 from signal import Sigmasks
 import torch
-from torch.distributions import Beta
 from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
 from scipy.spatial.transform import Rotation
 from torchsummary import summary
@@ -8,6 +7,7 @@ import cv2
 import open3d as o3d
 from torch_cluster import grid_cluster
 from pytorch3d.ops.knn import knn_points
+from pytorch3d.io import IO
 import imageio
 from PIL import Image
 import numpy as np
@@ -56,8 +56,7 @@ def parse_args():
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
 
     # Define evaluation/logging/saving frequency and parameters
-    parser.add_argument('--test_frequency', default=5000, type=int, help='Frequency of epochs to render an evaluation image')
-    parser.add_argument('--visualize_point_cloud_frequency', default=200002, type=int, help='Frequency of epochs to visualize point clouds')
+    parser.add_argument('--test_frequency', default=5000, type=int, help='Frequency of epochs to render an evaluation image')    
     parser.add_argument('--save_point_cloud_frequency', default=200002, type=int, help='Frequency of epochs to save point clouds')
     parser.add_argument('--save_depth_weights_frequency', default=200002, type=int, help='Frequency of epochs to save density depth weight visualizations')
     parser.add_argument('--log_frequency', default=1, type=int, help='Frequency of epochs to log outputs e.g. loss performance')        
@@ -93,15 +92,11 @@ def parse_args():
     parser.add_argument('--depth_to_rgb_loss_start', default=0.0010, type=float, help="Learning rate start for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_end', default=0.00000, type=float, help="Learning rate end for ratio of loss importance between depth and RGB inverse rendering loss")
     parser.add_argument('--depth_to_rgb_loss_exponential_index', default=9, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
-    parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
-
-    parser.add_argument('--beta_loss_importance_start', default=(1 / 1000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual start is the inverse (1 - value)")
-    parser.add_argument('--beta_loss_importance_end', default=(1 / 500000000), type=float, help="Importance of the beta distribution loss (penalize anything but 0.0 and 1.0), note that the actual end is the inverse (1 - value)")
-    parser.add_argument('--beta_loss_importance_exponential_index', default=5, type=int, help="Learning rate speed of exponential decay (higher value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
-    parser.add_argument('--beta_loss_importance_curvature_shape', default=5, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")
+    parser.add_argument('--depth_to_rgb_loss_curvature_shape', default=1, type=int, help="Learning rate shape of decay (lower value = faster initial decay) for ratio of loss importance between depth and RGB inverse rendering loss")    
 
     parser.add_argument('--entropy_loss_tuning_start_epoch', type=float, default=1000000, help='epoch to start entropy loss tuning')
     parser.add_argument('--entropy_loss_tuning_end_epoch', type=float, default=1000000, help='epoch to end entropy loss tuning')
+    parser.add_argument('--use_sparse_rendering_for_test_renders', type=bool, help='Whether or not to use sparse rendering technique in test renders')
 
     # Define parameters the determines the overall size and learning capacity of the neural networks and their encodings
     parser.add_argument('--density_neural_network_parameters', type=int, default=512, help='The baseline number of units that defines the size of the NeRF geometry network')
@@ -142,16 +137,18 @@ def parse_args():
 
 
 class SceneModel:
-    def __init__(self, args):
+    def __init__(self, args, load_saved_args = False):
 
-        # initialize high-level arguments
         self.args = args
+
+        if load_saved_args:
+            self.load_saved_args_test()        
+
+        # initialize high-level arguments        
         self.epoch = self.args.start_epoch
         self.start_time = int(time.time()) 
         self.device = torch.device('cuda:0') 
-        self.gpu2 = torch.device('cuda:1')
-
-        self.beta_distribution = Beta(concentration1=torch.FloatTensor([2]).to(device=self.device), concentration0=torch.FloatTensor([50]).to(device=self.device))
+        self.gpu2 = torch.device('cuda:1')        
 
         # # set cache directory
         os.environ['PYTORCH_KERNEL_CACHE_PATH'] = self.args.base_directory
@@ -176,7 +173,7 @@ class SceneModel:
 
         # now load only the necessary data that falls within bounds defined
         self.load_image_and_depth_data_within_xyz_bounds()
-
+        
         # initialize all models        
         self.initialize_models()        
         self.initialize_learning_rates()  
@@ -367,7 +364,8 @@ class SceneModel:
         #pixel_directions = self.pixel_directions # (N_images, H, W, 3)
 
         xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth)
-
+        
+        xyz_coordinates = xyz_coordinates
         if save_raw_xyz:
             file_path = "{}/{}_xyz_raw.npy".format(dir, label)
             with open(file_path, "wb") as f:
@@ -554,7 +552,7 @@ class SceneModel:
             global_xyz = camera_world_position + pixel_depth_samples_world_directions # (N_pixels, 3)
 
         return global_xyz
-
+            
 
     def load_estimates_of_depth_sensor_error(self):
         self.average_nearest_neighbor_distance_per_pixel = []
@@ -758,7 +756,10 @@ class SceneModel:
         self.schedulers["color"] = self.create_polynomial_learning_rate_schedule(model = "color")
         self.schedulers["focal"] = self.create_polynomial_learning_rate_schedule(model = "focal")
         self.schedulers["pose"] = self.create_polynomial_learning_rate_schedule(model = "pose")
+
         self.learning_rate_histories = {}
+        for topic in ["color", "geometry", "pose", "focal"]:
+            self.learning_rate_histories[topic] = []
 
     def load_pretrained_models(self):        
         for model_name in self.models.keys():
@@ -805,13 +806,14 @@ class SceneModel:
 
 
     def get_raycast_samples_per_pixel(self, number_of_pixels, sensor_depth=None, add_noise=True):
-        add_noise=True
+        
 
         raycast_distances = torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).to(self.device)
         raycast_distances = raycast_distances.unsqueeze(0).expand(number_of_pixels, self.args.number_of_samples_outward_per_raycast)
 
         if add_noise:
             depth_noise = torch.rand((number_of_pixels, self.args.number_of_samples_outward_per_raycast), device=self.device, dtype=torch.float32)  # (N_pixels, N_samples)
+            depth_noise = (depth_noise - 0.5) / 5.0
             depth_noise = depth_noise * (self.far - self.near) / self.args.number_of_samples_outward_per_raycast # (N_pixels, N_samples)
             raycast_distances = raycast_distances + depth_noise  # (N_pixels, N_samples)
 
@@ -902,7 +904,8 @@ class SceneModel:
             np.save(f, depth_weights.cpu().numpy())
 
 
-    def render(self, poses, pixel_directions, sampling_depths, perturb_depths=False, rgb_image=None):
+    def render(self, poses, pixel_directions, sampling_depths, perturb_depths=False, rgb_image=None, use_sparse_rendering=False):
+        
         # poses := (N_pixels, 4, 4)
         # pixel_directions := (N_images, N_pixels, 3)
         # sampling_depths := (N_samples)
@@ -923,10 +926,29 @@ class SceneModel:
 
         render_result = volume_rendering(rgb, density, resampled_depths)
 
+        depth_weights = render_result['weight']
+
+        depth_map = render_result['depth_map']
+        rgb_rendered = render_result['rgb_rendered']
+
+        if use_sparse_rendering:               
+            delta_pixel_densities = torch.zeros(depth_map.size()[0], self.args.number_of_samples_outward_per_raycast).to(device=self.device)
+            max_density_indices = torch.argmax(depth_weights.to(device=self.device), 1).to(device=self.device)
+
+            pixel_rows = torch.arange(delta_pixel_densities.shape[0]).unsqueeze(1).to(device=self.device)
+            max_density_indices = max_density_indices.unsqueeze(1).to(device=self.device)                       
+
+            raycast_sample_indices_of_max_density = torch.cat([pixel_rows, max_density_indices], dim=1).to(device=self.device)            
+            delta_pixel_densities[raycast_sample_indices_of_max_density[:,0], raycast_sample_indices_of_max_density[:,1]] = 10000   
+            sparse_render_result = volume_rendering(rgb, delta_pixel_densities.unsqueeze(2), resampled_depths)
+            depth_map = sparse_render_result['depth_map']
+            rgb_rendered = sparse_render_result['rgb_rendered']
+                
+
         result = {
-            'rgb_rendered': render_result['rgb_rendered'], # (N_pixels, 3)
+            'rgb_rendered': rgb_rendered, # (N_pixels, 3)
             'pixel_xyz_positions': pixel_xyz_positions,    # (N_pixels, N_sample, 3)
-            'depth_map': render_result['depth_map'],       # (N_pixels)
+            'depth_map': depth_map,       # (N_pixels)
             'depth_weights': render_result['weight'],      # (N_pixels, N_sample),
             'rgb': render_result['rgb'],                   # (N_pixels, N_sample, 3),
             'density': render_result['density'],                            # (N_pixels, N_sample),
@@ -941,7 +963,7 @@ class SceneModel:
 
     # invoke current model for the pose and mask associated with train_image_index
     # for visual results, supply result to save_render_as_png
-    def render_prediction_for_train_image(self, train_image_index):
+    def render_prediction_for_train_image(self, train_image_index, use_sparse_rendering=False):
 
         mask = torch.zeros(self.H, self.W)        
 
@@ -952,13 +974,13 @@ class SceneModel:
         mask = mask.flatten()
         pose = self.models['pose'](0)[train_image_index]
 
-        return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=mask)
+        return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=mask, use_sparse_rendering=use_sparse_rendering)
         
 
     # invoke current model for a specific pose and 1d mask
     # for visual results, supply result to save_render_as_png
     # pixels filtered out by the mask are assigned value [0,0,0] 
-    def render_prediction(self, pose, train_image_index, mask=None):        
+    def render_prediction(self, pose, train_image_index, mask=None, use_sparse_rendering=False):        
 
         # copy pose to go with each individual pixel and match reference pixel directions with them
         if mask is not None:
@@ -987,7 +1009,7 @@ class SceneModel:
         # for each batch, compute the render and extract out RGB and depth map                  
         for poses_batch, pixel_directions_batch, depth_samples_batch in zip(poses_batches, pixel_directions_batches, depth_samples_batches):                                   
             
-            rendered_data = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_batch, perturb_depths=False)  # (N_pixels, 3)            
+            rendered_data = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_batch, perturb_depths=False, use_sparse_rendering=use_sparse_rendering)  # (N_pixels, 3)            
             rendered_image = rendered_data['rgb_rendered'] # (n_pixels_per_row, 3)
             rendered_depth = rendered_data['depth_map'] # (n_pixels_per_row)
             density = rendered_data['density']
@@ -1147,7 +1169,6 @@ class SceneModel:
         depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
 
         depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
-        # depth_to_rgb_importance = 0.0
 
         ##################### entropy loss #######################
         if (self.epoch > self.args.entropy_loss_tuning_start_epoch and self.epoch < self.args.entropy_loss_tuning_end_epoch):
@@ -1158,14 +1179,6 @@ class SceneModel:
             depth_to_rgb_importance = 0.0
         else:
             entropy_depth_loss = 0.0
-        ###############################################################
-
-        ##################### beta loss #######################
-        # we *increase* the beta loss importance over time, starting from 0.0
-        beta_loss_importance = self.get_polynomial_decay(start_value=self.args.beta_loss_importance_end, end_value=self.args.beta_loss_importance_start, exponential_index=self.args.beta_loss_importance_exponential_index, curvature_shape=self.args.beta_loss_importance_curvature_shape)
-        beta_loss = torch.mean(torch.sum(10**self.beta_distribution.log_prob(nerf_depth_weights), dim=1))        
-        weighted_beta_loss = beta_loss_importance * beta_loss
-        
         ###############################################################
 
         with torch.no_grad():
@@ -1184,25 +1197,23 @@ class SceneModel:
         # to-do: implement perceptual color difference minimizer
         #  torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
 
+        for optimizer in self.optimizers.values():
+            optimizer.zero_grad()   
+
         # compute loss and backward propagate the gradients to update the values which are parameters to this loss
-        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss + weighted_beta_loss
+        weighted_loss = depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss
+        weighted_loss.backward(create_graph=False, retain_graph=False)
         
         for optimizer in self.optimizers.values():
-            optimizer.zero_grad()        
-
-        weighted_loss.backward(create_graph=False, retain_graph=False)
-
-        for optimizer in self.optimizers.values():
-            optimizer.step()
-
+            optimizer.step()        
+                  
         # update the learning rate schedulers
         for scheduler in self.schedulers.values():
             scheduler.step()
 
         if self.epoch % self.args.log_frequency == 0:
             wandb.log({"RGB Inverse Render Loss (0-255 per pixel)": interpretable_rgb_loss_per_pixel,
-                       "Depth Sensor Loss (average millimeters error vs. sensor)": interpretable_depth_loss_per_confident_pixel,
-                       "Non-binary NeRF Weight Distribution Loss": beta_loss
+                       "Depth Sensor Loss (average millimeters error vs. sensor)": interpretable_depth_loss_per_confident_pixel                       
                        })
 
         if self.epoch % self.args.log_frequency == 0:
@@ -1215,23 +1226,20 @@ class SceneModel:
         else:
             voxel_size_for_sampling = "{:.2f}".format(self.voxel_size_for_sampling * 100)
 
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}, {} of {} confident), Beta: {:.8f} ({:,} w/ imp. {:.8f}), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {}cm^3".format(self.epoch, 
-                                                                                                                                                                                                                                                minutes_into_experiment, 
-                                                                                                                                                                                                                                                weighted_loss,
-                                                                                                                                                                                                                                                (1 - depth_to_rgb_importance) * rgb_loss, 
-                                                                                                                                                                                                                                                interpretable_rgb_loss_per_pixel, 
-                                                                                                                                                                                                                                                depth_to_rgb_importance * depth_loss, 
-                                                                                                                                                                                                                                                interpretable_depth_loss_per_confident_pixel,
-                                                                                                                                                                                                                                                depth_to_rgb_importance,
-                                                                                                                                                                                                                                                number_of_pixels_with_confident_depths,
-                                                                                                                                                                                                                                                self.args.pixel_samples_per_epoch,
-                                                                                                                                                                                                                                                weighted_beta_loss,
-                                                                                                                                                                                                                                                int(beta_loss),
-                                                                                                                                                                                                                                                beta_loss_importance,                                                                                                                                                                    
-                                                                                                                                                                                                                                                torch.mean(focal_length_x),
-                                                                                                                                                                                                                                                torch.mean(focal_length_y),
-                                                                                                                                                                                                                                                voxel_size_for_sampling
-                                                                                                                                                                                                                                                ))
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: {:.6f} ({:.3f} of 255), Depth: {:.6f} ({:.2f}mm w/ imp. {:.5f}, {} of {} confident), Focal X: {:.2f}, Focal Y: {:.2f}, Voxel: {}cm^3".format(self.epoch, 
+            minutes_into_experiment, 
+            weighted_loss,
+            (1 - depth_to_rgb_importance) * rgb_loss, 
+            interpretable_rgb_loss_per_pixel, 
+            depth_to_rgb_importance * depth_loss, 
+            interpretable_depth_loss_per_confident_pixel,
+            depth_to_rgb_importance,
+            number_of_pixels_with_confident_depths,
+            self.args.pixel_samples_per_epoch,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+            torch.mean(focal_length_x),
+            torch.mean(focal_length_y),
+            voxel_size_for_sampling
+        ))
         
         # a new epoch has dawned
         self.epoch += 1
@@ -1356,8 +1364,9 @@ class SceneModel:
         focal_length_x, focal_length_y = self.models["focal"](0)
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
 
-        for image_index in self.test_image_indices:
-            render_result = self.render_prediction_for_train_image(image_index)
+        for image_index in self.test_image_indices:            
+            render_result = self.render_prediction_for_train_image(image_index, self.args.use_sparse_rendering)
+
             nerf_weights = render_result['depth_weights']
             
             pixel_indices = torch.argwhere(self.image_ids_per_pixel == image_index)
@@ -1377,6 +1386,7 @@ class SceneModel:
                 depth_view_file_name = os.path.join(self.depth_view_out_dir, str(out_file_suffix).zfill(4) + '_depth_view_{}.png'.format(epoch))
                 pose = self.models['pose'](0)[image_index].to(device=self.device)
                 depth_img = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
+
                 rgb_img = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
                 self.get_point_cloud(pose=pose, depth=depth_img, rgb=rgb_img, pixel_directions=self.pixel_directions[image_index], label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir)               
 
@@ -1416,14 +1426,126 @@ class SceneModel:
             sys.exit(0)   
 
 
+    def load_saved_args_train(self):
+
+        self.args.base_directory = './data/elastica_burgundy_2'
+        #self.args.base_directory = './data/dragon_scale'
+        self.args.images_directory = 'color'
+        self.args.images_data_type = 'jpg'
+        self.args.skip_every_n_images_for_training = 30    
+        self.args.load_pretrained_models = False
+        self.args.pretrained_models_directory = ''
+        self.args.start_epoch = 0
+        self.args.number_of_epochs = 200001
+
+        self.args.start_training_extrinsics_epoch = 500
+        self.args.start_training_instrinsics_epoch = 0
+        self.args.start_training_color_epoch = 0
+        self.args.start_training_geometry_epoch = 0
+        self.args.entropy_loss_tuning_start_epoch = 1000000
+        self.args.entropy_loss_tuning_end_epoch = 1000000
+
+        self.args.nerf_density_lr_start = 0.0010
+        self.args.nerf_density_lr_end = 0.0001
+        self.args.nerf_density_lr_exponential_index = 4
+        self.args.nerf_density_lr_curvature_shape = 1
+
+        self.args.nerf_color_lr_start = 0.001
+        self.args.nerf_color_lr_end = 0.0001
+        self.args.nerf_color_lr_exponential_index = 2 # passed in args
+        self.args.nerf_color_lr_curvature_shape = 1
+
+        self.args.focal_lr_start = 0.001
+        self.args.focal_lr_end = 0.0001
+        self.args.focal_lr_exponential_index = 9
+        self.args.focal_lr_exponential_index = 1
+
+        self.args.pose_lr_start = 0.001
+        self.args.pose_lr_end = 0.0001
+        self.args.pose_lr_exponential_index = 9
+        self.args.pose_lr_curvature_shape = 1
+
+        self.args.depth_to_rgb_loss_start = 0.0075
+        self.args.depth_to_rgb_loss_end = 0.0
+        self.args.depth_to_rgb_loss_exponential_index = 9
+        self.args.depth_to_rgb_loss_curvature_shape = 1
+
+        self.args.density_neural_network_parameters = 512
+        self.args.color_neural_network_parameters = 512
+        self.args.positional_encoding_fourier_frequencies = 8
+        self.args.directional_encoding_fourier_frequencies = 8
+
+        self.args.use_voxel_sampling = False
+        self.args.voxel_size_for_sampling_start = 0.0
+        self.args.voxel_size_for_sampling_end = 0.0
+        self.args.voxel_size_for_sampling_exponential_index = 0
+        self.args.voxel_size_for_sampling_curvature_shape = 0
+        self.args.voxels_sampled_per_epoch = 0
+        self.args.samples_per_voxel = 0
+        self.args.fraction_of_dataset_randomly_selected_for_each_voxelization = 0.0
+
+        self.args.maximum_depth = 5.0
+        self.args.use_knn_as_heuristic_for_depth_sensor_error = False                  
+        self.args.epsilon = 0.0000001
+        self.args.depth_sensor_error = 0.5
+        self.args.min_confidence = 2.0
+        self.args.use_sparse_rendering = False
+
+        ### test images
+        self.args.skip_every_n_images_for_testing = 60
+        self.args.number_of_test_images = 1    
+
+        ### test frequency parameters
+        self.args.test_frequency = 5000
+        self.args.export_test_data_for_testing = False
+        self.args.save_ply_point_clouds_of_sensor_data = False
+        self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses = False        
+        self.args.save_point_cloud_frequency = 20000
+        self.args.save_depth_weights_frequency = 20000
+        self.args.log_frequency = 1
+        self.args.save_models_frequency = 20000
+
+        ### GPU parameters
+        self.args.pixel_samples_per_epoch = 256
+        self.args.number_of_pixels_per_batch_in_test_renders = 256
+        self.args.number_of_samples_outward_per_raycast = 512
+
+
+    def load_saved_args_test(self):
+
+        self.load_saved_args_train()
+        self.args.load_pretrained_models = True
+        self.args.pretrained_models_directory = './models/elastica_model_6_(200k+entropy_loss)'
+        #self.args.entropy_loss_tuning_start_epoch = 200000
+        #self.args.entropy_loss_tuning_end_epoch = 200101
+        self.args.number_of_samples_outward_per_raycast = 1024
+        self.args.number_of_pixels_per_batch_in_test_renders = 128
+        self.args.pixel_samples_per_epoch = 128
+        self.args.test_frequency = 1
+        self.args.save_depth_weights_frequency = 100
+        self.args.save_point_cloud_frequency = 100
+        self.args.start_epoch = 200501
+        self.args.number_of_epochs = 1     
+        self.args.save_models_frequency = 100
+        self.args.number_of_test_images = 100
+        self.args.skip_every_n_images_for_testing = 10
+        self.args.use_sparse_rendering = True
+        #self.args.save_ply_point_clouds_of_sensor_data = True
+
+
 if __name__ == '__main__':
     # Load a scene object with all data and parameters
-    scene = SceneModel(args=parse_args())
+
+    scene = SceneModel(args=parse_args(), load_saved_args=True)
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:
-        batch = scene.sample_next_batch()
-        scene.train(batch)
+        
+        with torch.no_grad():
+            scene.test()        
 
+        batch = scene.sample_next_batch()        
+        scene.train(batch)
+        
         if (scene.epoch-1) % scene.args.test_frequency == 0 and (scene.epoch-1) != 0:
             with torch.no_grad():
                 scene.test()
