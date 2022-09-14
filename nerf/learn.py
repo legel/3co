@@ -144,6 +144,8 @@ class SceneModel:
         if load_saved_args:
             self.load_saved_args_test()        
 
+        
+
         # initialize high-level arguments        
         self.epoch = self.args.start_epoch
         self.start_time = int(time.time()) 
@@ -155,6 +157,7 @@ class SceneModel:
 
         # set up location for saving experiment data
         self.create_experiment_directory()        
+        self.save_experiment_parameters()
 
         # load all unique IDs (names without ".png") of images to self.image_ids
         self.load_all_images_ids()        
@@ -1344,6 +1347,13 @@ class SceneModel:
             self.learning_rates_out_dir = Path("{}/learning_rates/".format(self.experiment_dir))
             self.learning_rates_out_dir.mkdir(parents=True, exist_ok=True)              
 
+
+    def save_experiment_parameters(self):
+        param_dict = vars(self.args)
+        f = open('{}/parameters.txt'.format(self.experiment_dir), 'w')
+        for param_name in param_dict:
+            f.write('{} = {}\n'.format(param_name, param_dict[param_name]))
+        
 
     def log_learning_rates(self):
         for topic in ["color", "geometry", "pose", "focal"]:
