@@ -10,7 +10,9 @@ class NeRFDensity(nn.Module):
     def __init__(self, args):
         super(NeRFDensity, self).__init__()
 
-        pos_in_dims = get_number_of_encoded_dimensions(number_of_fourier_frequencies=args.positional_encoding_fourier_frequencies)
+        #pos_in_dims = get_number_of_encoded_dimensions(number_of_fourier_frequencies=args.positional_encoding_fourier_frequencies)
+        #print("pos in dims: {}".format(pos_in_dims))
+        pos_in_dims = 60
         D = args.density_neural_network_parameters
 
         self.pos_in_dims = pos_in_dims
@@ -29,7 +31,6 @@ class NeRFDensity(nn.Module):
             nn.Linear(D, D), nn.ReLU()
         )
 
-
         self.fc_density = nn.Linear(D, 1)
         self.fc_feature = nn.Linear(D, D)
         self.fc_density.bias.data = torch.tensor([0.1]).float()
@@ -40,6 +41,7 @@ class NeRFDensity(nn.Module):
         :param dir_enc: (H, W, N_sample, dir_in_dims) encoded directions
         :return: rgb_density (H, W, N_sample, 4)
         """
+        
         x = self.layers0(pos_enc)  # (H, W, N_sample, D)
         x = torch.cat([x, pos_enc], dim=2)  # (H, W, N_sample, D+pos_in_dims)
         x = self.layers1(x)  # (H, W, N_sample, D)

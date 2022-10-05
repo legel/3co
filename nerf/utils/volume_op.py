@@ -1,5 +1,6 @@
 import torch
 import sys
+from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
 
 def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=True):
     # poses := (N_pixels, 4, 4)
@@ -11,7 +12,6 @@ def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=Tru
 
     # transform rays from camera coordinate to world coordinate
     pixel_directions_world = torch.matmul(poses[:,:3, :3], pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3) 
-
     poses_xyz = poses[:, :3, 3]  # the translation vectors (N, 3)
 
     # this perturb only works if we sample depth linearly, not the disparity.
@@ -24,11 +24,12 @@ def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=Tru
         #resampled_depths = sampling_depths.view(1, N_samples) + depth_noise  # (N_pixels, N_samples)
         resampled_depths = sampling_depths.view(1, N_samples) + depth_noise  # (N_pixels, N_samples)
     else:
-        resampled_depths = sampling_depths #sampling_depths.view(1, N_samples).expand(N_pixels, N_samples)
+        resampled_depths = sampling_depths #sampling_depths.view(1, N_samples).expand(N_pixels, N_samples)        
 
+    pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)    
     pixel_depth_samples_world_directions = pixel_directions_world.unsqueeze(1) * resampled_depths.unsqueeze(2) # (N_pixels, N_samples, 3)
     pixel_xyz_positions = poses_xyz.unsqueeze(1).expand(N_pixels, N_samples, 3) + pixel_depth_samples_world_directions # (N_pixels, N_samples, 3)
-
+    
     return pixel_xyz_positions, pixel_directions_world, resampled_depths # (H, W, N_sample, 3), (H, W, 3), (H, W, N_sam)
 
 

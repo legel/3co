@@ -383,7 +383,7 @@ def debug_visualization(scene_model, rgb, xyz, depth_weights, rendered_image, do
 
 if __name__ == '__main__':
     # Load a scene object with all data and parameters
-    scene = SceneModel(args=parse_args())
+    scene = SceneModel(args=parse_args(), load_saved_args=True)
     
     
     with torch.no_grad():
@@ -393,3 +393,88 @@ if __name__ == '__main__':
         #imgs_to_video()
         render_all_training_images(scene)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###################################### code for printing out weights and gradients of network input layer
+#print(self.models['density'.])
+"""
+    print("density weights:")
+    for i in range(128):
+        print(self.models['geometry'].layers0[0].weight.size())
+        quit()
+        print("_________________________________")
+        print("unit {}: ".format(i))
+        print("weights:")
+        print(self.models['geometry'].layers0[0].weight[i,:])
+        print("gradient:")
+        print(self.models['geometry'].layers0[0].weight.grad[i,:])
+    
+"""
+
+
+"""
+    xs = x[0, :, 0].detach().cpu().numpy()
+    ys = x[0, :, 1].detach().cpu().numpy()
+    zs = x[0, :, 2].detach().cpu().numpy()
+    xs2 = depth_xyzs[0,:, 0].detach().cpu().numpy()
+    ys2 = depth_xyzs[0,:, 1].detach().cpu().numpy()
+    zs2 = depth_xyzs[0,:, 2].detach().cpu().numpy()        
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')    
+    ax.scatter(xs, ys, zs, s=4, c='blue')    
+    ax.scatter(xs2, ys2, zs2, s=4, c='green')        
+    plt.show()    
+"""    
+
+
+
+
+########################## code for printing out features fromn pos_enc.py
+#for i in [202]:    
+#for i in range(0, sampling_depths[0].size()[0]-1):
+"""
+    for j in range(0,90//3):
+        f = features[0][0,i, j*3 : j*3 + 3]                        
+        v = features[1][0,i, j*3 : j*3 + 3]
+"""
+#f = features[0][0,i, 86:89]
+#v = features[1][0,i, 86:89]
+#print("depth {} feature {}: ({:8f}, {:8f}, {:8f} (var: {:8f}, {:8f}, {:8f}))".format(i, j, f[0].item(), f[1].item(), f[2].item(), v[0].item(), v[1].item(), v[2].item()))
+        
+#print("depth {} feature 86-89: ({:8f}, {:8f}, {:8f} (var: {:8f}, {:8f}, {:8f}))".format(i, f[0].item(), f[1].item(), f[2].item(), v[0].item(), v[1].item(), v[2].item()))
+
+
+"""
+    for i in range(0, 96//3):        
+        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(10, i, (features[0][10,20,i].item()), (features[0][10,20,i+1].item()), (features[0][10,20,i+2].item())))
+        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(50, i, features[0][10,100,i].item(), features[0][10,100,i+1].item(), features[0][10,100,i+2].item()))
+        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(150, i, (features[0][10,300,i].item()), (features[0][10,300,i+1].item()), (features[0][10,300,i+2].item())))
+        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(250, i, (features[0][10,500,i].item()), (features[0][10,500,i+1].item()), (features[0][10,500,i+2].item())))
+    print("___________________________________________________________________")    
+"""
+
+""" test for explicitly treating focal_length as distance from lense to principal point
+    #dp_x = (camera_coordinates_x - self.principal_point_x)
+    #dp_y = (camera_coordinates_y - self.principal_point_y)
+    #angles_x = torch.atan(dp_x / focal_length_x_rep)
+    #angles_y = torch.atan(dp_y / focal_length_y_rep)    
+    #camera_coordinates_directions_x = angles_x
+    #camera_coordinates_directions_y = angles_y
+"""
