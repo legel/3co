@@ -1322,7 +1322,7 @@ class SceneModel:
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
 
         for image_index in self.test_image_indices:            
-            render_result = self.render_prediction_for_train_image(image_index, self.args.use_sparse_rendering)
+            render_result = self.render_prediction_for_train_image(image_index, self.args.use_sparse_rendering_for_test_renders)
 
             nerf_weights = render_result['depth_weights']
             
@@ -1429,7 +1429,7 @@ class SceneModel:
 
         self.args.density_neural_network_parameters = 256
         self.args.color_neural_network_parameters = 256
-        self.args.positional_encoding_fourier_frequencies = 8
+        #self.args.positional_encoding_fourier_frequencies = 8
         self.args.directional_encoding_fourier_frequencies = 8
         self.args.positional_encoding = 'mip'
 
@@ -1437,7 +1437,7 @@ class SceneModel:
         self.args.epsilon = 0.0000001
         self.args.depth_sensor_error = 0.5
         self.args.min_confidence = 0.0
-        self.args.use_sparse_rendering = False
+        self.args.use_sparse_rendering_for_test_renders = False
 
         ### test images
         self.args.skip_every_n_images_for_testing = 60
@@ -1477,7 +1477,7 @@ class SceneModel:
         self.args.save_models_frequency = 100
         self.args.number_of_test_images = 50
         self.args.skip_every_n_images_for_testing = 10
-        self.args.use_sparse_rendering = True
+        self.args.use_sparse_rendering_for_test_renders = True
         self.args.positional_encoding = 'mip'        
 
 
