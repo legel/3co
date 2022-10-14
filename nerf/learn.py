@@ -133,7 +133,8 @@ class SceneModel:
         self.args = args
 
         if load_saved_args:
-            self.load_saved_args_train()                    
+            print("loading test args")
+            self.load_saved_args_test()                    
 
         # initialize high-level arguments        
         self.epoch = self.args.start_epoch
@@ -432,8 +433,8 @@ class SceneModel:
         self.xyz_per_view = []
         self.confidence_per_pixel = []
         self.test_poses_processed = 0
-        number_of_test_images_saved = 0
-        
+        number_of_test_images_saved = 0        
+
         # now loop through all of the data, and filter out (only load and save as necessary) based on whether the points land within our focus area
         for i, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
 
@@ -663,6 +664,26 @@ class SceneModel:
         # now define the bounds in (x,y,z) space through which we will filter all future pixels by their projected points
         self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates, padding=1.0)
  
+
+    def get_camera_pixel_directions(self, focal_length):
+
+        camera_coordinates_y, camera_coordinates_x = torch.meshgrid(torch.arange(self.H, dtype=torch.float32, device=self.device),
+                                                                    torch.arange(self.W, dtype=torch.float32, device=self.device),
+                                                                    indexing='ij')  # (H, W)
+                
+        #camera_coordinates_y = camera_coordinates_y.expand(self.H, self.W)                  
+        #camera_coordinates_x = camera_coordinates_x.expand(self.H, self.W)
+        
+        focal_length_rep = focal_length.unsqueeze(1).expand(self.H, self.W)        
+
+        # This camera coordinate system is the one that matches with incoming data from Apple's ARKit        
+        camera_coordinates_directions_x = (camera_coordinates_x - self.principal_point_x.cpu()) / focal_length_rep  # (H, W)
+        camera_coordinates_directions_y = (camera_coordinates_y - self.principal_point_y.cpu()) / focal_length_rep  # (H, W)
+        
+        camera_coordinates_directions_z = torch.ones(self.H, self.W, dtype=torch.float32, device=self.device)  # (H, W)        
+        camera_coordinates_pixel_directions = torch.stack([camera_coordinates_directions_x, camera_coordinates_directions_y, camera_coordinates_directions_z], dim=-1)  # (N_images, H, W, 3)        
+        return camera_coordinates_pixel_directions
+
 
     # compute unnormalized ray directions for all pixels in dataset
     def compute_ray_direction_in_camera_coordinates(self, focal_length_x, focal_length_y):
@@ -985,6 +1006,15 @@ class SceneModel:
 
         return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=mask, use_sparse_rendering=use_sparse_rendering)
         
+    def render_prediction_for_pose(self, pose):
+        pixel_poses = pose.unsqueeze(0).expand(self.H * self.W, -1, -1)
+        pixel_focal_lengths_x = self.initial_focal_length_x.unsqueeze(0).expand(self.H * self.W, 1)
+                
+        pixel_directions = self.get_camera_pixel_directions(self.initial_focal_length_x)
+
+
+
+
 
     # invoke current model for a specific pose and 1d mask
     # for visual results, supply result to save_render_as_png
@@ -999,8 +1029,8 @@ class SceneModel:
             focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(int(mask.sum().item()), 1)              
         else:
             poses = pose.unsqueeze(0).expand(self.W*self.H, -1, -1)
-            pixel_directions = self.pixel_directions[train_image_index].flatten(start_dim=0, end_dim=1)
-            focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(self.W*self.H, -1, -1)
+            pixel_directions = self.pixel_directions[train_image_index].flatten(start_dim=0, end_dim=1)            
+            focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(self.W*self.H, 1)
 
         depth_samples = self.get_raycast_samples_per_pixel(number_of_pixels=len(poses), add_noise=False)                
 
@@ -1385,11 +1415,10 @@ class SceneModel:
 
     def load_saved_args_train(self):
 
-        self.args.base_directory = './data/elastica_burgundy_2'
-        #self.args.base_directory = './data/dragon_scale'
+        #self.args.base_directory = './data/pillow_small_3'
+        self.args.base_directory = './data/dragon_scale'
         self.args.images_directory = 'color'
-        self.args.images_data_type = 'jpg'
-        self.args.skip_every_n_images_for_training = 60    
+        self.args.images_data_type = 'jpg'        
         self.args.load_pretrained_models = False
         self.args.pretrained_models_directory = ''
         self.args.start_epoch = 0
@@ -1433,10 +1462,10 @@ class SceneModel:
         self.args.directional_encoding_fourier_frequencies = 8
         self.args.positional_encoding = 'mip'
 
-        self.args.maximum_depth = 5.0
+        self.args.maximum_depth = 10.0 # prev 5.0
         self.args.epsilon = 0.0000001
         self.args.depth_sensor_error = 0.5
-        self.args.min_confidence = 0.0
+        self.args.min_confidence = 2.0
         self.args.use_sparse_rendering_for_test_renders = False
 
         ### test images
@@ -1454,6 +1483,7 @@ class SceneModel:
         self.args.save_models_frequency = 20000
 
         ### GPU parameters
+        self.args.skip_every_n_images_for_training = 60
         self.args.pixel_samples_per_epoch = 200
         self.args.number_of_pixels_per_batch_in_test_renders = 128
         self.args.number_of_samples_outward_per_raycast = 1024
@@ -1463,21 +1493,21 @@ class SceneModel:
 
         self.load_saved_args_train()
         self.args.load_pretrained_models = True
-        self.args.pretrained_models_directory = './models/elastica_model_11_(IPE_400k+100entropytuning)'
-        #self.args.entropy_loss_tuning_start_epoch = 400000
-        #self.args.entropy_loss_tuning_end_epoch = 401001
+        self.args.pretrained_models_directory = './models/dragon_scale_1'
+        self.args.entropy_loss_tuning_start_epoch = 500000000
+        self.args.entropy_loss_tuning_end_epoch = 5010010000
         self.args.number_of_samples_outward_per_raycast = 1024
         self.args.number_of_pixels_per_batch_in_test_renders = 100
         self.args.pixel_samples_per_epoch = 200
         self.args.test_frequency = 1
-        self.args.save_depth_weights_frequency = 101
+        self.args.save_depth_weights_frequency = 10000000
         self.args.save_point_cloud_frequency = 1
-        self.args.start_epoch = 400101
-        self.args.number_of_epochs = 1     
-        self.args.save_models_frequency = 100
-        self.args.number_of_test_images = 50
-        self.args.skip_every_n_images_for_testing = 10
-        self.args.use_sparse_rendering_for_test_renders = True
+        self.args.start_epoch = 500001
+        self.args.number_of_epochs = 1
+        self.args.save_models_frequency = 100000
+        self.args.number_of_test_images = 40
+        self.args.skip_every_n_images_for_testing = 2
+        self.args.use_sparse_rendering_for_test_renders = False
         self.args.positional_encoding = 'mip'        
 
 
@@ -1491,6 +1521,7 @@ if __name__ == '__main__':
         
         #with torch.no_grad():
         #    scene.test()        
+        #quit()
 
         batch = scene.sample_next_batch()        
         #with torch.autograd.detect_anomaly():
