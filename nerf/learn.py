@@ -664,7 +664,7 @@ class SceneModel:
             xyz_coordinates = xyz_coordinates[:, min_pixel_col:max_pixel_col, :]
 
         # now define the bounds in (x,y,z) space through which we will filter all future pixels by their projected points
-        self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates, padding=1.0)
+        self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates, padding=1000.0)
  
 
     def get_camera_pixel_directions(self, focal_length):
@@ -1080,15 +1080,6 @@ class SceneModel:
         pose = self.models['pose'](0)[train_image_index]
 
         return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=mask, use_sparse_rendering=use_sparse_rendering)
-        
-    def render_prediction_for_pose(self, pose):
-        pixel_poses = pose.unsqueeze(0).expand(self.H * self.W, -1, -1)
-        pixel_focal_lengths_x = self.initial_focal_length_x.unsqueeze(0).expand(self.H * self.W, 1)
-                
-        pixel_directions = self.get_camera_pixel_directions(self.initial_focal_length_x)
-
-
-
 
 
     # invoke current model for a specific pose and 1d mask
@@ -1104,18 +1095,25 @@ class SceneModel:
             focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(int(mask.sum().item()), 1)              
         else:
             poses = pose.unsqueeze(0).expand(self.W*self.H, -1, -1)
-            pixel_directions = self.pixel_directions[train_image_index].flatten(start_dim=0, end_dim=1)
-            focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(self.W*self.H,-1,-1)
+            pixel_directions = self.pixel_directions[train_image_index].flatten(start_dim=0, end_dim=1)                  
+            focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(self.W*self.H, 1)
 
         # split each of the rendering inputs into smaller batches, which speeds up GPU processing
         poses_batches = poses.split(self.args.number_of_pixels_per_batch_in_test_renders)
         pixel_directions_batches = pixel_directions.split(self.args.number_of_pixels_per_batch_in_test_renders)
         focal_lengths_x_batches = focal_lengths_x.split(self.args.number_of_pixels_per_batch_in_test_renders)         
 
-        rendered_image_batches = []
-        depth_image_batches = []
-        density_batches = []
-        depth_weights_batches = []        
+        rendered_image_fine_batches = []
+        depth_image_fine_batches = []
+        density_fine_batches = []
+        depth_weights_fine_batches = []        
+        resampled_depths_fine_batches = []
+
+        rendered_image_coarse_batches = []
+        depth_image_coarse_batches = []
+        density_coarse_batches = []
+        depth_weights_coarse_batches = []                
+        resampled_depths_coarse_batches = []
 
         if self.args.export_test_data_for_post_processing:
             pixel_xyz_positions_batches = []
@@ -1129,73 +1127,134 @@ class SceneModel:
                 if depth_sampling_optimization == 0:
                     # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space
                     depth_samples = self.sample_depths_linearly(number_of_pixels=self.args.number_of_pixels_per_batch_in_test_renders, add_noise=False) # (N_pixels, N_samples)
+                    resampled_depths_coarse_batches.append(depth_samples[..., : self.args.number_of_samples_outward_per_raycast].cpu())
+                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples, perturb_depths=False, use_sparse_rendering=use_sparse_rendering, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
                 else:
-                    # if this is not the first iteration, then resample with the latest weights
-                    depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=self.args.number_of_pixels_per_batch_in_test_renders, weights=rendered_data['depth_weights'])  # (N_pixels, N_samples)
+                    # if this is not the first iteration, then resample with the latest weights                    
+                    depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=self.args.number_of_pixels_per_batch_in_test_renders, weights=rendered_data_coarse['depth_weights'])  # (N_pixels, N_samples)
+                    resampled_depths_fine_batches.append(depth_samples[..., : self.args.number_of_samples_outward_per_raycast].cpu())
+                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples, perturb_depths=False, use_sparse_rendering=use_sparse_rendering, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
 
-                rendered_data = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples, perturb_depths=False, use_sparse_rendering=use_sparse_rendering, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
 
-            # since the fine-sampled render is always last, that is the only results we will save
-            rendered_image_batches.append(rendered_data['rgb_rendered']) # (n_pixels_per_row, 3)
-            depth_image_batches.append(rendered_data['depth_map']) # (n_pixels_per_row)             
-            density_batches.append(rendered_data['density'])
-            depth_weights_batches.append(rendered_data['depth_weights'])
+            if self.args.n_depth_sampling_optimizations > 1:
+                rendered_image_fine_batches.append(rendered_data_fine['rgb_rendered']) # (n_pixels_per_row, 3)
+                depth_image_fine_batches.append(rendered_data_fine['depth_map']) # (n_pixels_per_row)             
+                density_fine_batches.append(rendered_data_fine['density'])
+                depth_weights_fine_batches.append(rendered_data_fine['depth_weights'])            
+
+            rendered_image_coarse_batches.append(rendered_data_coarse['rgb_rendered']) # (n_pixels_per_row, 3)
+            depth_image_coarse_batches.append(rendered_data_coarse['depth_map']) # (n_pixels_per_row)             
+            density_coarse_batches.append(rendered_data_coarse['density'])
+            depth_weights_coarse_batches.append(rendered_data_coarse['depth_weights'])                        
 
             if self.args.export_test_data_for_post_processing:                
-                pixel_xyz_positions_batches.append(rendered_data['pixel_xyz_positions'])
+                pixel_xyz_positions_batches.append(rendered_data_fine['pixel_xyz_positions'])
 
         # combine batch results to compose full images
-        rendered_image_data = torch.cat(rendered_image_batches, dim=0).cpu() # (N_pixels, 3)
-        rendered_depth_data = torch.cat(depth_image_batches, dim=0).cpu()  # (N_pixels)
-        density_data = torch.cat(density_batches, dim=0).cpu()  # (N_pixels, N_samples)
-        depth_weights_data = torch.cat(depth_weights_batches, dim=0).cpu()  # (N_pixels, N_samples)
+        if self.args.n_depth_sampling_optimizations > 1:
+            rendered_image_data_fine = torch.cat(rendered_image_fine_batches, dim=0).cpu() # (N_pixels, 3)
+            rendered_depth_data_fine = torch.cat(depth_image_fine_batches, dim=0).cpu()  # (N_pixels)
+            density_data_fine = torch.cat(density_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)
+            depth_weights_data_fine = torch.cat(depth_weights_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)
+            resampled_depths_data_fine = torch.cat(resampled_depths_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)
+
+        rendered_image_data_coarse = torch.cat(rendered_image_coarse_batches, dim=0).cpu() # (N_pixels, 3)
+        rendered_depth_data_coarse = torch.cat(depth_image_coarse_batches, dim=0).cpu()  # (N_pixels)
+        density_data_coarse = torch.cat(density_coarse_batches, dim=0).cpu()  # (N_pixels, N_samples)
+        depth_weights_data_coarse = torch.cat(depth_weights_coarse_batches, dim=0).cpu()  # (N_pixels, N_samples)
+        resampled_depths_data_coarse = torch.cat(resampled_depths_coarse_batches, dim=0).cpu()  # (N_pixels, N_samples)
 
         if self.args.export_test_data_for_post_processing:
-            depth_weight_per_sample = torch.cat(depth_weights_batches, dim=0)
+            depth_weight_per_sample = torch.cat(depth_weights_fine_batches, dim=0)
             xyz_for_all_samples = torch.cat(pixel_xyz_positions_batches, dim=0)
             self.export_geometry_data(depth_weight_per_sample=depth_weight_per_sample, xyz_for_all_samples=xyz_for_all_samples, test_view_number=train_image_index, top_n_depth_weights = 10)
 
-        rendered_image = torch.zeros(self.H * self.W, 3).cpu()
-        rendered_depth = torch.zeros(self.H * self.W).cpu()
-        density = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()
-        depth_weights = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()
+        if self.args.n_depth_sampling_optimizations > 1:
+            rendered_image_fine = torch.zeros(self.H * self.W, 3).cpu()
+            rendered_depth_fine = torch.zeros(self.H * self.W).cpu()
+            density_fine = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()
+            depth_weights_fine = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()
+            resampled_depths_fine = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()        
+
+        rendered_image_coarse = torch.zeros(self.H * self.W, 3).cpu()
+        rendered_depth_coarse = torch.zeros(self.H * self.W).cpu()
+        density_coarse = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()
+        depth_weights_coarse = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()        
+        resampled_depths_coarse = torch.zeros(self.H * self.W, self.args.number_of_samples_outward_per_raycast).cpu()        
 
         # if we're using a mask, we need to find the right pixel positions
         if mask is not None:
-            rendered_image[torch.argwhere(mask==1).squeeze()] = rendered_image_data.cpu()
-            rendered_depth[torch.argwhere(mask==1).squeeze()] = rendered_depth_data.cpu()
-            density[torch.argwhere(mask==1).squeeze()] = density_data.cpu()
-            depth_weights[torch.argwhere(mask==1).squeeze()] = depth_weights_data.cpu()
+
+            if self.args.n_depth_sampling_optimizations > 1:
+                rendered_image_fine[torch.argwhere(mask==1).squeeze()] = rendered_image_data_fine.cpu()
+                rendered_depth_fine[torch.argwhere(mask==1).squeeze()] = rendered_depth_data_fine.cpu()
+                density_fine[torch.argwhere(mask==1).squeeze()] = density_data_fine.cpu()
+                depth_weights_fine[torch.argwhere(mask==1).squeeze()] = depth_weights_data_fine.cpu()
+                resampled_depths_fine[torch.argwhere(mask==1).squeeze()] = resampled_depths_data_fine.cpu()
+
+            rendered_image_coarse[torch.argwhere(mask==1).squeeze()] = rendered_image_data_coarse.cpu()
+            rendered_depth_coarse[torch.argwhere(mask==1).squeeze()] = rendered_depth_data_coarse.cpu()
+            density_coarse[torch.argwhere(mask==1).squeeze()] = density_data_coarse.cpu()
+            depth_weights_coarse[torch.argwhere(mask==1).squeeze()] = depth_weights_data_coarse.cpu()
+            resampled_depths_coarse[torch.argwhere(mask==1).squeeze()] = resampled_depths_data_coarse.cpu()
         else:
-            rendered_image = rendered_image_data.cpu()
-            rendered_depth = rendered_depth_data.cpu()
-            density = density_data.cpu()
-            depth_weights = depth_weights_data.cpu()
+
+            if self.args.n_depth_sampling_optimizations > 1:
+                rendered_image_fine = rendered_image_data_fine.cpu()
+                rendered_depth_fine = rendered_depth_data_fine.cpu()
+                density_fine = density_data_fine.cpu()
+                depth_weights_fine = depth_weights_data_fine.cpu()
+                resampled_depths_fine = resampled_depths_data_fine.cpu()
+
+            rendered_image_coarse = rendered_image_data_coarse.cpu()
+            rendered_depth_coarse = rendered_depth_data_coarse.cpu()
+            density_coarse = density_data_coarse.cpu()
+            depth_weights_coarse = depth_weights_data_coarse.cpu()            
+            resampled_depths_coarse = resampled_depths_data_coarse.cpu()
 
         render_result = {
-            'rendered_image': rendered_image,
-            'rendered_depth': rendered_depth,
-            'density': density,
-            'depth_weights': depth_weights,
+            'rendered_image_coarse': rendered_image_coarse,
+            'rendered_depth_coarse': rendered_depth_coarse,
+            'density_coarse': density_coarse,
+            'depth_weights_coarse': depth_weights_coarse,                        
+            'resampled_depths_coarse': resampled_depths_coarse,
         }
+
+        if self.args.n_depth_sampling_optimizations > 1:            
+            render_result['rendered_image_fine'] = rendered_image_fine
+            render_result['rendered_depth_fine'] = rendered_depth_fine
+            render_result['density_fine'] = density_fine
+            render_result['depth_weights_fine'] = depth_weights_fine       
+            render_result['resampled_depths_fine'] = resampled_depths_fine
 
         return render_result    
 
 
     # process raw rendered pixel data and save into images
-    def save_render_as_png(self, render_result, color_file_name, depth_file_name):
-        rendered_rgb = render_result['rendered_image'].reshape(self.H, self.W, 3)
-        rendered_depth = render_result['rendered_depth'].reshape(self.H, self.W)
+    def save_render_as_png(self, render_result, color_file_name_fine, depth_file_name_fine, color_file_name_coarse, depth_file_name_coarse):
+        
+        rendered_rgb_coarse = render_result['rendered_image_coarse'].reshape(self.H, self.W, 3)
+        rendered_depth_coarse = render_result['rendered_depth_coarse'].reshape(self.H, self.W)                
+        rendered_color_for_file_coarse = (rendered_rgb_coarse.cpu().numpy() * 255).astype(np.uint8)    
 
-        rendered_color_for_file = (rendered_rgb.cpu().numpy() * 255).astype(np.uint8)    
+        if self.args.n_depth_sampling_optimizations > 1:
+            rendered_rgb_fine = render_result['rendered_image_fine'].reshape(self.H, self.W, 3)
+            rendered_depth_fine = render_result['rendered_depth_fine'].reshape(self.H, self.W)
+            rendered_color_for_file_fine = (rendered_rgb_fine.cpu().numpy() * 255).astype(np.uint8)    
 
         # get depth map and convert it to Turbo Color Map
-        rendered_depth_data = rendered_depth.cpu().numpy() 
-        rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_data)
-        rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)
+        rendered_depth_data_coarse = rendered_depth_coarse.cpu().numpy() 
+        rendered_depth_for_file_coarse = heatmap_to_pseudo_color(rendered_depth_data_coarse)
+        rendered_depth_for_file_coarse = (rendered_depth_for_file_coarse * 255).astype(np.uint8)        
+        imageio.imwrite(color_file_name_coarse, rendered_color_for_file_coarse)
+        imageio.imwrite(depth_file_name_coarse, rendered_depth_for_file_coarse)                   
 
-        imageio.imwrite(color_file_name, rendered_color_for_file)
-        imageio.imwrite(depth_file_name, rendered_depth_for_file)   
+        if self.args.n_depth_sampling_optimizations > 1:
+            rendered_depth_data_fine = rendered_depth_fine.cpu().numpy() 
+            rendered_depth_for_file_fine = heatmap_to_pseudo_color(rendered_depth_data_fine)
+            rendered_depth_for_file_fine = (rendered_depth_for_file_fine * 255).astype(np.uint8)        
+            imageio.imwrite(color_file_name_fine, rendered_color_for_file_fine)
+            imageio.imwrite(depth_file_name_fine, rendered_depth_for_file_fine)               
 
 
     def train(self, indices_of_random_pixels, iteration=0):
@@ -1290,7 +1349,7 @@ class SceneModel:
 
             nerf_depth_weights = nerf_depth_weights + self.args.epsilon
 
-            sensor_variance = self.args.depth_sensor_error
+            sensor_variance = self.args.depth_sensor_error                        
 
             kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples[:, :self.args.number_of_samples_outward_per_raycast] * 1000 - sensor_depth_per_sample * 1000) ** 2 / (2 * sensor_variance)) * nerf_sample_bin_lengths * 1000                                
             confidence_weighted_kl_divergence_pixels = confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
@@ -1299,10 +1358,9 @@ class SceneModel:
             
             ##################### entropy loss #######################
             if (self.epoch > self.args.entropy_loss_tuning_start_epoch and self.epoch < self.args.entropy_loss_tuning_end_epoch):
-                entropy_depth_loss_weight = 0.01
+                entropy_depth_loss_weight = 0.0075
                 pixels_weights_entropy = -1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1)
-                entropy_depth_loss = entropy_depth_loss_weight * torch.mean(pixels_weights_entropy)
-                print("------->entropy loss: {}".format(entropy_depth_loss))      
+                entropy_depth_loss = entropy_depth_loss_weight * torch.mean(pixels_weights_entropy)                
                 depth_to_rgb_importance = 0.0
             else:
                 entropy_depth_loss = 0.0
@@ -1323,6 +1381,10 @@ class SceneModel:
 
             # to-do: implement perceptual color difference minimizer
             # torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
+            fine_rgb_loss = 0
+            fine_depth_loss = 0
+            fine_interpretable_rgb_loss_per_pixel = 0
+            fine_interpretable_depth_loss_per_confident_pixel = 0
 
             # following official mip-NeRF, if this is the coarse render, we only give 0.1 weight to the total loss contribution; if it is a fine, then 0.9
             if depth_sampling_optimization == 0:
@@ -1333,6 +1395,7 @@ class SceneModel:
                 coarse_interpretable_rgb_loss_per_pixel = interpretable_rgb_loss_per_pixel
                 coarse_interpretable_depth_loss_per_confident_pixel = interpretable_depth_loss_per_confident_pixel
             else:
+                depth_loss = 0
                 total_weighted_loss += 0.9 * (depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss)
 
                 fine_rgb_loss = rgb_loss
@@ -1369,7 +1432,7 @@ class SceneModel:
 
         self.log_learning_rates()
 
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: C: {:.6f} ({:.3f}/255) | F: {:.6f} ({:.3f}/255), DEPTH: C: {:.6f} ({:.2f}mm) | F: {:.6f} ({:.2f}mm) w/ imp. {:.5f}".format(self.epoch, 
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: C: {:.6f} ({:.3f}/255) | F: {:.6f} ({:.3f}/255), DEPTH: C: {:.6f} ({:.2f}mm) | F: {:.6f} ({:.2f}mm) w/ imp. {:.5f}, Entropy: {:.6f}".format(self.epoch, 
             minutes_into_experiment, 
             total_weighted_loss,
             (1 - depth_to_rgb_importance) * coarse_rgb_loss, 
@@ -1380,7 +1443,8 @@ class SceneModel:
             coarse_interpretable_depth_loss_per_confident_pixel,
             depth_to_rgb_importance * fine_depth_loss, 
             fine_interpretable_depth_loss_per_confident_pixel,            
-            depth_to_rgb_importance         
+            depth_to_rgb_importance,
+            entropy_depth_loss
         ))
         
         # a new epoch has dawned
@@ -1457,29 +1521,60 @@ class SceneModel:
         focal_length_x, focal_length_y = self.models["focal"](0)
         self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
 
-        for image_index in self.test_image_indices:      
+        for image_index in self.test_image_indices:
             render_result = self.render_prediction_for_train_image(image_index, self.args.use_sparse_rendering_for_test_renders)
-            nerf_weights = render_result['depth_weights']
-            
+
+
+            nerf_weights_coarse = render_result['depth_weights_coarse']
+            density_coarse = render_result['density_coarse']                                
+            depth_coarse = render_result['rendered_depth_coarse']            
+            sampled_depths_coarse = render_result['resampled_depths_coarse']
+
+            if self.args.n_depth_sampling_optimizations > 1:
+                nerf_weights_fine = render_result['depth_weights_fine']
+                density_fine = render_result['density_fine']
+                depth_fine = render_result['rendered_depth_fine']            
+                sampled_depths_fine = render_result['resampled_depths_fine']            
+
             pixel_indices = torch.argwhere(self.image_ids_per_pixel == image_index)
             this_image_rgbd = self.rgbd[pixel_indices].cpu().squeeze(1)
-            depth = render_result['rendered_depth']            
+            
+            
+            
                         
             # save rendered rgb and depth images
             out_file_suffix = str(image_index)
-            color_file_name = os.path.join(self.color_out_dir, str(out_file_suffix).zfill(4) + '_color_{}.png'.format(epoch))
-            depth_file_name = os.path.join(self.depth_out_dir, str(out_file_suffix).zfill(4) + '_depth_{}.png'.format(epoch))            
-            self.save_render_as_png(render_result, color_file_name, depth_file_name)                         
+            color_file_name_fine = os.path.join(self.color_out_dir, str(out_file_suffix).zfill(4) + '_color_fine_{}.png'.format(epoch))
+            depth_file_name_fine = os.path.join(self.depth_out_dir, str(out_file_suffix).zfill(4) + '_depth_fine_{}.png'.format(epoch))            
+            color_file_name_coarse = os.path.join(self.color_out_dir, str(out_file_suffix).zfill(4) + '_color_coarse_{}.png'.format(epoch))
+            depth_file_name_coarse = os.path.join(self.depth_out_dir, str(out_file_suffix).zfill(4) + '_depth_coarse_{}.png'.format(epoch))                        
+            self.save_render_as_png(render_result, color_file_name_fine, depth_file_name_fine, color_file_name_coarse, depth_file_name_coarse)
             
             # save rendered depth as a pointcloud
             if epoch % self.args.save_point_cloud_frequency == 0:
                 print("Saving .ply for view {}".format(image_index))
                 depth_view_file_name = os.path.join(self.depth_view_out_dir, str(out_file_suffix).zfill(4) + '_depth_view_{}.png'.format(epoch))
                 pose = self.models['pose'](0)[image_index].to(device=self.device)
-                depth_img = render_result['rendered_depth'].reshape(self.H, self.W).to(device=self.device)
+                if self.args.n_depth_sampling_optimizations > 1: 
+                    depth_img = render_result['rendered_depth_fine'].reshape(self.H, self.W).to(device=self.device)
+                    #rgb_img = render_result['rendered_image_fine'].reshape(self.H, self.W, 3).to(device=self.device)
+                else:
+                    depth_img = render_result['rendered_depth_coarse'].reshape(self.H, self.W).to(device=self.device)
+                    #rgb_img = render_result['rendered_image_coarse'].reshape(self.H, self.W, 3).to(device=self.device)
 
-                rgb_img = render_result['rendered_image'].reshape(self.H, self.W, 3).to(device=self.device)
-                self.get_point_cloud(pose=pose, depth=depth_img, rgb=rgb_img, pixel_directions=self.pixel_directions[image_index], label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir)               
+                rgb = this_image_rgbd[:, :3]
+                ground_truth_image = torch.zeros(self.H * self.W, 3).cpu()
+                mask = torch.zeros(self.H, self.W)        
+                
+                pixel_rows = self.pixel_rows[pixel_indices]
+                pixel_cols = self.pixel_cols[pixel_indices]        
+                mask[pixel_rows, pixel_cols] = 1
+                mask = mask.flatten()
+                
+                ground_truth_image[torch.argwhere(mask==1).squeeze()] = rgb.cpu()   
+                ground_truth_image = ground_truth_image.reshape(self.H, self.W, 3)
+                
+                self.get_point_cloud(pose=pose, depth=depth_img, rgb=ground_truth_image, pixel_directions=self.pixel_directions[image_index], label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir)               
 
             # save graphs of nerf density weights visualization
             if epoch % self.args.save_depth_weights_frequency == 0:               
@@ -1489,15 +1584,42 @@ class SceneModel:
                 for pixel_index in range(start_pixel, start_pixel+640):                    
                     out_path = Path("{}/{}/".format(self.depth_weights_out_dir, epoch))
                     out_path.mkdir(parents=True, exist_ok=True)
-                    sensor_depth = this_image_rgbd[pixel_index, 3]
-                    predicted_depth = depth[pixel_index]
-                    raycast_distances = np.array([x for x in torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).numpy()])                                                    
-                    weights = nerf_weights.squeeze(0)[pixel_index]
+                    sensor_depth = this_image_rgbd[pixel_index, 3]                    
+
+                    #raycast_distances = np.array([x for x in torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast).numpy()])                                                                                            
+                    if self.args.n_depth_sampling_optimizations > 1:                    
+                        weights_fine = nerf_weights_fine.squeeze(0)[pixel_index]                                        
+                        densities_fine = density_fine.squeeze(0)[pixel_index]  
+                        predicted_depth = depth_fine[pixel_index]
                     
-                    plt.figure()                    
-                    plt.plot(raycast_distances, weights)                    
-                    plt.scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
-                    plt.scatter([predicted_depth.item()], [0], s=20, marker='o', c='blue')
+                    densities_coarse = density_coarse.squeeze(0)[pixel_index]  
+                    weights_coarse = nerf_weights_coarse.squeeze(0)[pixel_index]                   
+                    predicted_depth = depth_coarse[pixel_index]
+
+                    fig, axs = plt.subplots(2,2)
+                          
+                    if self.args.n_depth_sampling_optimizations > 1:
+                        axs[1,0].scatter(sampled_depths_fine[pixel_index], weights_fine, s=1, marker='o', c='green')                    
+                        axs[1,0].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                        axs[1,0].scatter([predicted_depth.item()], [0], s=5, marker='o', c='blue')
+                                        
+                    axs[0,0].scatter(sampled_depths_coarse[pixel_index], weights_coarse, s=1, marker='o', c='green')                    
+                    axs[0,0].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                    axs[0,0].scatter([predicted_depth.item()], [0], s=5, marker='o', c='blue')                    
+
+                    if self.args.n_depth_sampling_optimizations > 1:
+                                            
+                        axs[1,1].scatter(sampled_depths_fine[pixel_index], densities_fine, s=1, marker='o', c='green')                    
+                        axs[1,1].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                        axs[1,1].scatter([predicted_depth.item()], [0], s=5, marker='o', c='blue')
+
+                    predicted_depth = depth_coarse[pixel_index]                    
+                    axs[0,1].scatter(sampled_depths_coarse[pixel_index], densities_coarse, s=1, marker='o', c='green')                    
+                    axs[0,1].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                    axs[0,1].scatter([predicted_depth.item()], [0], s=5, marker='o', c='blue')                    
+
+
+
                     out_file_suffix = str(image_index)
                     depth_weights_file_name = os.path.join(out_path, str(out_file_suffix).zfill(4) + '_depth_weights_e{}_p{}.png'.format(epoch, pixel_index))                                
                     plt.savefig(depth_weights_file_name)
@@ -1524,10 +1646,10 @@ class SceneModel:
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'
         self.args.skip_every_n_images_for_training = 60    
-        self.args.load_pretrained_models = True
-        self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/1665498920_depth_loss_0.0075_to_0.0_k9_N1_NeRF_Density_LR_0.001_to_0.0001_k4_N1_pose_LR_0.0001_to_1e-05_k9_N1'
-        self.args.start_epoch = 420001
-        self.args.number_of_epochs = 800001
+        self.args.load_pretrained_models = False
+        self.args.pretrained_models_directory = ''
+        self.args.start_epoch = 0
+        self.args.number_of_epochs = 1000000
 
         self.args.start_training_extrinsics_epoch = 500        
         self.args.start_training_intrinsics_epoch = 5000        
@@ -1567,10 +1689,10 @@ class SceneModel:
         self.args.directional_encoding_fourier_frequencies = 8
         self.args.positional_encoding = 'mip'
 
-        self.args.maximum_depth = 10.0 # prev 5.0
+        self.args.maximum_depth = 5.0 # prev 5.0
         self.args.epsilon = 0.0000001
         self.args.depth_sensor_error = 0.5
-        self.args.min_confidence = 2.0
+        self.args.min_confidence = 0.0
         self.args.use_sparse_rendering_for_test_renders = False
 
         ### test images
@@ -1582,37 +1704,39 @@ class SceneModel:
         self.args.export_test_data_for_testing = False
         self.args.save_ply_point_clouds_of_sensor_data = False
         self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses = False        
-        self.args.save_point_cloud_frequency = 20000
-        self.args.save_depth_weights_frequency = 20000
+        self.args.save_point_cloud_frequency = 200000000
+        self.args.save_depth_weights_frequency = 5000
         self.args.log_frequency = 1
         self.args.save_models_frequency = 20000
 
         ### GPU parameters
-        self.args.pixel_samples_per_epoch = 500
+        self.args.pixel_samples_per_epoch = 1500
         self.args.number_of_pixels_per_batch_in_test_renders = 128
-        self.args.number_of_samples_outward_per_raycast = 512
+        self.args.number_of_samples_outward_per_raycast = 128
 
 
     def load_saved_args_test(self):
 
         self.load_saved_args_train()
         self.args.load_pretrained_models = True
-        self.args.pretrained_models_directory = './models/dragon_scale_1'
-        self.args.entropy_loss_tuning_start_epoch = 500000000
-        self.args.entropy_loss_tuning_end_epoch = 5010010000
-        self.args.number_of_samples_outward_per_raycast = 1024
-        self.args.number_of_pixels_per_batch_in_test_renders = 100
-        self.args.pixel_samples_per_epoch = 200
+        self.args.n_depth_sampling_optimizations = 1
+        self.args.pretrained_models_directory = './models/dragon_scale_2'
+        self.args.entropy_loss_tuning_start_epoch = 780000
+        self.args.entropy_loss_tuning_end_epoch = 820000
+        self.args.number_of_samples_outward_per_raycast = 100000
+        self.args.number_of_pixels_per_batch_in_test_renders = 50
+        self.args.pixel_samples_per_epoch = 50
         self.args.test_frequency = 1
-        self.args.save_depth_weights_frequency = 10000000
-        self.args.save_point_cloud_frequency = 1
-        self.args.start_epoch = 500001
-        self.args.number_of_epochs = 1
-        self.args.save_models_frequency = 100000
-        self.args.number_of_test_images = 40
+        self.args.save_depth_weights_frequency = 5000
+        self.args.save_point_cloud_frequency = 5000
+        self.args.start_epoch = 780000
+        self.args.number_of_epochs = 40000
+        self.args.save_models_frequency = 5000
+        self.args.number_of_test_images = 1
         self.args.skip_every_n_images_for_testing = 2
         self.args.use_sparse_rendering_for_test_renders = False
         self.args.positional_encoding = 'mip'        
+        
 
 
 if __name__ == '__main__':
@@ -1621,11 +1745,11 @@ if __name__ == '__main__':
     with torch.no_grad():
         scene = SceneModel(args=parse_args(), load_saved_args=True)
 
-    while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:
-        
-        #with torch.no_grad():
-        #    scene.test()        
-        #quit()
+    while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:    
+
+        with torch.no_grad():
+            scene.test()
+            quit()
 
         batch = scene.sample_next_batch()        
         #with torch.autograd.detect_anomaly():

@@ -1,5 +1,5 @@
 import torch
-from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
+from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle, axis_angle_to_matrix, euler_angles_to_matrix
 from scipy.spatial.transform import Rotation
 from torchsummary import summary
 import cv2
@@ -80,7 +80,7 @@ def translate_pose_in_global_space(scene_model, pose, d_x, d_y, d_z):
     camera_rotation_matrix = pose[:3,:3]
     translation = torch.FloatTensor([d_x,d_y,d_z])
 
-    new_pose = torch.zeros((4,4))
+    new_pose = torch.clone(pose)
     new_pose[:3,:3] = pose[:3,:3]
     new_pose[:3,3] = pose[:3,3] + translation
     new_pose[3,3] = 1.0
@@ -108,67 +108,141 @@ def construct_pose(scene_model, pitch, yaw, roll, x, y, z):
 
     return pose        
 
+"""
+    def generate_spin_poses(scene_model, number_of_poses):
+
+        #pose = scene_model.models['pose'](0)[0]
+        initial_pose = scene_model.initial_poses[0]
+        
+        camera_xyz = initial_pose[:3, 3]
+        #focal_length = torch.FloatTensor(527.1)
+
+        # modify the first pose to obtain a good start position for the video
+        pose = scene_model.models['pose']()[0]
+        initial_pose_axis_angles = matrix_to_axis_angle(pose[:3,:3])
+        initial_pitch = initial_pose_axis_angles[0]
+        initial_yaw = initial_pose_axis_angles[1]
+        initial_roll = initial_pose_axis_angles[2] 
+        #d_pitch = 1.0 * (-np.pi/2 - initial_pitch + 3.0 * np.pi / 50 + 1.1*np.pi/30)
+        d_pitch = np.pi/2
+        d_yaw = 0.0
+        d_roll = -1.0 * np.pi/10
+        d_x = -0.15 #0.05 * 2  # + is move right, - is move left
+        d_y = 0.05 * 13 # + is move down, - is move up
+        d_z = -0.6 # + is move forward, - is move back        
+        rotation = torch.FloatTensor([d_pitch, d_yaw, d_roll])        
+        translation = torch.FloatTensor([d_x, d_y, d_z])
+        pose = rotate_pose_in_camera_space(scene_model, pose, rotation[0], rotation[1], rotation[2])        
+        pose = translate_pose_in_camera_space(scene_model, pose, translation[0], translation[1], translation[2])        
+        
+
+        # get the xyz coordinates of the center pixel of the (pre-modified) initial image
+        pixel_indices_for_this_image = torch.argwhere(scene_model.image_ids_per_pixel == 0)
+        pixel_rows = scene_model.pixel_rows[pixel_indices_for_this_image]
+        pixel_cols = scene_model.pixel_cols[pixel_indices_for_this_image]
+        rgbd = scene_model.rgbd[torch.squeeze(pixel_indices_for_this_image)].to(scene_model.device)  # (N_pixels, 4)
+
+        sensor_depth = rgbd[:,3].to(scene_model.device) # (N_pixels) 
+        center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
+        center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]        
+        center_pixel_distance = sensor_depth[int(len(sensor_depth) / 2)]     
+
+        camera_rotation_matrix = scene_model.models['pose'](0)[0][:3,:3] 
+        ray_dir_world = torch.matmul(camera_rotation_matrix.view(1, 1, 3, 3), scene_model.pixel_directions.unsqueeze(4)).squeeze(4)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
+        ray_dir_for_pixel = ray_dir_world[center_pixel_row, center_pixel_col, :] # (3) orientation for this pixel from the camera        
+
+        camera_xyz = scene_model.models['pose'](0)[0][:3,3]
+        pixel_xyz = camera_xyz + ray_dir_for_pixel * center_pixel_distance 
+        center_pixel_xyz = pixel_xyz[0]
+        center_pixel_xyz[0] = center_pixel_xyz[0] + -0.05
+        center_pixel_xyz[2] = center_pixel_xyz[0] - 0.15
+
+        pose[1,3] = center_pixel_xyz[1]
+
+        poses = [pose]
+        pose_debug = []
+        next_cam_pose = np.zeros((4,4))
+        next_cam_pose = pose[:4,:4]
+
+        for i in range(0, number_of_poses):
+                        
+            x = next_cam_pose[0,3]
+            y = next_cam_pose[2,3]
+
+            # convert to polar coordinates with center_pixel_xyz as origin
+            r = math.dist([pose[0,3],pose[1,3],pose[2,3]], [center_pixel_xyz[0], center_pixel_xyz[1], center_pixel_xyz[2]])                  
+            #print(math.dist([x,next_cam_pose[1,3],y], [center_pixel_xyz[0], center_pixel_xyz[1], center_pixel_xyz[2]]) )
+            theta = torch.atan2(torch.FloatTensor([y - center_pixel_xyz[2]]),torch.FloatTensor([x - center_pixel_xyz[0]]))       
+            #print(theta)     
+
+            # rotate
+            theta = theta + 2.0*np.pi/number_of_poses
+
+            # convert back to cartesian coordinates
+            xp = r * math.cos(theta) + center_pixel_xyz[0]
+            yp = r * math.sin(theta) + center_pixel_xyz[2]
+
+            # translate then rotate
+            next_cam_pose = translate_pose_in_global_space(scene_model, next_cam_pose, (xp - x), 0.0, (yp - y))
+            next_cam_pose = rotate_pose_in_camera_space(scene_model, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)            
+
+            pose_debug.append([next_cam_pose[0,3], next_cam_pose[2,3], next_cam_pose[1,3]])                        
+            poses.append(next_cam_pose)            
+
+        #fig = plt.figure()
+        #ax = fig.add_subplot(projection='3d')
+        #center_pixel_xyz = center_pixel_xyz.cpu()
+        #ax.scatter([x[0] for x in pose_debug], [x[1] for x in pose_debug], [x[2] for x in pose_debug])
+        #ax.scatter([center_pixel_xyz[0]], [center_pixel_xyz[2]], [center_pixel_xyz[1]], marker='o')
+        #plt.show()
+
+        poses = torch.stack(poses, 0)
+        poses = convert3x4_4x4(poses).to(scene_model.device)
+
+        return poses
+"""
 def generate_spin_poses(scene_model, number_of_poses):
 
-    #pose = scene_model.models['pose'](0)[0]
-    initial_pose = scene_model.initial_poses[0]
+    # bottom of pot: y=-0.34
+    # top of pot: y=-0.26
+    # center of pot: x=(-0.0057 + 0.059) / 2
+    # center of pot: z=(-0.212 + -0.267) / 2
+    center_x = (-0.0057 + 0.059) / 2
+    center_y = -0.26
+    center_z = (-0.212 + -0.267) / 2
+    center_pixel_xyz = torch.tensor([center_x, center_y, center_z])
+
+    #cam_translation_vector = torch.Tensor([ -0.303215, * 0.263422, 0.244923])
+    #cam_rot_matrix = torch.Tensor([[-0.0014843, -0.000560626, -0.999999], [-0.00157991, 0.999999, -0.000558281], [0.999998, 0.00157908, -0.00148517]])
+    #cam_pose = torch.zeros(4,4)
+    #cam_pose[:3,:3] = cam_rot_matrix
+    #cam_pose[:3,3] = cam_translation_vector
+
+    initial_pose = scene_model.models['pose']()[0].cpu()
+    cam_x = initial_pose[0,3]
+    cam_y = initial_pose[1,3]
+    cam_z = initial_pose[2,3]
+
+    next_cam_pose = torch.clone(initial_pose)
+    euler_angles = matrix_to_euler_angles(next_cam_pose[:3,:3], "XYZ")       
+    euler_angles[2] = 0.0
+    initial_pitch = euler_angles[0]
+        
+    next_cam_pose[:3,:3] = euler_angles_to_matrix(euler_angles, "XYZ")
+
+    new_pose = torch.clone(next_cam_pose)  
+    poses = [new_pose]
+    pose_debug = []        
     
-    camera_xyz = initial_pose[:3, 3]
-    
-    # modify the first pose to obtain a good start position for the video
-    pose = scene_model.models['pose'](0)[0]
-    initial_pose_axis_angles = matrix_to_axis_angle(pose[:3,:3])
-    initial_pitch = initial_pose_axis_angles[0]
-    initial_yaw = initial_pose_axis_angles[1]
-    initial_roll = initial_pose_axis_angles[2] 
-    #d_pitch = 1.0 * (-np.pi/2 - initial_pitch + 3.0 * np.pi / 50 + 1.1*np.pi/30)
-    d_pitch = np.pi/2
-    d_yaw = 0.0
-    d_roll = -1.0 * np.pi/10
-    d_x = -0.15 #0.05 * 2  # + is move right, - is move left
-    d_y = 0.05 * 13 # + is move down, - is move up
-    d_z = -0.6 # + is move forward, - is move back        
-    rotation = torch.FloatTensor([d_pitch, d_yaw, d_roll])        
-    translation = torch.FloatTensor([d_x, d_y, d_z])
-    pose = rotate_pose_in_camera_space(scene_model, pose, rotation[0], rotation[1], rotation[2])        
-    pose = translate_pose_in_camera_space(scene_model, pose, translation[0], translation[1], translation[2])        
-    
-
-    # get the xyz coordinates of the center pixel of the (pre-modified) initial image
-    pixel_indices_for_this_image = torch.argwhere(scene_model.image_ids_per_pixel == 0)
-    pixel_rows = scene_model.pixel_rows[pixel_indices_for_this_image]
-    pixel_cols = scene_model.pixel_cols[pixel_indices_for_this_image]
-    rgbd = scene_model.rgbd[torch.squeeze(pixel_indices_for_this_image)].to(scene_model.device)  # (N_pixels, 4)
-
-    sensor_depth = rgbd[:,3].to(scene_model.device) # (N_pixels) 
-    center_pixel_row = pixel_rows[int(len(sensor_depth) / 2)]
-    center_pixel_col = pixel_cols[int(len(sensor_depth) / 2)]        
-    center_pixel_distance = sensor_depth[int(len(sensor_depth) / 2)]     
-
-    camera_rotation_matrix = scene_model.models['pose'](0)[0][:3,:3] 
-    ray_dir_world = torch.matmul(camera_rotation_matrix.view(1, 1, 3, 3), scene_model.pixel_directions.unsqueeze(3)).squeeze(3)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
-    ray_dir_for_pixel = ray_dir_world[center_pixel_row, center_pixel_col, :] # (3) orientation for this pixel from the camera        
-
-    camera_xyz = scene_model.models['pose'](0)[0][:3,3]
-    pixel_xyz = camera_xyz + ray_dir_for_pixel * center_pixel_distance 
-    center_pixel_xyz = pixel_xyz[0]
-    center_pixel_xyz[0] = center_pixel_xyz[0] + -0.05
-    center_pixel_xyz[2] = center_pixel_xyz[0] - 0.15
-
-    pose[1,3] = center_pixel_xyz[1]
-
-    poses = [pose]
-    pose_debug = []
-    next_cam_pose = np.zeros((4,4))
-    next_cam_pose = pose[:4,:4]
-
     for i in range(0, number_of_poses):
-                    
+                
         x = next_cam_pose[0,3]
         y = next_cam_pose[2,3]
 
         # convert to polar coordinates with center_pixel_xyz as origin
-        r = math.dist([pose[0,3],pose[1,3],pose[2,3]], [center_pixel_xyz[0], center_pixel_xyz[1], center_pixel_xyz[2]])                  
+        d = math.dist([cam_x,cam_y,cam_z], [center_pixel_xyz[0], center_pixel_xyz[1], center_pixel_xyz[2]])                  
+        h = cam_y - center_y
+        r = math.sqrt(d**2 - h**2)
         #print(math.dist([x,next_cam_pose[1,3],y], [center_pixel_xyz[0], center_pixel_xyz[1], center_pixel_xyz[2]]) )
         theta = torch.atan2(torch.FloatTensor([y - center_pixel_xyz[2]]),torch.FloatTensor([x - center_pixel_xyz[0]]))       
         #print(theta)     
@@ -180,12 +254,41 @@ def generate_spin_poses(scene_model, number_of_poses):
         xp = r * math.cos(theta) + center_pixel_xyz[0]
         yp = r * math.sin(theta) + center_pixel_xyz[2]
 
-        # translate then rotate
+        # translate then rotate        
         next_cam_pose = translate_pose_in_global_space(scene_model, next_cam_pose, (xp - x), 0.0, (yp - y))
-        next_cam_pose = rotate_pose_in_camera_space(scene_model, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)            
 
-        pose_debug.append([next_cam_pose[0,3], next_cam_pose[2,3], next_cam_pose[1,3]])                        
-        poses.append(next_cam_pose)            
+        # compute view direction
+        #view_direction = torch.nn.functional.normalize(next_cam_pose[:3,3] - center_pixel_xyz)
+        #axis_angle_x = torch.acos(view_direction[0] / d)
+        #axis_angle_y = torch.acos(view_direction[1] / d)
+        #axis_angle_z = torch.acos(view_direction[2] / d)        
+        #view_direction = torch.tensor([axis_angle_x, axis_angle_y, axis_angle_z])
+        #view_direction_world = torch.matmul(next_cam_pose[:3,:3].view(1, 1, 3, 3), view_direction)  # (1, 1, 3, 3) * (H, W, 3, 1) -> (H, W, 3)    
+
+        #view_direction = torch.nn.functional.normalize(view_direction, p=2, dim=0)
+        #next_cam_pose[:3,:3] = axis_angle_to_matrix(view_direction_world)
+
+        #next_cam_pose = rotate_pose_in_camera_space(scene_model, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)                    
+        
+        " pitch, yaw, roll "
+        next_cam_pose = rotate_pose_in_camera_space(scene_model, next_cam_pose, np.pi - initial_pitch, 0.0, 0.0)
+        next_cam_pose = rotate_pose_in_camera_space(scene_model, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)                    
+        next_cam_pose = rotate_pose_in_camera_space(scene_model, next_cam_pose, -(np.pi - initial_pitch), 0.0, 0.0)
+
+
+        #euler_angles = matrix_to_euler_angles(next_cam_pose[:3,:3], "XYZ")        
+        #euler_angles[0] = euler_angles[0]
+        #euler_angles[1] = euler_angles[1] + (2.0 * np.pi) / number_of_poses
+        #euler_angles[2] = 0.0
+
+
+
+        #next_cam_pose[:3,:3] = euler_angles_to_matrix(euler_angles, "XYZ")
+        
+        new_pose = torch.clone(next_cam_pose)        
+        pose_debug.append([new_pose[0,3], new_pose[2,3], new_pose[1,3]])                        
+        poses.append(new_pose)         
+
 
     #fig = plt.figure()
     #ax = fig.add_subplot(projection='3d')
@@ -193,11 +296,14 @@ def generate_spin_poses(scene_model, number_of_poses):
     #ax.scatter([x[0] for x in pose_debug], [x[1] for x in pose_debug], [x[2] for x in pose_debug])
     #ax.scatter([center_pixel_xyz[0]], [center_pixel_xyz[2]], [center_pixel_xyz[1]], marker='o')
     #plt.show()
-
-    poses = torch.stack(poses, 0)
+    
+    poses = torch.stack(poses, 0)    
     poses = convert3x4_4x4(poses).to(scene_model.device)
 
     return poses
+
+
+
 
 
 def generate_zoom_poses(scene_model, pose, center_pixel_distance, center_pixel_row, center_pixel_col, sphere_angle, number_of_poses):
@@ -245,14 +351,14 @@ def imgs_to_video():
     cimgs = []
     dimgs = []
     for i in range(0, 121):
-        fname1 = 'data/temp2/spin_video/color/color_{}.png'.format(i)
-        fname2 = 'data/temp2/spin_video/depth/depth_{}.png'.format(i)
+        fname1 = 'data/temp3/spin_video/color/color_{}.png'.format(i)
+        fname2 = 'data/temp3/spin_video/depth/depth_{}.png'.format(i)
         cimg = Image.open(fname1)
         dimg = Image.open(fname2)
         cimgs.append(cimg)
         dimgs.append(dimg)
-    imageio.mimwrite('color.mp4', cimgs, fps=15, quality=9)        
-    imageio.mimwrite('depth.mp4', dimgs, fps=15, quality=9)        
+    imageio.mimwrite('data/temp3/spin_video/color.mp4', cimgs, fps=15, quality=9)        
+    imageio.mimwrite('data/temp3/spin_video/depth.mp4', dimgs, fps=15, quality=9)        
 
 def create_spin_video(scene_model, number_of_poses, output_dir):
 
@@ -265,8 +371,11 @@ def create_video_from_poses(scene_model, poses, output_dir):
     color_images = []
     depth_images = []
 
+    focal_length_x, focal_length_y = scene.models["focal"](0)
+    scene_model.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
+
     for i,pose in enumerate(poses):
-        render_result = scene_model.render_prediction(pose)
+        render_result = scene_model.render_prediction(pose=pose, train_image_index=0)
         color_out_file_name = '{}/color/color_{}.png'.format(output_dir,i).zfill(4)
         depth_out_file_name = '{}/depth/depth_{}.png'.format(output_dir,i).zfill(4)        
         scene_model.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
@@ -284,12 +393,15 @@ def create_video_from_poses(scene_model, poses, output_dir):
 
 
 def render_all_training_images(scene_model):
+
     
+    focal_length_x, focal_length_y = scene.models["focal"](0)
+    scene_model.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
 
     for image_id in range(0, 157):
         print("rendering image {}".format(image_id))
-        color_out_file_name = 'data/temp2/color/color_{}.png'.format(image_id).zfill(4)
-        depth_out_file_name = 'data/temp2/depth/depth_{}.png'.format(image_id).zfill(4)
+        color_out_file_name = 'data/temp3/color/color_{}.png'.format(image_id).zfill(4)
+        depth_out_file_name = 'data/temp3/depth/depth_{}.png'.format(image_id).zfill(4)
         render_result = scene_model.render_prediction_for_train_image(image_id)
         scene_model.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
         #rendered_rgb = render_result['rendered_image'].reshape(scene_model.H, scene_model.W, 3)
@@ -389,9 +501,11 @@ if __name__ == '__main__':
     with torch.no_grad():
         #scene.test()
         #density_visualization(scene)
-        #create_spin_video(scene, 120, 'data/temp2/spin_video')
-        #imgs_to_video()
-        render_all_training_images(scene)
+        print("creating spin video images")
+        #create_spin_video(scene, 120, 'data/temp3/spin_video')
+        print("converting iamges to video")
+        imgs_to_video()
+        #render_all_training_images(scene)
 
 
 

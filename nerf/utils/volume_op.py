@@ -51,7 +51,7 @@ def volume_rendering(rgb, density, depths):
     # 1. compute the distances among first (N-1) samples
     # 2. the distance between the LAST sample and infinite far is 1e10
     dists = depths[:, 1:] - depths[:, :-1]  # (N_pixels, N_sample-1)
-    dist_far = torch.empty(size=(N_pixels, 1), dtype=torch.float32, device=dists.device).fill_(1e10)  # (H, W, 1)
+    dist_far = torch.empty(size=(N_pixels, 1), dtype=torch.float32, device=dists.device).fill_(1e7)  # (H, W, 1)
     dists = torch.cat([dists, dist_far], dim=1)  # (N_pixels, N_sample)
 
     alpha = 1 - torch.exp(-1.0 * density * dists)  # (N_pixels, N_sample)
