@@ -899,11 +899,10 @@ class SceneModel:
         # Add in a constant (the sampling function will renormalize the PDF).
         weights = weights_blur + resample_padding
 
-        if self.args.positional_encoding == 'mip':
-            number_of_samples = self.args.number_of_samples_outward_per_raycast + 1
+        number_of_samples = self.args.number_of_fine_samples
         
-        raycast_distances = torch.linspace(self.near, self.far, self.args.number_of_samples_outward_per_raycast+1).to(self.device)
-        raycast_distances = raycast_distances.unsqueeze(0).expand(number_of_pixels, self.args.number_of_samples_outward_per_raycast+1)
+        raycast_distances = torch.linspace(self.near, self.far, number_of_samples).to(self.device)
+        raycast_distances = raycast_distances.unsqueeze(0).expand(number_of_pixels, self.args.number_of_fine_samples)
 
         weight_based_depth_samples = self.resample_from_weights_probability_distribution(bins=raycast_distances.to(self.device), weights=weights.to(self.device), use_sparse_fine_rendering=use_sparse_fine_rendering)
     
@@ -915,9 +914,8 @@ class SceneModel:
 
     def resample_from_weights_probability_distribution(self, bins, weights, use_sparse_fine_rendering=False):
         # start off by inferring how many pixels we're computing for
-        if self.args.positional_encoding == 'mip':
-            number_of_samples = self.args.number_of_samples_outward_per_raycast + 1
-
+        
+        number_of_samples = self.args.number_of_fine_samples
 
         number_of_pixels = weights.shape[0]
         number_of_weights = weights.shape[1]
@@ -948,7 +946,7 @@ class SceneModel:
             samples = samples + sample_offsets_from_max_with_zero
             samples = torch.sort(samples, dim=1)[0]                        
 
-            return samples                    
+            return samples                            
 
         # prevent NaNs
         weights = weights + 1e-9
@@ -1397,8 +1395,7 @@ class SceneModel:
         sensor_depth = rgbd[:,3].to(self.device) # (N_pixels) 
         sensor_depth_per_sample = sensor_depth.unsqueeze(1).expand(-1, self.args.number_of_samples_outward_per_raycast) # (N_pixels, N_samples) 
 
-        number_of_pixels = self.args.pixel_samples_per_epoch
-        number_of_raycast_samples = self.args.number_of_samples_outward_per_raycast
+        n_pixels = self.args.pixel_samples_per_epoch        
 
         # get confidence data for each pixel, which can be used to weight the depth loss
         selected_confidences = self.confidence_per_pixel[indices_of_random_pixels].to(self.device)
@@ -1440,30 +1437,32 @@ class SceneModel:
             # get the depth samples per pixel
             if depth_sampling_optimization == 0:
                 # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space
-                depth_samples = self.sample_depths_linearly(number_of_pixels=number_of_pixels, add_noise=True) # (N_pixels, N_samples)
+                depth_samples = self.sample_depths_linearly(number_of_pixels=n_pixels, add_noise=True) # (N_pixels, N_samples)
             else:
                 # if this is not the first iteration, then resample with the latest weights
-                depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=number_of_pixels, weights=nerf_depth_weights)  # (N_pixels, N_samples)
+                depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=n_pixels, weights=nerf_depth_weights)  # (N_pixels, N_samples)
             
+            n_samples = depth_samples.size()[1]
+
             # render an image using selected rays, pose, sample intervals, and the network
             render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, perturb_depths=False, rgb_image=rgb, pixel_focal_lengths_x=selected_focal_lengths_x)  # (N_pixels, 3)
 
             rgb_rendered = render_result['rgb_rendered']         # (N_pixels, 3)
             nerf_depth_weights = render_result['depth_weights']  # (N_pixels, N_samples)
             nerf_depth = render_result['depth_map']              # (N_pixels) NeRF depth (weights x distances) for every pixel
-            nerf_sample_bin_lengths_1 = render_result['distances'] # (N_pixels, N_samples)
+            nerf_sample_bin_lengths_in = render_result['distances'] # (N_pixels, N_samples)
 
-            nerf_sample_bin_lengths = nerf_sample_bin_lengths_1.clone().detach()
             # fix the last bin length to extend depth range only to far bound
             total_depth_range = self.far - self.near
-            missing_bin_lengths =  total_depth_range - torch.sum(nerf_sample_bin_lengths[:,  : -1], dim=1)
-            nerf_sample_bin_lengths[:, self.args.number_of_samples_outward_per_raycast-1] = missing_bin_lengths
-
+            missing_bin_lengths =  total_depth_range - torch.sum(nerf_sample_bin_lengths_in[:,  : -1], dim=1)                                    
+            nerf_sample_bin_lengths = torch.zeros(n_pixels, n_samples-1).to(self.device)            
+            nerf_sample_bin_lengths[:, : n_samples - 2] = nerf_sample_bin_lengths_in[:, : n_samples - 2]
+            nerf_sample_bin_lengths[:, n_samples - 2] = missing_bin_lengths
+                        
             nerf_depth_weights = nerf_depth_weights + self.args.epsilon
-
             sensor_variance = self.args.depth_sensor_error                        
 
-            kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples[:, :self.args.number_of_samples_outward_per_raycast] * 1000 - sensor_depth_per_sample * 1000) ** 2 / (2 * sensor_variance)) * nerf_sample_bin_lengths * 1000                                
+            kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples[:, : n_samples - 1] * 1000 - sensor_depth_per_sample[:, : n_samples - 1] * 1000) ** 2 / (2 * sensor_variance)) * nerf_sample_bin_lengths * 1000                                
             confidence_weighted_kl_divergence_pixels = confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
             depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
             depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
@@ -1481,7 +1480,7 @@ class SceneModel:
 
             with torch.no_grad():
                 # get a metric in Euclidian space that we can output via prints for human review/intuition; not actually used in backpropagation
-                interpretable_depth_loss = confidence_loss_weights * torch.sum(nerf_depth_weights * torch.sqrt((depth_samples[:, : self.args.number_of_samples_outward_per_raycast] * 1000 - sensor_depth_per_sample * 1000) ** 2), dim=1)
+                interpretable_depth_loss = confidence_loss_weights * torch.sum(nerf_depth_weights * torch.sqrt((depth_samples[:, : n_samples-1] * 1000 - sensor_depth_per_sample[:, : n_samples -1 ] * 1000) ** 2), dim=1)
                 interpretable_depth_loss_per_confident_pixel = torch.sum(interpretable_depth_loss) / number_of_pixels_with_confident_depths
 
                 # get a metric in (0-255) (R,G,B) space that we can output via prints for human review/intuition; not actually used in backpropagation
@@ -1507,16 +1506,6 @@ class SceneModel:
                 coarse_depth_loss = depth_loss
                 coarse_interpretable_rgb_loss_per_pixel = interpretable_rgb_loss_per_pixel
                 coarse_interpretable_depth_loss_per_confident_pixel = interpretable_depth_loss_per_confident_pixel
-
-                
-                """
-                    if coarse_depth_loss > 1000:
-                                        
-                        for nerf_weight, sensor_depth, nerf_sample_bin_length, depth_sample, kl_divegence_bin in zip (nerf_depth_weights[141], sensor_depth_per_sample[141], nerf_sample_bin_lengths[141], depth_samples[141], kl_divergence_bins[141]):
-                            print ("nerf_weight: {}, sensor_depth: {}, bin_length: {}, depth: {}, kl_divegence_bin: {}".format(nerf_weight, sensor_depth, nerf_sample_bin_length, depth_sample, kl_divegence_bin))                        
-                """
-
-                    
 
             else:
                 depth_loss = 0
