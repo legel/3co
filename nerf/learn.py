@@ -1878,7 +1878,7 @@ class SceneModel:
         self.args.export_test_data_for_testing = False
         self.args.save_ply_point_clouds_of_sensor_data = False
         self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses = False        
-        self.args.save_point_cloud_frequency = 200000000
+        self.args.save_point_cloud_frequency = 5000
         self.args.save_depth_weights_frequency = 5000
         self.args.log_frequency = 1
         self.args.save_models_frequency = 20000
