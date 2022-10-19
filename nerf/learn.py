@@ -873,11 +873,9 @@ class SceneModel:
     ############ Helper functions for model usage and training ##############
     #########################################################################
 
-    def sample_depths_linearly(self, number_of_pixels, sensor_depth=None, add_noise=True, mip=False):        
-        if self.args.positional_encoding == 'mip':
-            number_of_samples = self.args.number_of_samples_outward_per_raycast + 1
-        elif self.args.positional_encoding == 'nerf':
-            number_of_samples = self.args.number_of_samples_outward_per_raycast
+    def sample_depths_linearly(self, number_of_pixels, add_noise=True):
+        
+        number_of_samples = self.args.number_of_samples_outward_per_raycast + 1
 
         raycast_distances = torch.linspace(self.near, self.far, number_of_samples).to(self.device)
         raycast_distances = raycast_distances.unsqueeze(0).expand(number_of_pixels, number_of_samples)
@@ -890,7 +888,7 @@ class SceneModel:
         return raycast_distances
 
 
-    def resample_depths_from_nerf_weights(self, number_of_pixels, weights, resample_padding = 0.01, use_sparse_fine_rendering=False):
+    def resample_depths_from_nerf_weights(self, number_of_pixels, weights, depth_samples, resample_padding = 0.01, use_sparse_fine_rendering=False):
         double_edged_weights = [weights[..., :1], weights, weights[..., -1:]]
         weights_pad = torch.cat(double_edged_weights, dim=-1)
         weights_max = torch.maximum(weights_pad[..., :-1], weights_pad[..., 1:])
@@ -898,12 +896,7 @@ class SceneModel:
 
         # Add in a constant (the sampling function will renormalize the PDF).
         weights = weights_blur + resample_padding
-
-        number_of_samples = self.args.number_of_fine_samples
-        
-        raycast_distances = torch.linspace(self.near, self.far, number_of_samples).to(self.device)
-        raycast_distances = raycast_distances.unsqueeze(0).expand(number_of_pixels, self.args.number_of_fine_samples)
-
+        raycast_distances = depth_samples
         weight_based_depth_samples = self.resample_from_weights_probability_distribution(bins=raycast_distances.to(self.device), weights=weights.to(self.device), use_sparse_fine_rendering=use_sparse_fine_rendering)
     
         # equivalent of the official TensorFlow/JAX stop_gradient, to prevent exploding gradients
@@ -912,10 +905,12 @@ class SceneModel:
         return weight_based_depth_samples
 
 
+    # bins: all of the depth samples [N, pixels, number_of_samples_outward_per_raycast+1]
+    # weights: [N_pixels, number_of_samples_outward_per_raycast]
     def resample_from_weights_probability_distribution(self, bins, weights, use_sparse_fine_rendering=False):
         # start off by inferring how many pixels we're computing for
         
-        number_of_samples = self.args.number_of_fine_samples
+        number_of_samples = self.args.number_of_samples_outward_per_raycast
 
         number_of_pixels = weights.shape[0]
         number_of_weights = weights.shape[1]
@@ -935,8 +930,8 @@ class SceneModel:
                         
             bin_length = 1.5 * (self.far-self.near) / number_of_samples                                  
             
-            samples = max_depths.unsqueeze(1).expand(number_of_pixels, self.args.number_of_fine_samples)
-            sample_offsets_from_max = bin_length * torch.rand(number_of_pixels, self.args.number_of_fine_samples-1, device=self.device, dtype=torch.float32)  # (N_pixels, N_samples)
+            samples = max_depths.unsqueeze(1).expand(number_of_pixels, number_of_samples)
+            sample_offsets_from_max = bin_length * torch.rand(number_of_pixels, number_of_samples-1, device=self.device, dtype=torch.float32)  # (N_pixels, N_samples)
 
             sample_offsets_from_max = sample_offsets_from_max - (bin_length) / 2.0            
 
@@ -946,8 +941,8 @@ class SceneModel:
             samples = samples + sample_offsets_from_max_with_zero
             samples = torch.sort(samples, dim=1)[0]                        
 
-            return samples                            
-
+            return samples                                    
+        
         # prevent NaNs
         weights = weights + 1e-9
   
@@ -984,8 +979,8 @@ class SceneModel:
 
         filtered_probability_ranges = torch.where(probability_ranges < 1e-5, torch.ones_like(probability_ranges), probability_ranges)
         sample_distances = (uniform_samples - weighted_cdf[..., 0]) / filtered_probability_ranges
-        samples = weighted_bins[..., 0] + sample_distances * (weighted_bins[..., 1] - weighted_bins[..., 0])
-        
+        samples = weighted_bins[..., 0] + sample_distances * (weighted_bins[..., 1] - weighted_bins[..., 0])                
+
         return samples.to(self.device)
 
 
@@ -1083,12 +1078,7 @@ class SceneModel:
         pixel_xyz_positions, pixel_directions_world, resampled_depths = volume_sampling(poses=poses, pixel_directions=pixel_directions, sampling_depths=sampling_depths, perturb_depths=perturb_depths)
         pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)
         
-        if self.args.positional_encoding == 'mip':                
-            xyz_position_encoding = encode_ipe(poses[:, :3, 3], pixel_xyz_positions, pixel_directions_world, sampling_depths, pixel_focal_lengths_x, self.principal_point_x, self.principal_point_y)            
-        elif self.args.positional_encoding == 'nerf':
-            # encode position: (H, W, N_sample, (2L+1)*C = 63)
-            xyz_position_encoding = encode_position(pixel_xyz_positions, levels=self.args.positional_encoding_fourier_frequencies)        
-        
+        xyz_position_encoding = encode_ipe(poses[:, :3, 3], pixel_xyz_positions, pixel_directions_world, sampling_depths, pixel_focal_lengths_x, self.principal_point_x, self.principal_point_y)                            
         xyz_position_encoding = xyz_position_encoding.to(self.device)
                             
         # encode direction: (H, W, N_sample, (2L+1)*C = 27)        
@@ -1196,7 +1186,7 @@ class SceneModel:
             pixel_xyz_positions_batches = []
 
         number_of_coarse_samples = self.args.number_of_samples_outward_per_raycast + 1
-        number_of_fine_samples = self.args.number_of_fine_samples
+        number_of_fine_samples = self.args.number_of_samples_outward_per_raycast
 
         # for each batch, compute the render and extract out RGB and depth map                  
         for poses_batch, pixel_directions_batch, focal_lengths_x_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_x_batches):
@@ -1205,19 +1195,20 @@ class SceneModel:
             for depth_sampling_optimization in range(self.args.n_depth_sampling_optimizations):
                 # get the depth samples per pixel
                 if depth_sampling_optimization == 0:
-                    # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space
-                    
-                    depth_samples = self.sample_depths_linearly(number_of_pixels=poses_batch.size()[0], add_noise=False) # (N_pixels, N_samples)                   
-                    resampled_depths_coarse_batches.append(depth_samples[..., : number_of_coarse_samples].cpu())
-                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples, perturb_depths=False, use_sparse_rendering=use_sparse_rendering, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
+                    # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
+                    depth_samples_coarse = self.sample_depths_linearly(number_of_pixels=poses_batch.size()[0], add_noise=False) # (N_pixels, N_samples)                   
+                    resampled_depths_coarse_batches.append(depth_samples_coarse[..., : number_of_coarse_samples].cpu())
+                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, use_sparse_rendering=use_sparse_rendering, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
                 else:
                     # if this is not the first iteration, then resample with the latest weights                                        
-                    depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], use_sparse_fine_rendering=self.args.use_sparse_fine_rendering_for_test_renders)  # (N_pixels, N_samples)            
-                    resampled_depths_fine_batches.append(depth_samples[..., : number_of_fine_samples].cpu())
-                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples, perturb_depths=False, use_sparse_rendering=use_sparse_rendering, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
+                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering_for_test_renders)  # (N_pixels, N_samples)            
+                    resampled_depths_fine_batches.append(depth_samples_fine[..., : number_of_fine_samples].cpu())
+                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, use_sparse_rendering=use_sparse_rendering, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
+                    
                     if self.args.use_sparse_fine_rendering_for_test_renders:
-                        depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], use_sparse_fine_rendering=False)  # (N_pixels, N_samples)            
-                        unsparse_rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples, perturb_depths=False, use_sparse_rendering=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)                        
+                        # point cloud filtering needs both the sparsely rendered data the "unsparsely" (normal) rendered data
+                        depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=False)  # (N_pixels, N_samples)            
+                        unsparse_rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, use_sparse_rendering=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)                        
 
 
             if self.args.n_depth_sampling_optimizations > 1:
@@ -1440,7 +1431,7 @@ class SceneModel:
                 depth_samples = self.sample_depths_linearly(number_of_pixels=n_pixels, add_noise=True) # (N_pixels, N_samples)
             else:
                 # if this is not the first iteration, then resample with the latest weights
-                depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=n_pixels, weights=nerf_depth_weights)  # (N_pixels, N_samples)
+                depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=n_pixels, weights=nerf_depth_weights, depth_samples=depth_samples)  # (N_pixels, N_samples)
             
             n_samples = depth_samples.size()[1]
 
@@ -1451,14 +1442,16 @@ class SceneModel:
             nerf_depth_weights = render_result['depth_weights']  # (N_pixels, N_samples)
             nerf_depth = render_result['depth_map']              # (N_pixels) NeRF depth (weights x distances) for every pixel
             nerf_sample_bin_lengths_in = render_result['distances'] # (N_pixels, N_samples)
+            
+            # fix the last bin length to extend depth range only to far bound            
+            #total_depth_range = self.far - self.near
+            #missing_bin_lengths =  total_depth_range - torch.sum(nerf_sample_bin_lengths_in[:,  : -1], dim=1)                                    
 
-            # fix the last bin length to extend depth range only to far bound
-            total_depth_range = self.far - self.near
-            missing_bin_lengths =  total_depth_range - torch.sum(nerf_sample_bin_lengths_in[:,  : -1], dim=1)                                    
-            nerf_sample_bin_lengths = torch.zeros(n_pixels, n_samples-1).to(self.device)            
-            nerf_sample_bin_lengths[:, : n_samples - 2] = nerf_sample_bin_lengths_in[:, : n_samples - 2]
-            nerf_sample_bin_lengths[:, n_samples - 2] = missing_bin_lengths
-                        
+            nerf_sample_bin_lengths = depth_samples[:, 1:] - depth_samples[:, :-1]
+            #nerf_sample_bin_lengths = torch.zeros(n_pixels, n_samples-1).to(self.device)            
+            #nerf_sample_bin_lengths[:, : n_samples - 2] = nerf_sample_bin_lengths_in[:, : n_samples - 2]
+            #nerf_sample_bin_lengths[:, n_samples - 2] = missing_bin_lengths                                                        
+
             nerf_depth_weights = nerf_depth_weights + self.args.epsilon
             sensor_variance = self.args.depth_sensor_error                        
 
@@ -1508,13 +1501,14 @@ class SceneModel:
                 coarse_interpretable_depth_loss_per_confident_pixel = interpretable_depth_loss_per_confident_pixel
 
             else:
-                depth_loss = 0
+                #depth_loss = 0
                 #entropy_depth_loss = 0
                 #total_weighted_loss += 0.9 * (depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss)
                 total_weighted_loss += 0.9 * ((1 - depth_to_rgb_importance) * rgb_loss)
 
                 fine_rgb_loss = rgb_loss
-                fine_depth_loss = depth_loss
+                #fine_depth_loss = depth_loss
+                fine_depth_loss = 0
                 fine_interpretable_rgb_loss_per_pixel = interpretable_rgb_loss_per_pixel
                 fine_interpretable_depth_loss_per_confident_pixel = interpretable_depth_loss_per_confident_pixel
 
@@ -1877,10 +1871,9 @@ class SceneModel:
         self.args.save_models_frequency = 20000
 
         ### GPU parameters
-        self.args.pixel_samples_per_epoch = 200
-        self.args.number_of_pixels_per_batch_in_test_renders = 50
-        self.args.number_of_samples_outward_per_raycast = 1024
-        self.args.number_of_fine_samples = 1025
+        self.args.pixel_samples_per_epoch = 400
+        self.args.number_of_pixels_per_batch_in_test_renders = 400
+        self.args.number_of_samples_outward_per_raycast = 512
 
         self.args.use_sparse_rendering_for_test_renders = False
         self.args.use_sparse_fine_rendering_for_test_renders = False        
@@ -1897,7 +1890,7 @@ class SceneModel:
         self.args.number_of_samples_outward_per_raycast = 1024
         self.args.number_of_pixels_per_batch_in_test_renders = 50
         self.args.pixel_samples_per_epoch = 200
-        self.args.test_frequency = 5000
+        self.args.test_frequency = 1000
         self.args.save_depth_weights_frequency = 1
         self.args.save_point_cloud_frequency = 1
         self.args.start_epoch = 800001
@@ -1911,8 +1904,6 @@ class SceneModel:
         self.args.use_sparse_rendering_for_test_renders = False
         self.args.use_sparse_fine_rendering_for_test_renders = True
 
-        self.args.number_of_fine_samples = 129
-        #self.args.number_of_fine_samples = 1025
         
 
 
