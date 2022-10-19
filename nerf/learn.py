@@ -355,6 +355,7 @@ class SceneModel:
 
 
     def get_point_cloud(self, pose, depth, rgb, pixel_directions, label=0, save=False, remove_zero_depths=True, save_raw_xyz=False, dir='', entropy_image=None, unsparse_rendered_rgb_img=None, sparse_rendered_rgb_img=None, unsparse_depth=None):        
+
         camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
         camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
         pixel_directions = pixel_directions.unsqueeze(3) # (H, W, 3, 1)
@@ -1685,6 +1686,9 @@ class SceneModel:
                     if self.args.use_sparse_fine_rendering_for_test_renders:
                         unsparse_rendered_rgb_img = render_result['rendered_image_unsparse_fine'].reshape(self.H, self.W, 3).to(device=self.device)
                         unsparse_depth_img = render_result['depth_image_unsparse_fine'].reshape(self.H, self.W).to(device=self.device)
+                    else:
+                        unsparse_rendered_rgb_img = None
+                        unsparse_depth_img = None
                 else:
                     depth_img = render_result['rendered_depth_coarse'].reshape(self.H, self.W).to(device=self.device)
                     rendered_rgb_img = render_result['rendered_image_coarse'].reshape(self.H, self.W, 3).to(device=self.device)
