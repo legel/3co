@@ -267,6 +267,8 @@ class SceneModel:
         near_bound = np.min(resized_depth_meters)
         far_bound = np.max(resized_depth_meters)
 
+        #depth_m[depth_m >= self.args.maximum_depth] = self.args.maximum_depth - 1.0 / self.args.number_of_samples_outward_per_raycast
+
         depth = torch.Tensor(resized_depth_meters).to(device=self.device) # (N_images, H_image, W_image)
 
         return depth, near_bound, far_bound, confidence_data
@@ -1448,7 +1450,13 @@ class SceneModel:
             rgb_rendered = render_result['rgb_rendered']         # (N_pixels, 3)
             nerf_depth_weights = render_result['depth_weights']  # (N_pixels, N_samples)
             nerf_depth = render_result['depth_map']              # (N_pixels) NeRF depth (weights x distances) for every pixel
-            nerf_sample_bin_lengths = render_result['distances'] # (N_pixels, N_samples)
+            nerf_sample_bin_lengths_1 = render_result['distances'] # (N_pixels, N_samples)
+
+            nerf_sample_bin_lengths = nerf_sample_bin_lengths_1.clone().detach()
+            # fix the last bin length to extend depth range only to far bound
+            total_depth_range = self.far - self.near
+            missing_bin_lengths =  total_depth_range - torch.sum(nerf_sample_bin_lengths[:,  : -1], dim=1)
+            nerf_sample_bin_lengths[:, self.args.number_of_samples_outward_per_raycast-1] = missing_bin_lengths
 
             nerf_depth_weights = nerf_depth_weights + self.args.epsilon
 
@@ -1458,6 +1466,7 @@ class SceneModel:
             confidence_weighted_kl_divergence_pixels = confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
             depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
             depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
+            
             
             ##################### entropy loss #######################
             if (self.epoch > self.args.entropy_loss_tuning_start_epoch and self.epoch < self.args.entropy_loss_tuning_end_epoch):
@@ -1497,6 +1506,17 @@ class SceneModel:
                 coarse_depth_loss = depth_loss
                 coarse_interpretable_rgb_loss_per_pixel = interpretable_rgb_loss_per_pixel
                 coarse_interpretable_depth_loss_per_confident_pixel = interpretable_depth_loss_per_confident_pixel
+
+                
+                """
+                    if coarse_depth_loss > 1000:
+                                        
+                        for nerf_weight, sensor_depth, nerf_sample_bin_length, depth_sample, kl_divegence_bin in zip (nerf_depth_weights[141], sensor_depth_per_sample[141], nerf_sample_bin_lengths[141], depth_samples[141], kl_divergence_bins[141]):
+                            print ("nerf_weight: {}, sensor_depth: {}, bin_length: {}, depth: {}, kl_divegence_bin: {}".format(nerf_weight, sensor_depth, nerf_sample_bin_length, depth_sample, kl_divegence_bin))                        
+                """
+
+                    
+
             else:
                 depth_loss = 0
                 #entropy_depth_loss = 0
