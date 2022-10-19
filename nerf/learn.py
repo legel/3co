@@ -1803,7 +1803,7 @@ class SceneModel:
         self.args.skip_every_n_images_for_training = 60    
         self.args.load_pretrained_models = False
         self.args.pretrained_models_directory = ''
-        self.args.start_epoch = 0
+        self.args.start_epoch = 1
         self.args.number_of_epochs = 1000000
 
         self.args.start_training_extrinsics_epoch = 500        
@@ -1854,7 +1854,7 @@ class SceneModel:
         self.args.number_of_test_images = 1    
 
         ### test frequency parameters
-        self.args.test_frequency = 1
+        self.args.test_frequency = 5000
         self.args.export_test_data_for_testing = False
         self.args.save_ply_point_clouds_of_sensor_data = False
         self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses = False        
