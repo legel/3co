@@ -1884,7 +1884,7 @@ class SceneModel:
         self.args.number_of_samples_outward_per_raycast = 1024
         self.args.number_of_pixels_per_batch_in_test_renders = 50
         self.args.pixel_samples_per_epoch = 200
-        self.args.test_frequency = 1
+        self.args.test_frequency = 5000
         self.args.save_depth_weights_frequency = 1
         self.args.save_point_cloud_frequency = 1
         self.args.start_epoch = 800001
