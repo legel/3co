@@ -534,6 +534,10 @@ class SceneModel:
         # bring the data together
         self.xyz = torch.cat(self.xyz_per_view, dim=0).to(device=self.device) # to(device=torch.device('cpu')) # 
 
+        self.pixel_indices_below_max_depth = torch.where(self.rgbd[:,3] < self.args.maximum_depth)[0]
+        print("{:,} pixels of {:,} are below maximum depth of {:.1f} meters; only these pixels will be sampled!".format(self.pixel_indices_below_max_depth.shape[0], self.rgbd[:,3].shape[0], self.args.maximum_depth))
+        self.pixel_indices_below_max_depth = self.pixel_indices_below_max_depth.detach().cpu().numpy().tolist()
+
         self.rgbd = torch.cat(self.rgbd, dim=0)
         self.pixel_rows = torch.cat(self.pixel_rows, dim=0)
         self.pixel_cols = torch.cat(self.pixel_cols, dim=0)
@@ -1113,7 +1117,13 @@ class SceneModel:
     def render_prediction_for_train_image(self, train_image_index, use_sparse_rendering=False):
         mask = torch.zeros(self.H, self.W)        
 
-        pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == train_image_index)        
+        pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == train_image_index)      
+
+        # # overwrite pixel indices for this image based on only those below maximum depth
+        # rgbd_for_this_image = self.rgbd[pixel_indices_for_this_image].to(self.device)
+        # depth_for_this_image = rgbd_for_this_image.squeeze()[:,3]
+        # pixel_indices_for_this_image = torch.where(depth_for_this_image < self.args.maximum_depth)[0]
+
         pixel_rows = self.pixel_rows[pixel_indices_for_this_image]
         pixel_cols = self.pixel_cols[pixel_indices_for_this_image]        
         mask[pixel_rows, pixel_cols] = 1
@@ -1370,6 +1380,9 @@ class SceneModel:
         confidence_loss_weights = torch.where(selected_confidences >= self.args.min_confidence, 1, 0).to(self.device)
         number_of_pixels_with_confident_depths = torch.sum(confidence_loss_weights)
 
+        # don't try to fit sensor depths that are fixed to max value
+        ignore_max_sensor_depths = torch.where(sensor_depth < self.args.maximum_depth, 1, 0).to(self.device)
+
         # initialize our total weighted loss, which will be computed as the weighted sum of coarse and fine losses
         total_weighted_loss = torch.tensor(0.0).to(self.device)
 
@@ -1427,7 +1440,7 @@ class SceneModel:
             #####################| KL Loss |################################
             sensor_variance = self.args.depth_sensor_error
             kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples[:, : n_samples - 1] * 1000 - sensor_depth_per_sample[:, : n_samples - 1] * 1000) ** 2 / (2 * sensor_variance)) * nerf_sample_bin_lengths * 1000                                
-            confidence_weighted_kl_divergence_pixels = confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
+            confidence_weighted_kl_divergence_pixels = ignore_max_sensor_depths * confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
             depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
             depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
             
@@ -1532,7 +1545,7 @@ class SceneModel:
 
 
     def sample_next_batch(self):
-        indices_of_random_pixels_for_this_epoch = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)                    
+        indices_of_random_pixels_for_this_epoch = random.sample(population=self.pixel_indices_below_max_depth, k=self.args.pixel_samples_per_epoch)
         return indices_of_random_pixels_for_this_epoch
 
 
@@ -1811,8 +1824,8 @@ class SceneModel:
         self.args.pose_lr_exponential_index = 9
         self.args.pose_lr_curvature_shape = 1
 
-        self.args.depth_to_rgb_loss_start = 0.0075
-        self.args.depth_to_rgb_loss_end = 0.0
+        self.args.depth_to_rgb_loss_start = 0.001
+        self.args.depth_to_rgb_loss_end = 0.0001
         self.args.depth_to_rgb_loss_exponential_index = 9
         self.args.depth_to_rgb_loss_curvature_shape = 1
 
@@ -1822,9 +1835,9 @@ class SceneModel:
         self.args.directional_encoding_fourier_frequencies = 8
         self.args.positional_encoding = 'mip'
 
-        self.args.maximum_depth = 5.0 # prev 5.0
+        self.args.maximum_depth = 0.75 # prev 5.0
         self.args.epsilon = 0.0000001
-        self.args.depth_sensor_error = 0.5
+        self.args.depth_sensor_error = 0.30
         self.args.min_confidence = 2.0
 
         ### test images
@@ -1842,12 +1855,13 @@ class SceneModel:
         self.args.save_models_frequency = 20000
 
         ### GPU parameters
-        self.args.pixel_samples_per_epoch = 400
-        self.args.number_of_pixels_per_batch_in_test_renders = 400
-        self.args.number_of_samples_outward_per_raycast = 512
 
+        self.args.pixel_samples_per_epoch = 500
+        self.args.number_of_pixels_per_batch_in_test_renders = 400
+        self.args.number_of_samples_outward_per_raycast = 1024
         self.args.use_sparse_rendering_for_test_renders = False
-        self.args.use_sparse_fine_rendering_for_test_renders = False        
+        self.args.use_sparse_fine_rendering_for_test_renders = False       
+        self.args.n_depth_sampling_optimizations = 2 
 
 
     def load_saved_args_test(self):
