@@ -1884,10 +1884,10 @@ class SceneModel:
         self.args.save_models_frequency = 20000
 
         ### GPU parameters
+
         self.args.pixel_samples_per_epoch = 500
         self.args.number_of_pixels_per_batch_in_test_renders = 400
         self.args.number_of_samples_outward_per_raycast = 1024
-
         self.args.use_sparse_rendering_for_test_renders = False
         self.args.use_sparse_fine_rendering_for_test_renders = False       
         self.args.n_depth_sampling_optimizations = 2 
