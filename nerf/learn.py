@@ -358,8 +358,7 @@ class SceneModel:
 
         camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
         camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
-        pixel_directions = pixel_directions.unsqueeze(3) # (H, W, 3, 1)
-        #pixel_directions = self.pixel_directions # (N_images, H, W, 3)
+        pixel_directions = pixel_directions.unsqueeze(3) # (H, W, 3, 1)        
 
         xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth)
         
@@ -370,8 +369,7 @@ class SceneModel:
                 np.save(f, xyz_coordinates.cpu().detach().numpy())
 
 
-        pixel_directions = pixel_directions.squeeze(3)
-        #r = torch.sqrt(torch.sum(  (pixel_directions[120, 160] - pixel_directions[240, 320])**2, dim=0))                                                                
+        pixel_directions = pixel_directions.squeeze(3)        
         r = torch.sqrt(torch.sum(  (pixel_directions[60, 80] - pixel_directions[240, 320])**2, dim=0))                                                                
 
         depth_condition = (depth!=0.0).to(self.device)
@@ -384,8 +382,7 @@ class SceneModel:
         sparse_depth = depth
         unsparse_depth = unsparse_depth
 
-        if self.args.use_sparse_fine_rendering_for_test_renders:
-            #sticker_condition = torch.sqrt(torch.sum( (sparse_rendered_rgb_img - unsparse_rendered_rgb_img)**2, 2 )) < 0.1
+        if self.args.use_sparse_fine_rendering_for_test_renders:            
             sticker_condition = torch.abs(unsparse_depth - sparse_depth) < (self.far-self.near) / ( (self.args.number_of_samples_outward_per_raycast+1) * 4.0)
             joint_condition = torch.logical_and(joint_condition, sticker_condition)
 
@@ -398,27 +395,7 @@ class SceneModel:
         xyz_coordinates = xyz_coordinates[joint_condition_indices]
 
         print("filtered {}/{} points".format(n_filtered_points, self.W*self.H))
-        
-        """
-        if remove_zero_depths:
-            non_zero_depth = torch.where(depth!=0.0)
-            depth = depth[non_zero_depth]
-            pixel_directions = pixel_directions[non_zero_depth]
-            rgb = rgb[non_zero_depth]
-            if entropy_image is not None:
-                entropy_image = entropy_image[non_zero_depth]
 
-            xyz_coordinates = xyz_coordinates[non_zero_depth]
-
-        if entropy_image is not None:
-            low_entropy = torch.where(entropy_image < 1.0)
-            high_entropy = torch.where(entropy_image >= 1.0)                
-            depth = depth[low_entropy]
-            pixel_directions = pixel_directions[low_entropy]
-            rgb = rgb[low_entropy]
-            xyz_coordinates = xyz_coordinates[low_entropy]
-            print("filtered {} points".format(entropy_image[high_entropy].size()[0]))        
-        """
         pcd = self.create_point_cloud(xyz_coordinates, rgb, label="point_cloud_{}".format(label), flatten_xyz=False, flatten_image=False)
         if save:
             file_name = "{}/view_{}_training_data_{}.ply".format(dir, label, self.epoch-1)
@@ -1425,7 +1402,8 @@ class SceneModel:
             # get pixel directions
             pixel_directions_selected = self.pixel_directions[image_ids, pixel_rows, pixel_cols]  # (N_pixels, 3)        
 
-            # get the depth samples per pixel
+
+            #####################| Sampling & Rendering |##################
             if depth_sampling_optimization == 0:
                 # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space
                 depth_samples = self.sample_depths_linearly(number_of_pixels=n_pixels, add_noise=True) # (N_pixels, N_samples)
@@ -1441,27 +1419,20 @@ class SceneModel:
             rgb_rendered = render_result['rgb_rendered']         # (N_pixels, 3)
             nerf_depth_weights = render_result['depth_weights']  # (N_pixels, N_samples)
             nerf_depth = render_result['depth_map']              # (N_pixels) NeRF depth (weights x distances) for every pixel
-            nerf_sample_bin_lengths_in = render_result['distances'] # (N_pixels, N_samples)
-            
-            # fix the last bin length to extend depth range only to far bound            
-            #total_depth_range = self.far - self.near
-            #missing_bin_lengths =  total_depth_range - torch.sum(nerf_sample_bin_lengths_in[:,  : -1], dim=1)                                    
+            nerf_sample_bin_lengths_in = render_result['distances'] # (N_pixels, N_samples)            
 
             nerf_sample_bin_lengths = depth_samples[:, 1:] - depth_samples[:, :-1]
-            #nerf_sample_bin_lengths = torch.zeros(n_pixels, n_samples-1).to(self.device)            
-            #nerf_sample_bin_lengths[:, : n_samples - 2] = nerf_sample_bin_lengths_in[:, : n_samples - 2]
-            #nerf_sample_bin_lengths[:, n_samples - 2] = missing_bin_lengths                                                        
+            nerf_depth_weights = nerf_depth_weights + self.args.epsilon            
 
-            nerf_depth_weights = nerf_depth_weights + self.args.epsilon
-            sensor_variance = self.args.depth_sensor_error                        
-
+            #####################| KL Loss |################################
+            sensor_variance = self.args.depth_sensor_error
             kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples[:, : n_samples - 1] * 1000 - sensor_depth_per_sample[:, : n_samples - 1] * 1000) ** 2 / (2 * sensor_variance)) * nerf_sample_bin_lengths * 1000                                
             confidence_weighted_kl_divergence_pixels = confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
             depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
             depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
             
             
-            ##################### entropy loss #######################
+            #####################| Entropy Loss |###########################
             if (self.epoch > self.args.entropy_loss_tuning_start_epoch and self.epoch < self.args.entropy_loss_tuning_end_epoch):
                 entropy_depth_loss_weight = 0.0075
                 pixels_weights_entropy = -1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1)
@@ -1469,7 +1440,7 @@ class SceneModel:
                 depth_to_rgb_importance = 0.0
             else:
                 entropy_depth_loss = 0.0
-            ###############################################################
+            ################################################################
 
             with torch.no_grad():
                 # get a metric in Euclidian space that we can output via prints for human review/intuition; not actually used in backpropagation
