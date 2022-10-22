@@ -138,7 +138,7 @@ class SceneModel:
 
         if load_saved_args:
             print("loading test args")
-            self.load_saved_args_train()                    
+            self.load_saved_args_test()                    
 
         # initialize high-level arguments        
         self.epoch = self.args.start_epoch
@@ -533,10 +533,6 @@ class SceneModel:
 
         # bring the data together
         self.xyz = torch.cat(self.xyz_per_view, dim=0).to(device=self.device) # to(device=torch.device('cpu')) # 
-
-        self.pixel_indices_below_max_depth = torch.where(self.rgbd[:,3] < self.args.maximum_depth)[0]
-        print("{:,} pixels of {:,} are below maximum depth of {:.1f} meters; only these pixels will be sampled!".format(self.pixel_indices_below_max_depth.shape[0], self.rgbd[:,3].shape[0], self.args.maximum_depth))
-        self.pixel_indices_below_max_depth = self.pixel_indices_below_max_depth.detach().cpu().numpy().tolist()
 
         self.rgbd = torch.cat(self.rgbd, dim=0)
         self.pixel_rows = torch.cat(self.pixel_rows, dim=0)
@@ -1069,8 +1065,6 @@ class SceneModel:
         # inference rgb and density using position and direction encoding.                
         #xyz_position_encoding = xyz_position_encoding.float()        
         xyz_position_encoding = xyz_position_encoding
-
-
         
         density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)        
 
@@ -1117,13 +1111,7 @@ class SceneModel:
     def render_prediction_for_train_image(self, train_image_index, use_sparse_rendering=False):
         mask = torch.zeros(self.H, self.W)        
 
-        pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == train_image_index)      
-
-        # # overwrite pixel indices for this image based on only those below maximum depth
-        # rgbd_for_this_image = self.rgbd[pixel_indices_for_this_image].to(self.device)
-        # depth_for_this_image = rgbd_for_this_image.squeeze()[:,3]
-        # pixel_indices_for_this_image = torch.where(depth_for_this_image < self.args.maximum_depth)[0]
-
+        pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == train_image_index)        
         pixel_rows = self.pixel_rows[pixel_indices_for_this_image]
         pixel_cols = self.pixel_cols[pixel_indices_for_this_image]        
         mask[pixel_rows, pixel_cols] = 1
@@ -1313,7 +1301,7 @@ class SceneModel:
 
 
     # process raw rendered pixel data and save into images
-    def save_render_as_png(self, render_result, color_file_name_fine, depth_file_name_fine, color_file_name_coarse, depth_file_name_coarse):
+    def save_render_as_png(self, render_result, color_file_name_fine, depth_file_name_fine, color_file_name_coarse=None, depth_file_name_coarse=None):
         
         rendered_rgb_coarse = render_result['rendered_image_coarse'].reshape(self.H, self.W, 3)
         rendered_depth_coarse = render_result['rendered_depth_coarse'].reshape(self.H, self.W)                
@@ -1325,11 +1313,12 @@ class SceneModel:
             rendered_color_for_file_fine = (rendered_rgb_fine.cpu().numpy() * 255).astype(np.uint8)    
 
         # get depth map and convert it to Turbo Color Map
-        rendered_depth_data_coarse = rendered_depth_coarse.cpu().numpy() 
-        rendered_depth_for_file_coarse = heatmap_to_pseudo_color(rendered_depth_data_coarse)
-        rendered_depth_for_file_coarse = (rendered_depth_for_file_coarse * 255).astype(np.uint8)        
-        imageio.imwrite(color_file_name_coarse, rendered_color_for_file_coarse)
-        imageio.imwrite(depth_file_name_coarse, rendered_depth_for_file_coarse)                   
+        if color_file_name_coarse is not None:
+            rendered_depth_data_coarse = rendered_depth_coarse.cpu().numpy() 
+            rendered_depth_for_file_coarse = heatmap_to_pseudo_color(rendered_depth_data_coarse)
+            rendered_depth_for_file_coarse = (rendered_depth_for_file_coarse * 255).astype(np.uint8)        
+            imageio.imwrite(color_file_name_coarse, rendered_color_for_file_coarse)
+            imageio.imwrite(depth_file_name_coarse, rendered_depth_for_file_coarse)                   
 
         if self.args.n_depth_sampling_optimizations > 1:
             rendered_depth_data_fine = rendered_depth_fine.cpu().numpy() 
@@ -1379,9 +1368,6 @@ class SceneModel:
         selected_confidences = self.confidence_per_pixel[indices_of_random_pixels].to(self.device)
         confidence_loss_weights = torch.where(selected_confidences >= self.args.min_confidence, 1, 0).to(self.device)
         number_of_pixels_with_confident_depths = torch.sum(confidence_loss_weights)
-
-        # don't try to fit sensor depths that are fixed to max value
-        ignore_max_sensor_depths = torch.where(sensor_depth < self.args.maximum_depth, 1, 0).to(self.device)
 
         # initialize our total weighted loss, which will be computed as the weighted sum of coarse and fine losses
         total_weighted_loss = torch.tensor(0.0).to(self.device)
@@ -1440,7 +1426,7 @@ class SceneModel:
             #####################| KL Loss |################################
             sensor_variance = self.args.depth_sensor_error
             kl_divergence_bins = -1 * torch.log(nerf_depth_weights) * torch.exp(-1 * (depth_samples[:, : n_samples - 1] * 1000 - sensor_depth_per_sample[:, : n_samples - 1] * 1000) ** 2 / (2 * sensor_variance)) * nerf_sample_bin_lengths * 1000                                
-            confidence_weighted_kl_divergence_pixels = ignore_max_sensor_depths * confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
+            confidence_weighted_kl_divergence_pixels = confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
             depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
             depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
             
@@ -1545,7 +1531,7 @@ class SceneModel:
 
 
     def sample_next_batch(self):
-        indices_of_random_pixels_for_this_epoch = random.sample(population=self.pixel_indices_below_max_depth, k=self.args.pixel_samples_per_epoch)
+        indices_of_random_pixels_for_this_epoch = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)                    
         return indices_of_random_pixels_for_this_epoch
 
 
@@ -1787,14 +1773,14 @@ class SceneModel:
 
     def load_saved_args_train(self):
 
-        self.args.base_directory = './data/elastica_burgundy_2'
+        self.args.base_directory = './data/elastica_burgundy_2/'
         #self.args.base_directory = './data/dragon_scale'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'
         self.args.skip_every_n_images_for_training = 60    
-        self.args.load_pretrained_models = False
-        self.args.pretrained_models_directory = ''
-        self.args.start_epoch = 1
+        self.args.load_pretrained_models = True
+        self.args.pretrained_models_directory = './models/elastica_model_12_(IPE360k+resamp)'        
+        self.args.start_epoch = 360001
         self.args.number_of_epochs = 1000000
 
         self.args.start_training_extrinsics_epoch = 500        
@@ -1824,8 +1810,8 @@ class SceneModel:
         self.args.pose_lr_exponential_index = 9
         self.args.pose_lr_curvature_shape = 1
 
-        self.args.depth_to_rgb_loss_start = 0.001
-        self.args.depth_to_rgb_loss_end = 0.0001
+        self.args.depth_to_rgb_loss_start = 0.0075
+        self.args.depth_to_rgb_loss_end = 0.0
         self.args.depth_to_rgb_loss_exponential_index = 9
         self.args.depth_to_rgb_loss_curvature_shape = 1
 
@@ -1835,9 +1821,9 @@ class SceneModel:
         self.args.directional_encoding_fourier_frequencies = 8
         self.args.positional_encoding = 'mip'
 
-        self.args.maximum_depth = 0.75 # prev 5.0
+        self.args.maximum_depth = 5.0 # prev 5.0
         self.args.epsilon = 0.0000001
-        self.args.depth_sensor_error = 0.30
+        self.args.depth_sensor_error = 0.5
         self.args.min_confidence = 2.0
 
         ### test images
@@ -1855,13 +1841,12 @@ class SceneModel:
         self.args.save_models_frequency = 20000
 
         ### GPU parameters
-
-        self.args.pixel_samples_per_epoch = 500
+        self.args.pixel_samples_per_epoch = 400
         self.args.number_of_pixels_per_batch_in_test_renders = 400
-        self.args.number_of_samples_outward_per_raycast = 1024
+        self.args.number_of_samples_outward_per_raycast = 512
+
         self.args.use_sparse_rendering_for_test_renders = False
-        self.args.use_sparse_fine_rendering_for_test_renders = False       
-        self.args.n_depth_sampling_optimizations = 2 
+        self.args.use_sparse_fine_rendering_for_test_renders = False        
 
 
     def load_saved_args_test(self):
@@ -1869,25 +1854,25 @@ class SceneModel:
         self.load_saved_args_train()
         self.args.load_pretrained_models = True
         self.args.n_depth_sampling_optimizations = 2
-        self.args.pretrained_models_directory = './models/dragon_scale_2/entropy_20000_1024'
+        self.args.pretrained_models_directory = './models/elastica_model_12_(IPE360k+resamp)'
         self.args.entropy_loss_tuning_start_epoch = 7800000000
         self.args.entropy_loss_tuning_end_epoch = 8200000000
-        self.args.number_of_samples_outward_per_raycast = 1024
-        self.args.number_of_pixels_per_batch_in_test_renders = 50
+        self.args.number_of_samples_outward_per_raycast = 128
+        self.args.number_of_pixels_per_batch_in_test_renders = 400
         self.args.pixel_samples_per_epoch = 200
         self.args.test_frequency = 1000
         self.args.save_depth_weights_frequency = 1
         self.args.save_point_cloud_frequency = 1
-        self.args.start_epoch = 800001
+        self.args.start_epoch = 480001
         self.args.number_of_epochs = 40000
         self.args.save_models_frequency = 5000
-        self.args.number_of_test_images = 100
+        self.args.number_of_test_images = 1
         self.args.skip_every_n_images_for_testing = 2
         
         self.args.positional_encoding = 'mip'        
 
         self.args.use_sparse_rendering_for_test_renders = False
-        self.args.use_sparse_fine_rendering_for_test_renders = True
+        self.args.use_sparse_fine_rendering_for_test_renders = False
 
         
 
