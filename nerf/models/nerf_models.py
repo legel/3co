@@ -10,9 +10,7 @@ class NeRFDensity(nn.Module):
     def __init__(self, args):
         super(NeRFDensity, self).__init__()
 
-        #pos_in_dims = get_number_of_encoded_dimensions(number_of_fourier_frequencies=args.positional_encoding_fourier_frequencies)
-        #print("pos in dims: {}".format(pos_in_dims))
-        pos_in_dims = 60
+        pos_in_dims = 60  # 10 levels in IPE. TODO: generalize
         D = args.density_neural_network_parameters
 
         self.pos_in_dims = pos_in_dims

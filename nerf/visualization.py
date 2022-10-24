@@ -77,22 +77,36 @@ def generate_spin_poses(scene, number_of_poses):
     # top of pot: y=-0.26
     # center of pot: x=(-0.0057 + 0.059) / 2
     # center of pot: z=(-0.212 + -0.267) / 2
+    # [0.051322 -0.364376 -0.272635]
+    # [0.004562 -0.364395 -0.222432]
 
     # dragon scale
-    #center_x = (-0.0057 + 0.059) / 2
-    #center_y = -0.26
-    #center_z = (-0.212 + -0.267) / 2
-    #center_pixel_xyz = torch.tensor([center_x, center_y, center_z])
+    center_x = (0.051322 + 0.004562) / 2
+    center_y = -0.26
+    center_z = (-0.272635 -0.222432) / 2    
+    initial_pitch = np.pi - np.pi/4.5
+
 
     # elastica
-    center_x = -0.0236
-    center_y = -0.278801
-    center_z = -0.203017        
-    r = 0.4
-    dy = 0.4
+    # center of soil surface: [-0.021638 -0.548057 -0.290823] [689,618]
+    # top of stem
+    #center_x = -0.0236
+    #center_y = -0.278801
+    #center_z = -0.203017            
+    # center of soil surface + stem height
+    #center_x = -0.021638
+    #center_y = -0.278801
+    #center_z = -0.290823
+    # initial_pitch = np.pi - np.pi/3.4  # pointing down minus 30 degrees from horizon
+
+
+
+    r = 0.2
+    dy = 0.2
     dx = 0
     dz = r    
-    initial_pitch = np.pi - np.pi/4.0  # pointing down minus 22.5 degrees from horizon
+
+    
     initial_yaw = 0 # north
     initial_roll = 0 # horizon
     initial_y = center_y + dy
@@ -150,10 +164,10 @@ def generate_spin_poses(scene, number_of_poses):
     return poses
 
 
-def imgs_to_video(video_dir):
+def imgs_to_video(video_dir, n_poses):
     cimgs = []
     dimgs = []
-    for i in range(0, 121):
+    for i in range(0, n_poses):
         fname1 = '{}/color_video/color_{}.png'.format(video_dir, i)
         fname2 = '{}/depth_video/depth_{}.png'.format(video_dir, i)
         cimg = Image.open(fname1)
@@ -187,11 +201,12 @@ def create_video_from_poses(scene, poses, video_dir):
     print('using focal length {}'.format(focal_length_x[0]))
     scene.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
 
-    for i,pose in enumerate(poses):
+    for i,pose in enumerate(poses[62:]):
+        index = i + 62
         print('rendering pose {}'.format(i))
-        render_result = scene.render_prediction(pose=pose, train_image_index=0)
-        color_out_file_name = os.path.join(color_out_dir, "color_{}.png".format(i))                
-        depth_out_file_name = os.path.join(depth_out_dir, "depth_{}.png".format(i))                        
+        render_result = scene.render_prediction(pose=pose, train_image_index=0, max_depth=None)
+        color_out_file_name = os.path.join(color_out_dir, "color_{}.png".format(index))                
+        depth_out_file_name = os.path.join(depth_out_dir, "depth_{}.png".format(index))                        
         
         scene.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
 
@@ -224,16 +239,16 @@ if __name__ == '__main__':
     
     with torch.no_grad():
         scene = SceneModel(args=parse_args(), load_saved_args=True)
-        scene.args.number_of_samples_outward_per_raycast = 512
+        scene.args.number_of_samples_outward_per_raycast = 1024
             
-        data_out_dir = "{}videos".format(scene.args.base_directory)            
+        data_out_dir = "{}/videos".format(scene.args.base_directory)            
         experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                    
         experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
  
         print("creating spin video images")
-        create_spin_video(scene, 120, experiment_dir)
+        #create_spin_video(scene, 120, experiment_dir)
         print("converting images to video")
-        imgs_to_video(experiment_dir)
+        imgs_to_video(experiment_dir, 120)
         #render_all_training_images(scene)
 
 
