@@ -20,8 +20,7 @@ def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=Tru
         near = torch.min(sampling_depths)
         far = torch.max(sampling_depths)
         depth_noise = torch.rand((N_pixels, N_samples), device=poses.device, dtype=torch.float32)  # (N_pixels, N_samples)
-        depth_noise = depth_noise * (far - near) / N_samples # (N_pixels, N_samples)
-        #resampled_depths = sampling_depths.view(1, N_samples) + depth_noise  # (N_pixels, N_samples)
+        depth_noise = depth_noise * (far - near) / N_samples # (N_pixels, N_samples)        
         resampled_depths = sampling_depths.view(1, N_samples) + depth_noise  # (N_pixels, N_samples)
     else:
         resampled_depths = sampling_depths #sampling_depths.view(1, N_samples).expand(N_pixels, N_samples)        
@@ -45,8 +44,8 @@ def volume_rendering(rgb, density, depths):
     N_pixels, N_samples = depths.shape[0], depths.shape[1]
 
     rgb = torch.sigmoid(rgb)
-    density = torch.squeeze(density.relu(), dim=2)  # (N_pixels, N_sample)
-
+    density = torch.squeeze(density.relu(), dim=2)  # (N_pixels, N_sample)    
+    
     # Compute distances between samples.
     # 1. compute the distances among first (N-1) samples
     # 2. the distance between the LAST sample and infinite far is 1e10
@@ -54,7 +53,9 @@ def volume_rendering(rgb, density, depths):
     dist_far = torch.empty(size=(N_pixels, 1), dtype=torch.float32, device=dists.device).fill_(1e10)  # (H, W, 1)
     dists = torch.cat([dists, dist_far], dim=1)  # (N_pixels, N_sample)
 
-    alpha = 1 - torch.exp(-1.0 * density * dists)  # (N_pixels, N_sample)
+    # adding 1e-8 here ensures that weights will always sum to 1
+    alpha = 1 - torch.exp(-1.0 * (density + 1e-8) * dists)  # (N_pixels, N_sample)
+    
 
     # 1. We expand the exp(a+b) to exp(a) * exp(b) for the accumulated transmittance computing.
     # 2. For the space at the boundary far to camera, the alpha is constant 1.0 and the transmittance at the far boundary
@@ -64,11 +65,37 @@ def volume_rendering(rgb, density, depths):
     acc_transmittance = torch.roll(acc_transmittance, shifts=1, dims=1)  # (N_pixels, N_sample)
     acc_transmittance[:, 0] = 1.0  # (N_pixels, N_sample)
 
-    weight = acc_transmittance * alpha  # (N_pixels, N_sample)
-
+    weight = acc_transmittance * alpha  # (N_pixels, N_sample)            
+    
     # (N_pixels, N_sample, 1) * (N_pixels, N_sample, 3) = (N_pixels, N_sample, 3) -> (N_pixels, 3)
     rgb_rendered = torch.sum(weight.unsqueeze(2) * rgb, dim=1)
-    depth_map = torch.sum(weight * depths, dim=1)  # (N_pixels)
+    depth_map = torch.sum(weight * depths, dim=1)  # (N_pixels)  
+
+    
+    """
+    indices = torch.argwhere( torch.sum(weight, dim=1) < (0.5) )
+    if indices.size()[0] > 0:
+        bindex = indices[0]        
+        print("dists:")
+        print(dists[bindex].size())
+        print(dists[bindex])
+        print("depths:")
+        print(depths[bindex].size())
+        print(depths[bindex])
+        print("weight:")
+        print(weight[bindex].size())
+        print(weight[bindex])
+        print("weight sum:")
+        print(torch.sum(weight[bindex].squeeze(0), dim=0).item())
+        print("density:")
+        print(density[bindex].size())
+        print(density[bindex])
+        print("at 127:")
+        print("{:10f}".format(density[bindex, 127].item()))
+        quit()
+    """
+    
+        
 
     result = {
         'rgb_rendered': rgb_rendered,  # (N_pixels, 3)

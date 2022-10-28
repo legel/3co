@@ -168,8 +168,8 @@ def imgs_to_video(video_dir, n_poses):
     cimgs = []
     dimgs = []
     for i in range(0, n_poses):
-        fname1 = '{}/color_video/color_{}.png'.format(video_dir, i)
-        fname2 = '{}/depth_video/depth_{}.png'.format(video_dir, i)
+        fname1 = '{}/color_video_images/color_{}.png'.format(video_dir, i)
+        fname2 = '{}/depth_video_images/depth_{}.png'.format(video_dir, i)
         cimg = Image.open(fname1)
         dimg = Image.open(fname2)
         cimgs.append(cimg)
@@ -178,33 +178,30 @@ def imgs_to_video(video_dir, n_poses):
     imageio.mimwrite('{}/depth.mp4'.format(video_dir), dimgs, fps=15, quality=9)        
     
 
-def create_spin_video(scene, number_of_poses, video_dir):
+def create_spin_video_images(scene, number_of_poses, video_dir):
 
     print("generating spin poses")
     poses = generate_spin_poses(scene, number_of_poses)
-    create_video_from_poses(scene, poses, video_dir)
+    render_poses(scene, poses, video_dir)
 
 
-def create_video_from_poses(scene, poses, video_dir):
+def render_poses(scene, poses, video_dir):
 
-
-    color_out_dir = Path("{}/color_video/".format(experiment_dir))
+    color_out_dir = Path("{}/color_video_images/".format(experiment_dir))
     color_out_dir.mkdir(parents=True, exist_ok=True)
-    depth_out_dir = Path("{}/depth_video/".format(experiment_dir))
+    depth_out_dir = Path("{}/depth_video_images/".format(experiment_dir))
     depth_out_dir.mkdir(parents=True, exist_ok=True)   
-
     color_images = []
     depth_images = []
-
     focal_length_x, focal_length_y = scene.models["focal"](0)
         
     print('using focal length {}'.format(focal_length_x[0]))
     scene.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
 
-    for i,pose in enumerate(poses[62:]):
-        index = i + 62
+    for i,pose in enumerate(poses):
+        index = i
         print('rendering pose {}'.format(i))
-        render_result = scene.render_prediction(pose=pose, train_image_index=0, max_depth=None)
+        render_result = scene.basic_render(pose, scene.pixel_directions[0], focal_length_x[0])
         color_out_file_name = os.path.join(color_out_dir, "color_{}.png".format(index))                
         depth_out_file_name = os.path.join(depth_out_dir, "depth_{}.png".format(index))                        
         
@@ -217,9 +214,6 @@ def create_video_from_poses(scene, poses, video_dir):
         rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)     
         color_images.append(rendered_color_for_file)   
         depth_images.append(rendered_depth_for_file)
-
-    imageio.mimwrite(os.path.join(color_out_dir, 'color.mp4'), color_images, fps=15, quality=9)
-    imageio.mimwrite(os.path.join(depth_out_dir, 'depth.mp4'), depth_images, fps=15, quality=9)
 
 
 def render_all_training_images(scene, images_dir):
@@ -238,19 +232,20 @@ def render_all_training_images(scene, images_dir):
 if __name__ == '__main__':
     
     with torch.no_grad():
-        scene = SceneModel(args=parse_args(), load_saved_args=True)
-        scene.args.number_of_samples_outward_per_raycast = 1024
+        scene = SceneModel(args=parse_args(), experiment_args='test')
+        scene.args.number_of_samples_outward_per_raycast = 128
+        scene.args.use_sparse_fine_rendering = False
             
         data_out_dir = "{}/videos".format(scene.args.base_directory)            
         experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                    
         experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
- 
-        print("creating spin video images")
-        #create_spin_video(scene, 120, experiment_dir)
-        print("converting images to video")
-        imgs_to_video(experiment_dir, 120)
-        #render_all_training_images(scene)
 
+        n_poses = 120
+        print("creating spin video images")        
+        create_spin_video_images(scene, n_poses, experiment_dir)
+        print("converting images to video")        
+        imgs_to_video(experiment_dir, n_poses)
+        print("video output to {}".format(experiment_dir))
 
 
 
