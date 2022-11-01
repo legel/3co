@@ -44,8 +44,9 @@ def parse_args():
     parser.add_argument('--skip_every_n_images_for_training', type=int, default=30, help='When loading all of the training data, ignore every N images')
     parser.add_argument('--save_models_frequency', type=int, default=25000, help='Save model every this number of epochs')
     parser.add_argument('--load_pretrained_models', type=bool, default=False, help='Whether to start training from models loaded with load_pretrained_models()')
-    parser.add_argument('--pretrained_models_directory', type=str, default='./data/dragon_scale/hyperparam_experiments/1662755515_depth_loss_0.00075_to_0.0_k9_N1_NeRF_Density_LR_0.0005_to_0.0001_k4_N1_pose_LR_0.0025_to_1e-05_k9_N1', help='The directory storing models to load')
-
+    parser.add_argument('--pretrained_models_directory', type=str, default='./data/dragon_scale/hyperparam_experiments/1662755515_depth_loss_0.00075_to_0.0_k9_N1_NeRF_Density_LR_0.0005_to_0.0001_k4_N1_pose_LR_0.0025_to_1e-05_k9_N1', help='The directory storing models to load')    
+    parser.add_argument('--reset_learning_rates', type=bool, default=False, help='When loading pretrained models, whether to reset learning rate schedules instead of resuming them')
+    
     # Define number of epochs, and timing by epoch for when to start training per network
     parser.add_argument('--start_epoch', default=0, type=int, help='Epoch on which to begin or resume training')
     parser.add_argument('--number_of_epochs', default=200001, type=int, help='Number of epochs for training, used in learning rate schedules')    
@@ -53,6 +54,8 @@ def parse_args():
     parser.add_argument('--start_training_intrinsics_epoch', type=int, default=5000, help='Set to epoch number >= 0 to init focals using estimates from iOS, and start refining them from this epoch.')
     parser.add_argument('--start_training_color_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
     parser.add_argument('--start_training_geometry_epoch', type=int, default=0, help='Set to a epoch number >= 0 to start learning RGB NeRF on top of density NeRF.')
+    parser.add_argument('--entropy_loss_weight', type=float, default=0.005, help='The weight used for entropy loss.')
+
 
     # Define evaluation/logging/saving frequency and parameters
     parser.add_argument('--test_frequency', default=100, type=int, help='Frequency of epochs to render an evaluation image')    
@@ -115,6 +118,9 @@ def parse_args():
 
     # Depth sampling optimizations
     parser.add_argument('--n_depth_sampling_optimizations', type=int, default=2, help='For every epoch, for every set of pixels, do this many renders to find the best depth sampling distances')
+    parser.add_argument('--coarse_weight', type=float, default=0.1, help='Weight between [0,1] for coarse loss')
+    
+    
 
     parsed_args = parser.parse_args()
 
@@ -186,16 +192,24 @@ class SceneModel:
 
     def load_args(self, experiment_args = None):        
         if experiment_args == 'train': 
+            print('\n------------------------------------------------------')
             print('------------------- Using train args -----------------')                       
+            print('------------------------------------------------------')
             self.load_saved_args_train()
         elif experiment_args == 'test':
+            print('\n------------------------------------------------------')
             print('------------------- Using test args ------------------')                       
+            print('------------------------------------------------------')
             self.load_saved_args_test()            
-        elif experiment_args == 'entropy_tuning':            
+        elif experiment_args == 'entropy-tuning':            
+            print('\n------------------------------------------------------')
             print('-------------- Using entropy-tuning args -------------')
+            print('------------------------------------------------------')
             self.load_saved_args_entropy_tuning()
         else:
+            print('\n------------------------------------------------------')
             print('--------- No args provided: using default args -------')
+            print('------------------------------------------------------')
 
     def prepare_test_data(self):
         self.test_image_indices = range(0, self.args.number_of_test_images * self.args.skip_every_n_images_for_testing, self.args.skip_every_n_images_for_testing)
@@ -775,17 +789,18 @@ class SceneModel:
             model = self.models[model_name]                        
             weights = ckpt['model_state_dict']
             model.load_state_dict(weights, strict=True)            
-
-            # load optimizer parameters
-            optimizer = self.optimizers[model_name]
-            state = ckpt['optimizer_state_dict']
-            optimizer.load_state_dict(state)            
-
-            # scheduler already has reference to optimizer but needs n_steps (epocs)
-            scheduler = self.schedulers[model_name]      
-            scheduler.n_steps = ckpt['epoch'] 
-            #scheduler.n_steps = self.args.start_epoch
+            
+            if self.args.reset_learning_rates == False:
+                # load optimizer parameters
+                optimizer = self.optimizers[model_name]
+                state = ckpt['optimizer_state_dict']
+                optimizer.load_state_dict(state)            
                 
+                # scheduler already has reference to optimizer but needs n_steps (epocs)
+                scheduler = self.schedulers[model_name]      
+                scheduler.n_steps = ckpt['epoch']
+            
+
 
     def save_models(self):
         for topic in ["color", "geometry", "pose", "focal"]:
@@ -887,11 +902,11 @@ class SceneModel:
         cumulative_distribution_function = torch.cumsum(probability_distribution_function, dim=1).to(self.device)
 
         # add zeros of same shape as number of pixels to start of the cumulative distribution function
-        cumulative_distribution_function = torch.cat([torch.zeros(number_of_pixels,1).to(device=self.device), cumulative_distribution_function], dim=1) 
+        cumulative_distribution_function = torch.cat([torch.zeros(number_of_pixels,1).to(device=self.device), cumulative_distribution_function], dim=1)
 
         # now, we prepare to sample from the probability distribution of the weights, uniformly
         uniform_samples = torch.linspace(0, 1, number_of_samples).to(device=self.device)
-        uniform_samples = uniform_samples.unsqueeze(0).expand(number_of_pixels, number_of_samples)
+        uniform_samples = uniform_samples.unsqueeze(0).expand(number_of_pixels, number_of_samples).contiguous()
 
         # we collect from our cumulative distribution function a set of indices corresponding to the CDF
         indices_of_samples_in_cdf = torch.searchsorted(sorted_sequence=cumulative_distribution_function, input=uniform_samples, side="right")
@@ -1464,16 +1479,14 @@ class SceneModel:
             confidence_weighted_kl_divergence_pixels = ignore_max_sensor_depths * confidence_loss_weights * torch.sum(kl_divergence_bins, 1) # (N_pixels)
             depth_loss = torch.sum(confidence_weighted_kl_divergence_pixels) / number_of_pixels_with_confident_depths
             depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
+
             
             #####################| Entropy Loss |###########################
-            if (self.epoch > self.args.entropy_loss_tuning_start_epoch and self.epoch < self.args.entropy_loss_tuning_end_epoch):
-                #entropy_depth_loss_weight = 0.0075
-                entropy_depth_loss_weight = 0.01
-                pixels_weights_entropy = -1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1)
-                entropy_depth_loss = entropy_depth_loss_weight * torch.mean(pixels_weights_entropy)                
-                depth_to_rgb_importance = 0.0                
-            else:
-                entropy_depth_loss = 0.0
+            entropy_depth_loss = 0.0
+            mean_entropy = torch.mean(-1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1))
+            if (self.epoch >= self.args.entropy_loss_tuning_start_epoch and self.epoch <= self.args.entropy_loss_tuning_end_epoch):                                                
+                entropy_depth_loss = self.args.entropy_loss_weight * mean_entropy
+                depth_to_rgb_importance = 0.0                                            
             ################################################################
 
             with torch.no_grad():
@@ -1498,7 +1511,7 @@ class SceneModel:
 
             # following official mip-NeRF, if this is the coarse render, we only give 0.1 weight to the total loss contribution; if it is a fine, then 0.9
             if depth_sampling_optimization == 0:
-                total_weighted_loss = 0.1 * (depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss)
+                total_weighted_loss = self.args.coarse_weight * (depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss)
 
                 coarse_rgb_loss = rgb_loss
                 coarse_depth_loss = depth_loss
@@ -1510,7 +1523,7 @@ class SceneModel:
                 #depth_loss = 0
                 #entropy_depth_loss = 0
                 #total_weighted_loss += 0.9 * (depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss)
-                total_weighted_loss += 0.9 * ((1 - depth_to_rgb_importance) * rgb_loss)
+                total_weighted_loss += (1.0 - self.args.coarse_weight)* ((1 - depth_to_rgb_importance) * rgb_loss)
 
                 fine_rgb_loss = rgb_loss
                 #fine_depth_loss = depth_loss
@@ -1547,7 +1560,7 @@ class SceneModel:
 
         self.log_learning_rates()
 
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: C: {:.6f} ({:.3f}/255) | F: {:.6f} ({:.3f}/255), DEPTH: C: {:.6f} ({:.2f}mm) | F: {:.6f} ({:.2f}mm) w/ imp. {:.5f}, Entropy: {:.6f}".format(self.epoch, 
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: C: {:.6f} ({:.3f}/255) | F: {:.6f} ({:.3f}/255), DEPTH: C: {:.6f} ({:.2f}mm) | F: {:.6f} ({:.2f}mm) w/ imp. {:.5f}, Entropy: {:.6f} (loss: {:.6f})".format(self.epoch, 
             minutes_into_experiment, 
             total_weighted_loss,
             (1 - depth_to_rgb_importance) * coarse_rgb_loss, 
@@ -1559,6 +1572,7 @@ class SceneModel:
             depth_to_rgb_importance * fine_depth_loss, 
             fine_interpretable_depth_loss_per_confident_pixel,            
             depth_to_rgb_importance,
+            mean_entropy,
             entropy_depth_loss
         ))
         
@@ -1620,7 +1634,7 @@ class SceneModel:
 
     def log_learning_rates(self):
         for topic in ["color", "geometry", "pose", "focal"]:
-            lr = self.schedulers[topic].polynomial_decay()
+            lr = self.schedulers[topic].polynomial_decay()            
             if topic in self.learning_rate_histories:
                 self.learning_rate_histories[topic].append(lr)
             else:
@@ -1722,8 +1736,8 @@ class SceneModel:
             if epoch % self.args.save_depth_weights_frequency == 0 and epoch != 0:               
                 print("Creating depth weight graph for view {}".format(image_index))
                 Path("{}/depth_weights_visualization/{}/image_{}/".format(self.experiment_dir, epoch, image_index)).mkdir(parents=True, exist_ok=True)
-                #view_row = 160
-                view_row = 240+10
+                view_row = 155
+                #view_row = 240+10
                 pixel_rows = self.pixel_rows[pixel_indices]
                 pixel_cols = self.pixel_cols[pixel_indices]                
 
@@ -1758,8 +1772,7 @@ class SceneModel:
                     weights_fine = nerf_weights_fine.squeeze(0)[pixel_index]
                     predicted_depth_coarse = depth_coarse[pixel_index]
                     coarse_weights_entropy = -1 * torch.sum( (weights_coarse+self.args.epsilon) * torch.log(weights_coarse + self.args.epsilon), dim=0)
-                    fig, axs = plt.subplots(3,2)
-                    offset = 0.02
+                    fig, axs = plt.subplots(3,2)                    
 
                     avg_fine_sample_depth = torch.mean(sampled_depths_fine[pixel_index, : sampled_depths_fine.size()[1]-1])
                     if self.args.n_depth_sampling_optimizations > 1:
@@ -1811,16 +1824,18 @@ class SceneModel:
             # save graphs of learning rate histories
             for topic in ["color", "geometry", "pose", "focal"]:                                            
                 lrs = self.learning_rate_histories[topic]
-                plt.figure()
-                plt.plot([x for x in range(len(lrs))], lrs)
-                plt.ylim(0.0, 0.001)
-                plt.savefig('{}/{}.png'.format(self.learning_rates_out_dir, topic))
-                plt.close()
+                if len(lrs) > 0:
+                    plt.figure()
+                    plt.plot([x for x in range(len(lrs))], lrs)
+                    plt.ylim(0.0, max(lrs)*1.1)
+                    plt.savefig('{}/{}.png'.format(self.learning_rates_out_dir, topic))
+                    plt.close()
 
         if self.args.export_test_data_for_post_processing:
             print("System exiting after exporting geometry data")
             sys.exit(0)   
 
+        torch.cuda.empty_cache()
 
     def load_saved_args_train(self):
 
@@ -1829,7 +1844,7 @@ class SceneModel:
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
-        self.args.pretrained_models_directory = './models/dragon_scale_4_(max_depth_0.75)'        
+        self.args.pretrained_models_directory = './models/dragon_scale_4_(max_depth_0.75)'          
         self.args.start_epoch = 1
         self.args.number_of_epochs = 400000
 
@@ -1863,8 +1878,8 @@ class SceneModel:
 
         #self.args.depth_to_rgb_loss_start = 0.0075
         self.args.depth_to_rgb_loss_start = 0.01
-        #self.args.depth_to_rgb_loss_end = 0.0
-        self.args.depth_to_rgb_loss_end = 0.0001
+        self.args.depth_to_rgb_loss_end = 0.0
+        #self.args.depth_to_rgb_loss_end = 0.0001
 
         self.args.depth_to_rgb_loss_exponential_index = 9
         self.args.depth_to_rgb_loss_curvature_shape = 1
@@ -1880,7 +1895,7 @@ class SceneModel:
         self.args.min_confidence = 2.0
 
         ### test images
-        self.args.skip_every_n_images_for_testing = 30
+        self.args.skip_every_n_images_for_testing = 60
         self.args.number_of_test_images = 1    
 
         ### test frequency parameters
@@ -1891,7 +1906,7 @@ class SceneModel:
         self.args.save_point_cloud_frequency = 50000000000
         self.args.save_depth_weights_frequency = 5000
         self.args.log_frequency = 1
-        self.args.save_models_frequency = 20000
+        self.args.save_models_frequency = 100
 
         ### GPU parameters
         self.args.pixel_samples_per_epoch = 1500
@@ -1903,48 +1918,65 @@ class SceneModel:
 
 
     def load_saved_args_test(self):        
-        self.load_saved_args_train()
+        self.load_saved_args_train()        
         self.args.load_pretrained_models = True
         self.args.n_depth_sampling_optimizations = 2
 
         self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/maxdepth1.0_128x128raysamp_v3_[200k]'
+        self.args.reset_learning_rates = True # start and end indices of learning rate schedules become {0, number_of_epochs}
+                
         self.args.start_epoch = 200001
+        self.args.number_of_epochs = 1
+
+        self.args.save_models_frequency = 999999999
+        self.args.number_of_test_images = 100
+        self.args.skip_every_n_images_for_training = 30
+        self.args.skip_every_n_images_for_testing = 2
+        self.args.maximum_depth = 1.0
+
+        self.args.number_of_samples_outward_per_raycast = 512
+        self.args.number_of_pixels_per_batch_in_test_renders = 375
+        self.args.pixel_samples_per_epoch = 1500
+        self.args.test_frequency = 1
+        self.args.save_depth_weights_frequency = 1000000000
+        self.args.save_point_cloud_frequency = 1
+
+        self.args.use_sparse_fine_rendering = True
         
+
+    def load_saved_args_entropy_tuning(self):        
+        self.load_saved_args_train()        
+        self.args.load_pretrained_models = True
+        self.args.n_depth_sampling_optimizations = 2
+
+        self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/maxdepth1.0_128x128raysamp_v3_[200k]'
+        self.args.reset_learning_rates = True # start and end indices of learning rate schedules become {0, number_of_epochs}
+        
+        self.args.pose_lr_start = 0.00001
+        self.args.focal_lr_start = 0.00001
+        self.args.nerf_density_lr_start = 0.001
+        self.args.nerf_color_lr_start = 0.001
+        self.args.coarse_weight = 0.1
+
+        self.args.start_epoch = 200001
+        self.args.number_of_epochs = 400000
+
+        self.args.entropy_loss_tuning_start_epoch = 200001
+        self.args.entropy_loss_tuning_end_epoch = 240001
+        self.args.entropy_loss_weight = 0.01
+
         self.args.number_of_samples_outward_per_raycast = 256
         self.args.number_of_pixels_per_batch_in_test_renders = 1500
         self.args.pixel_samples_per_epoch = 1500
-        self.args.test_frequency = 1
-        self.args.save_depth_weights_frequency = 1000000
-        self.args.save_point_cloud_frequency = 1
-        
-        self.args.number_of_epochs = 1000
-        self.args.save_models_frequency = 100
-        self.args.number_of_test_images = 150
-        self.args.skip_every_n_images_for_testing = 3
-        self.args.maximum_depth = 1.0
-
-        self.args.use_sparse_fine_rendering = True
-
-    def load_saved_args_entropy_tuning(self):        
-        self.load_saved_args_train()
-        self.args.load_pretrained_models = True
-        self.args.n_depth_sampling_optimizations = 2
-        self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/maxdepth1.0_128x128raysamp_v3_[200k]'
-        #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/1666642188_depth_loss_0.01_to_0.0001_k9_N1_NeRF_Density_LR_0.001_to_2.5e-05_k4_N1_pose_LR_0.0001_to_2.5e-06_k9_N1'
-        self.args.entropy_loss_tuning_start_epoch = 200001
-        self.args.entropy_loss_tuning_end_epoch = 240001
-        self.args.number_of_samples_outward_per_raycast = 128
-        self.args.number_of_pixels_per_batch_in_test_renders = 1500
-        self.args.pixel_samples_per_epoch = 1500
         self.args.test_frequency = 1000
-        self.args.save_depth_weights_frequency = 1000
-        self.args.save_point_cloud_frequency = 1000
-        self.args.start_epoch = 200001
-        self.args.number_of_epochs = 40000
+        self.args.save_depth_weights_frequency = 5000
+        self.args.save_point_cloud_frequency = 5000
+                
         self.args.save_models_frequency = 1000
-        self.args.number_of_test_images = 1
-        self.args.skip_every_n_images_for_testing = 3
-        self.args.maximum_depth = 1.0
+        self.args.number_of_test_images = 2
+        self.args.skip_every_n_images_for_training = 30
+        self.args.skip_every_n_images_for_testing = 152
+        self.args.maximum_depth = 2.0
         
         self.args.use_sparse_fine_rendering = False        
 
@@ -1953,14 +1985,14 @@ if __name__ == '__main__':
     # Load a scene object with all data and parameters
 
     with torch.no_grad():
-        scene = SceneModel(args=parse_args(), experiment_args='entropy_tuning')
+        scene = SceneModel(args=parse_args(), experiment_args='test')
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:    
 
-
-        #with torch.no_grad():                
-        #    scene.test()
-        #    quit()
+        if scene.epoch == scene.args.start_epoch:
+            with torch.no_grad():                
+                scene.test()
+                quit()
 
         batch = scene.sample_next_batch()        
         #with torch.autograd.detect_anomaly():

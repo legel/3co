@@ -85,6 +85,10 @@ def generate_spin_poses(scene, number_of_poses):
     center_y = -0.26
     center_z = (-0.272635 -0.222432) / 2    
     initial_pitch = np.pi - np.pi/4.5
+    r = 0.2
+    dy = 0.2
+    dx = 0
+    dz = r  
 
     # elastica
     # center of soil surface: [-0.021638 -0.548057 -0.290823] [689,618]
@@ -96,12 +100,11 @@ def generate_spin_poses(scene, number_of_poses):
     #center_x = -0.021638
     #center_y = -0.278801
     #center_z = -0.290823
-    # initial_pitch = np.pi - np.pi/3.4  # pointing down minus 30 degrees from horizon
-
-    r = 0.2
-    dy = 0.2
-    dx = 0
-    dz = r    
+    #initial_pitch = np.pi - np.pi/3.4  # pointing down minus 30 degrees from horizon
+    #r = 0.33
+    #dy = 0.22
+    #dx = 0
+    #dz = r    
     
     initial_yaw = 0 # north
     initial_roll = 0 # horizon
@@ -215,12 +218,25 @@ def render_on_background(scene, rgb, depth, pose, pixel_directions):
     rgb_img = rgb.reshape(scene.H, scene.W, 3).to(device=scene.device)
     depth_img = depth.reshape(scene.H, scene.W).to(device=scene.device)    
     xyz_coordinates = scene.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth_img)    
+    # dragon_scale
     center = torch.tensor([0.0044, -0.2409, -0.2728]).to(scene.device)
     corner = torch.tensor([-0.1450, -0.3655, -0.4069]).to(scene.device)
+    # elastica_burgundy
+    #center = torch.tensor([0.0058, -0.4112, -0.2170]).to(scene.device)    
+    #mins = torch.tensor([-0.1934, -0.6670, -0.3852]).to(scene.device)
+    #maxs = torch.tensor([0.2049, -0.1554, -0.0488]).to(scene.device)
+    #bounding_box_condition = torch.logical_and(xyz_coordinates > mins, xyz_coordinates < maxs).float()
+    #bounding_box_condition = torch.sum(bounding_box_condition, dim=2)    
+    #bounding_box_condition_indices = torch.where(bounding_box_condition != 3.0)
+    
+    #print(bounding_box_condition_indices.size())
+    
     bounding_sphere_radius = torch.sqrt( torch.sum( (center - corner)**2) ).to(scene.device)    
-    bounding_sphere_condition =  (torch.sqrt(torch.sum( (xyz_coordinates - center)**2, dim=2)) > bounding_sphere_radius).to(scene.device)
-    rgb_img[bounding_sphere_condition] = torch.tensor([0.7, 0.7, 0.7]).to(device=scene.device)
-    depth_img[bounding_sphere_condition] = 1.0
+    bounding_box_condition =  (torch.sqrt(torch.sum( (xyz_coordinates - center)**2, dim=2)) > bounding_sphere_radius).to(scene.device)
+    bounding_box_condition_indices = torch.where(bounding_box_condition)
+
+    rgb_img[bounding_box_condition_indices] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
+    depth_img[bounding_box_condition_indices] = 1.0
 
     result = {
         'rendered_image_fine': rgb_img,
