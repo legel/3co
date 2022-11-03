@@ -160,13 +160,13 @@ def imgs_to_video(video_dir, n_poses):
     dimgs = []
     for i in range(0, n_poses):
         fname1 = '{}/color_video_images/color_{}.png'.format(video_dir, i)
-        fname2 = '{}/depth_video_images/depth_{}.png'.format(video_dir, i)
+        #fname2 = '{}/depth_video_images/depth_{}.png'.format(video_dir, i)
         cimg = Image.open(fname1)
-        dimg = Image.open(fname2)
+        #dimg = Image.open(fname2)
         cimgs.append(cimg)
-        dimgs.append(dimg)
-    imageio.mimwrite('{}/color.mp4'.format(video_dir), cimgs, fps=15, quality=9)        
-    imageio.mimwrite('{}/depth.mp4'.format(video_dir), dimgs, fps=15, quality=9)        
+        #dimgs.append(dimg)
+    imageio.mimwrite('{}/color.mp4'.format(video_dir), cimgs, fps=60, quality=9)        
+    #imageio.mimwrite('{}/depth.mp4'.format(video_dir), dimgs, fps=60, quality=9)        
     
 
 def create_spin_video_images(scene, number_of_poses, video_dir):
@@ -265,17 +265,17 @@ if __name__ == '__main__':
     
     with torch.no_grad():
         scene = SceneModel(args=parse_args(), experiment_args='test')
-        scene.args.number_of_samples_outward_per_raycast = 256                        
+        scene.args.number_of_samples_outward_per_raycast = 1024                        
         scene.args.use_sparse_fine_rendering = False
-
             
         data_out_dir = "{}/videos".format(scene.args.base_directory)            
-        experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                    
+        #experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                    
+        experiment_label = '1667331314_spin_video'
         experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
 
-        n_poses = 119
+        n_poses = 479
         print("creating spin video images")        
-        create_spin_video_images(scene, n_poses, experiment_dir)
+        #create_spin_video_images(scene, n_poses, experiment_dir)
         print("converting images to video")        
         imgs_to_video(experiment_dir, n_poses)
         print("video output to {}".format(experiment_dir))

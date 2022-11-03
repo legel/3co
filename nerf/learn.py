@@ -172,7 +172,8 @@ class SceneModel:
         self.initialize_learning_rates()  
 
         if self.args.export_test_data_for_post_processing:
-            self.save_cam_xyz()        
+            self.save_cam_xyz()    
+            quit()    
 
         if self.args.load_pretrained_models:
             print("Loading pretrained models")
@@ -351,7 +352,7 @@ class SceneModel:
         self.initial_poses = torch.Tensor(convert3x4_4x4(rotations_translations)).to(device=self.device) # (N, 4, 4)
 
 
-    def create_point_cloud(self, xyz_coordinates, colors, label=0, flatten_xyz=True, flatten_image=True):
+    def create_point_cloud(self, xyz_coordinates, colors, normals, label=0, flatten_xyz=True, flatten_image=True):
         pcd = o3d.geometry.PointCloud()
         if flatten_xyz:
             xyz_coordinates = torch.flatten(xyz_coordinates, start_dim=0, end_dim=1).cpu().detach().numpy()
@@ -359,14 +360,17 @@ class SceneModel:
             xyz_coordinates = xyz_coordinates.cpu().detach().numpy()
         if flatten_image:
             colors = torch.flatten(colors, start_dim=0, end_dim=1).cpu().detach().numpy()
+            normals = torch.flatten(normals, start_dim=0, end_dim=1).cpu().detach().numpy()
         else:
             colors = colors.cpu().detach().numpy()
+            normals = normals.cpu().detach().numpy()
 
         pcd.points = o3d.utility.Vector3dVector(xyz_coordinates)
 
         # Load saved point cloud and visualize it
         pcd.estimate_normals()
         pcd.colors = o3d.utility.Vector3dVector(colors)
+        pcd.normals = o3d.utility.Vector3dVector(normals)
 
         return pcd
 
@@ -402,7 +406,7 @@ class SceneModel:
         print("filtering {}/{} points with angle condition".format(n_filtered_points, self.W*self.H))
 
         #entropy_condition = (entropy_image < 3.0).to(self.device)
-        entropy_condition = (entropy_image < 3.0).to(self.device)
+        entropy_condition = (entropy_image < 2.0).to(self.device)
         n_filtered_points = self.H * self.W - torch.sum(entropy_condition.flatten())
         print("filtering {}/{} points with entropy condition".format(n_filtered_points, self.W*self.H))
 
@@ -410,8 +414,7 @@ class SceneModel:
         joint_condition = torch.logical_and(joint_condition, angle_condition).to(self.device)        
         joint_condition = torch.logical_and(joint_condition, entropy_condition).to(self.device)        
 
-        sparse_depth = depth
-        unsparse_depth = unsparse_depth
+        sparse_depth = depth      
 
         if self.args.use_sparse_fine_rendering:            
             sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 8.0 * (self.far-self.near) / ( (self.args.number_of_samples_outward_per_raycast + 1))            
@@ -426,7 +429,6 @@ class SceneModel:
         #    row_condition = (row_condition == 1)
         #joint_condition = torch.logical_and(joint_condition, row_condition).to(self.device)
 
-
     
         n_filtered_points = self.H * self.W - torch.sum(joint_condition.flatten())
         print("{}/{} total points filtered with intersection of conditions".format(n_filtered_points, self.W*self.H))        
@@ -435,15 +437,22 @@ class SceneModel:
 
         n_filtered_points = self.H * self.W - torch.sum(joint_condition.flatten())
 
+
         depth = depth[joint_condition_indices]
         rgb = rgb[joint_condition_indices]
-        xyz_coordinates = xyz_coordinates[joint_condition_indices]
-
         
-        pcd = self.create_point_cloud(xyz_coordinates, rgb, label="point_cloud_{}".format(label), flatten_xyz=False, flatten_image=False)
+        
+        normals = torch.zeros(self.H, self.W, 3)
+        normals = pose[:3, 3] - xyz_coordinates
+        normals = torch.nn.functional.normalize(normals, p=2, dim=2)
+        normals = normals[joint_condition_indices]
+
+        xyz_coordinates = xyz_coordinates[joint_condition_indices]
+        
+        pcd = self.create_point_cloud(xyz_coordinates, rgb, normals, label="point_cloud_{}".format(label), flatten_xyz=False, flatten_image=False)
         if save:
             file_name = "{}/view_{}_training_data_{}.ply".format(dir, label, self.epoch-1)
-            o3d.io.write_point_cloud(file_name, pcd)
+            o3d.io.write_point_cloud(file_name, pcd, write_ascii = True)
 
         return pcd
 
@@ -472,7 +481,7 @@ class SceneModel:
                 pose = poses[i, :, :]
                 cam_xyz = pose[:3,3].cpu().detach().numpy()
                 # print("Saving camera (x,y,z) for test pose {}: ({:.4f},{:.4f},{:.4f})".format(self.test_poses_processed, cam_xyz[0], cam_xyz[1], cam_xyz[2]))
-                cam_xyz_file = "{}/cam_xyz_{}.npy".format(self.args.base_directory,i)
+                cam_xyz_file = "{}/cam_xyz_{}.npy".format(self.experiment_directory,i)
                 with open(cam_xyz_file, "wb") as f:
                     np.save(f, cam_xyz)
                 self.test_poses_processed += 1
@@ -1922,26 +1931,27 @@ class SceneModel:
         self.args.load_pretrained_models = True
         self.args.n_depth_sampling_optimizations = 2
 
-        self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/maxdepth1.0_128x128raysamp_v3_[200k]'
+        #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/maxdepth1.0_128x128raysamp_v3_[200k]'
+        self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k'
         self.args.reset_learning_rates = True # start and end indices of learning rate schedules become {0, number_of_epochs}
                 
         self.args.start_epoch = 200001
         self.args.number_of_epochs = 1
 
         self.args.save_models_frequency = 999999999
-        self.args.number_of_test_images = 100
+        self.args.number_of_test_images = 200
         self.args.skip_every_n_images_for_training = 30
         self.args.skip_every_n_images_for_testing = 2
         self.args.maximum_depth = 1.0
 
         self.args.number_of_samples_outward_per_raycast = 512
-        self.args.number_of_pixels_per_batch_in_test_renders = 375
+        self.args.number_of_pixels_per_batch_in_test_renders = 180
         self.args.pixel_samples_per_epoch = 1500
         self.args.test_frequency = 1
         self.args.save_depth_weights_frequency = 1000000000
         self.args.save_point_cloud_frequency = 1
 
-        self.args.use_sparse_fine_rendering = True
+        self.args.use_sparse_fine_rendering = False
         
 
     def load_saved_args_entropy_tuning(self):        
@@ -1989,10 +1999,10 @@ if __name__ == '__main__':
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:    
 
-        if scene.epoch == scene.args.start_epoch:
-            with torch.no_grad():                
-                scene.test()
-                quit()
+        #if scene.epoch == scene.args.start_epoch:
+        #    with torch.no_grad():                
+        #        scene.test()
+        #        quit()
 
         batch = scene.sample_next_batch()        
         #with torch.autograd.detect_anomaly():
