@@ -61,8 +61,6 @@ def set_bounds(vertices, vox_size):
     max_y = torch.max(all_vertices[:,1]) + padding
     max_z = torch.max(all_vertices[:,2]) + padding
 
-    print("{}, {}, {}, {}, {}, {}".format(min_x, min_y, min_z, max_x, max_y, max_z))
-
 def construct_volume(vox_size):
     
     volume_x = torch.linspace(min_x, max_x, 1 + math.ceil( (max_x - min_x) / vox_size))
@@ -82,9 +80,11 @@ def distance_to_mesh(p, face_vertices, dists):
     distance_to_face_centers = torch.sqrt( torch.sum((face_centers_expand-p_expand)**2,dim=2) )        
     min_distance_to_face_centers = torch.min(distance_to_face_centers, dim=0)[0]
 
-    return torch.min( torch.cat([min_distance_to_face_centers.unsqueeze(1), dists.unsqueeze(1)], dim=1), dim=1)[0]        
+    return torch.min( 
+      torch.cat([min_distance_to_face_centers.unsqueeze(1), 
+      dists.unsqueeze(1)], dim=1), dim=1
+    )[0]        
         
-
 def vcg(meshes, poses, pixel_directions_world, out_f_name):
     
     # define voxel grid    
@@ -92,12 +92,12 @@ def vcg(meshes, poses, pixel_directions_world, out_f_name):
     W = 640    
     near = 0.1
     far = 1.0        
-    vox_size = 0.001
+    vox_size = 0.01
     save_sdf_frequency = 1
     all_vertices = [mesh.vertices for mesh in meshes]
     set_bounds(all_vertices, vox_size)
     volume = construct_volume(vox_size).to(torch.device('cuda:0'))
-    sdf = torch.zeros(volume.size()[0], volume.size()[0], volume.size()[0]).to(torch.device('cuda:0'))
+    sdf = torch.zeros(volume.size()[0], volume.size()[1], volume.size()[2]).to(torch.device('cuda:0'))
     sdf = sdf + float('Inf') # No fear
     n_processed_meshes = 0
     
@@ -148,7 +148,6 @@ def vcg(meshes, poses, pixel_directions_world, out_f_name):
         view_volume = volume[viewable_voxel_indices[:,0], viewable_voxel_indices[:,1], viewable_voxel_indices[:,2]]                
 
         # Unpack numpy data from open3D and convert to tensor
-        # Angry note: very important to do it as done below, or else it can create a memory leak for some reason!
         faces = np.asarray(meshes[cam_index].triangles)
         vertices = np.asarray(meshes[cam_index].vertices)
         face_vertices = torch.tensor(vertices[faces]).float().to(torch.device('cuda:0'))          
@@ -173,7 +172,6 @@ def vcg(meshes, poses, pixel_directions_world, out_f_name):
 
         batch_number = 0
         for view_volume_batch, viewable_voxel_indices_batch in zip(view_volume_batches, viewable_voxel_indices_batches):          
-          #print("batch {} out of {}".format(batch_number, view_volume.size()[0] // batch_size))
           
           dists = sdf[viewable_voxel_indices_batch[:,0], viewable_voxel_indices_batch[:,1], viewable_voxel_indices_batch[:,2]]
           dists = distance_to_mesh(view_volume_batch, face_vertices, dists)          
@@ -219,8 +217,7 @@ if __name__ == '__main__':
     with torch.no_grad():
         scene = SceneModel(args=parse_args(), experiment_args='test')
 
-        mesh_indices = range(240)[::4]
-        #mesh_indices = range(2)
+        mesh_indices = range(240)[::2]
         mesh_dir = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes'
         meshes = load_meshes(mesh_dir=mesh_dir, base_fname='dragon_scale', mesh_indices = mesh_indices, format='glb')                    
         
