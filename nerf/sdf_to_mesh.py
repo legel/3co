@@ -4,9 +4,21 @@ import mcubes
 import open3d as o3d
 
 #filename = 'data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/sdf/sdf_120meshes_vox001.npy'
-filename = 'sdf_120meshes_vox001.npy'
+filename = 'sdf_with2.npy'
 
-sdf = torch.from_numpy(np.load(filename))
+sdf_in = torch.from_numpy(np.load(filename))
+
+sdf_indices = torch.argwhere(sdf_in == sdf_in)
+sdf = np.transpose(np.asarray([
+    sdf_indices[:,0].numpy(), 
+    sdf_indices[:,1].numpy(), 
+    sdf_indices[:,2].numpy(), 
+    sdf_in[sdf_indices[:,0].numpy(), sdf_indices[:,1].numpy(), sdf_indices[:,2].numpy()].numpy()
+]))                      
+
+sdf = torch.tensor(sdf)
+
+#sdf = torch.from_numpy(np.load(filename))
 
 x = sdf[:,0].long()
 y = sdf[:,1].long()
@@ -26,7 +38,7 @@ print(u.size())
 u = u.numpy()
 
 # do we watch marching cube's voxel representation?
-vertices, triangles = mcubes.marching_cubes(u,0.005)
+vertices, triangles = mcubes.marching_cubes(u,0.01)
 print("vertices, triangles:", vertices.shape, triangles.shape)
 
 mcubes.export_mesh(vertices, triangles, "mesh.dae", "NiceMesh")

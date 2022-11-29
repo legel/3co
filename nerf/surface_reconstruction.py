@@ -192,20 +192,27 @@ def distance_to_mesh_V2(p, face_vertices, dists):
     return dists
                     
         
-def vcg(meshes, poses, pixel_directions_world, out_f_name):
+def vcg(meshes, poses, pixel_directions_world, in_f_name, out_f_name):
     
     # define voxel grid    
     H = 480
     W = 640    
     near = 0.1
     far = 1.0        
-    vox_size = 0.005
+    vox_size = 0.01
     save_sdf_frequency = 1
     all_vertices = [mesh.vertices for mesh in meshes]
     set_bounds(all_vertices, vox_size)
     volume = construct_volume(vox_size).to(torch.device('cuda:0'))
-    sdf = torch.zeros(volume.size()[0], volume.size()[1], volume.size()[2]).to(torch.device('cuda:0'))
-    sdf = sdf + float('Inf') # No fear
+
+    if in_f_name != '':      
+      print("Loading sdf: ", in_f_name)      
+      sdf = torch.from_numpy(np.load(in_f_name)).to(torch.device('cuda:0'))      
+    else:          
+      print("Creating sdf from scratch")
+      sdf = torch.zeros(volume.size()[0], volume.size()[1], volume.size()[2]).to(torch.device('cuda:0'))            
+      sdf = sdf + float('Inf') # No fear
+      
     n_processed_meshes = 0
     
     for cam_index in range(poses.size()[0]):
@@ -282,7 +289,8 @@ def vcg(meshes, poses, pixel_directions_world, out_f_name):
 
         batch_number = 0
         for view_volume_batch, viewable_voxel_indices_batch in zip(view_volume_batches, viewable_voxel_indices_batches):          
-          
+          if batch_number % 100 == 0:
+            print("batch {}".format(batch_number))
           dists = sdf[viewable_voxel_indices_batch[:,0], viewable_voxel_indices_batch[:,1], viewable_voxel_indices_batch[:,2]]
           dists = distance_to_mesh_V2(view_volume_batch, face_vertices, dists)          
           sdf[viewable_voxel_indices_batch[:,0], viewable_voxel_indices_batch[:,1], viewable_voxel_indices_batch[:,2]] = dists
@@ -293,19 +301,11 @@ def vcg(meshes, poses, pixel_directions_world, out_f_name):
         if (n_processed_meshes % save_sdf_frequency == 0 or cam_index == poses.size()[0] - 1):
             print("Outputting sdf to {}".format(out_f_name))
             sdf = sdf.cpu()
-            valid_sdf_indices = torch.argwhere(torch.logical_and(sdf != float('Inf'), sdf != 0))
 
             with open(out_f_name, "wb") as f:
-              result = np.transpose(np.asarray([
-                valid_sdf_indices[:,0].numpy(), 
-                valid_sdf_indices[:,1].numpy(), 
-                valid_sdf_indices[:,2].numpy(), 
-                sdf[valid_sdf_indices[:,0].numpy(), valid_sdf_indices[:,1].numpy(), valid_sdf_indices[:,2].numpy()].numpy()
-              ]))                            
-              np.save(f, result)
-
-            sdf = sdf.to(torch.device('cuda:0'))
-        
+              np.save(f, sdf.numpy())
+            sdf = sdf.to(torch.device('cuda:0'))              
+                    
     return sdf
                                           
 def print_memory_usage():
@@ -324,8 +324,9 @@ def print_memory_usage():
 if __name__ == '__main__':
     
     with torch.no_grad():
-        scene = SceneModel(args=parse_args(), experiment_args='test')
-
+                        
+        scene = SceneModel(args=parse_args(), experiment_args='test')        
+        
         mesh_indices = range(240)[::2]
         mesh_dir = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes'
         meshes = load_meshes(mesh_dir=mesh_dir, base_fname='dragon_scale', mesh_indices = mesh_indices, format='glb')                    
@@ -344,5 +345,8 @@ if __name__ == '__main__':
         del pixel_directions
         torch.cuda.empty_cache()
 
-        out_f_name = 'sdf_120meshes_vox001.npy'        
-        sdf = vcg(meshes, poses, pixel_world_directions, out_f_name)
+        #input_sdf_filename = 'sdf_test.npy'
+        #input_sdf_filename = 'sdf_test.npy'
+        input_sdf_filename = ''
+        output_sdf_filename = 'sdf.npy'
+        sdf = vcg(meshes, poses, pixel_world_directions, input_sdf_filename, output_sdf_filename)
