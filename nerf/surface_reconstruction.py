@@ -275,7 +275,8 @@ def vcg(meshes, poses, pixel_directions_world, in_f_name, out_f_name):
           view_volume.size()[0] * 3 +
           face_vertices.size()[0] * 3
         ) * 8
-        total_bytes_needed *= 12 # overestimate by a bit
+        #total_bytes_needed *= 12 # overestimate by a bit
+        total_bytes_needed *= 16 # overestimate by a bit        
              
         bytes_per_batch = 4000000000 # 4gb
         n_batches = total_bytes_needed // bytes_per_batch + 1
@@ -302,7 +303,7 @@ def vcg(meshes, poses, pixel_directions_world, in_f_name, out_f_name):
             print("Outputting sdf to {}".format(out_f_name))
             sdf = sdf.cpu()
 
-            with open(out_f_name, "wb") as f:
+            with open('{}_{}.npy'.format(out_f_name, cam_index), "wb") as f:
               np.save(f, sdf.numpy())
             sdf = sdf.to(torch.device('cuda:0'))              
                     
@@ -348,5 +349,5 @@ if __name__ == '__main__':
         #input_sdf_filename = 'sdf_test.npy'
         #input_sdf_filename = 'sdf_test.npy'
         input_sdf_filename = ''
-        output_sdf_filename = 'sdf.npy'
+        output_sdf_filename = 'sdfs/current_run/sdf_vox0.01'
         sdf = vcg(meshes, poses, pixel_world_directions, input_sdf_filename, output_sdf_filename)

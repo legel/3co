@@ -261,24 +261,112 @@ def render_all_training_images(scene, images_dir):
         scene.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
 
 
+
+
+def color_mesh_with_nerf_colors(scene, mesh):
+    
+
+    # bottom of pot: y=-0.34
+    # top of pot: y=-                          
+    # center of pot: x=(-0.0057 + 0.059) / 2 = 
+    # center of pot: z=(-0.212 + -0.267) / 2 = 
+
+    #x= 0.02665
+    #y = 0.26
+    #z = -0.2395
+
+    # (92.195770 42.179070 81.832375)
+
+    # translation in blender: X =  76.3136
+    #                         Y = -207.614
+    #                         Z =  184.213
+    # scale: 500
+
+    measure_distance = 0.075
+    scene.far = measure_distance + 0.02
+    scale = 500    
+    faces = np.asarray(mesh.triangles)          
+    
+    vertices = np.asarray(mesh.vertices)        
+    vertex_normals = np.asarray(mesh.vertex_normals)
+    face_vertices = torch.tensor(vertices[faces]).float().to(torch.device('cuda:0'))              
+    face_vertices = torch.mean(face_vertices, dim=1)
+    n_faces = face_vertices.size()[0]
+
+    face_vertices = face_vertices * scale
+    face_vertices[:, 0] = face_vertices[:, 0] + 76.3136
+    face_vertices[:, 1] = face_vertices[:, 1] + 184.213
+    face_vertices[:, 2] = face_vertices[:, 2] + -207.614
+    
+    vertex_normals = torch.tensor(vertex_normals[faces].tolist()).to(torch.device('cuda:0'))
+    
+    face_normals = torch.mean(vertex_normals, dim=1)    
+    face_normals = torch.nn.functional.normalize(face_normals, dim=1, p=2)
+    
+    face_xyz = torch.mean(face_vertices, dim=1)    
+    
+
+    batch_size = scene.args.number_of_pixels_per_batch_in_test_renders
+
+    poses = torch.zeros(n_faces,4,4)
+    #print( (axis_angle_to_matrix(-face_normals)).shape)
+    poses[:,:3,:3] = axis_angle_to_matrix(-face_normals)
+    poses[:,3,:3] = -face_normals * measure_distance + face_vertices
+    #poses = poses.unsqueeze(0).expand(n_faces, -1, -1)
+
+    pixel_directions = scene.pixel_directions[0,scene.H//2, scene.W//2].unsqueeze(0).expand(n_faces, 3)
+
+    focal_length_x, focal_length_y = scene.models["focal"](0)
+    focal_lengths = focal_length_x[0].expand(n_faces)
+    
+
+    pose_batches = poses.split(1)
+    pixel_directions_batches = pixel_directions.split(1)
+    focal_lengths_batches = focal_lengths.split(1)
+
+    #faces_batches = ...
+
+    for pose_batch, pixel_directions_batch, focal_lengths_batch in zip(pose_batches, pixel_directions_batches, focal_lengths_batches):
+
+        
+        # def flat_render(self, poses, pixel_directions, focal_lengths):   
+        render_result = scene.basic_render(poses[0].to(torch.device('cuda:0')), scene.pixel_directions[0].to(torch.device('cuda:0')), focal_length_x[0].to(torch.device('cuda:0')))     
+        scene.save_render_as_png(render_result, 'test_color.png', 'test_depth.png')
+
+
+        quit()
+        
+
+    #return None
+
+
 if __name__ == '__main__':
     
     with torch.no_grad():
+
+
+    
         scene = SceneModel(args=parse_args(), experiment_args='test')
         scene.args.number_of_samples_outward_per_raycast = 1024                        
         scene.args.use_sparse_fine_rendering = False
-            
-        data_out_dir = "{}/videos".format(scene.args.base_directory)            
-        #experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                    
-        experiment_label = '1667331314_spin_video'
-        experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
+        """
+                
+            data_out_dir = "{}/videos".format(scene.args.base_directory)            
+            #experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                    
+            experiment_label = '1667331314_spin_video'
+            experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
 
-        n_poses = 479
-        print("creating spin video images")        
-        #create_spin_video_images(scene, n_poses, experiment_dir)
-        print("converting images to video")        
-        imgs_to_video(experiment_dir, n_poses)
-        print("video output to {}".format(experiment_dir))
+            n_poses = 479
+            print("creating spin video images")        
+            #create_spin_video_images(scene, n_poses, experiment_dir)
+            print("converting images to video")        
+            imgs_to_video(experiment_dir, n_poses)
+            print("video output to {}".format(experiment_dir))
+        """
+        fname = 'dragon_scale_tri.obj'
+        print('Loading mesh: {}'.format(fname))
+        mesh =  o3d.io.read_triangle_mesh(fname)
+        color_mesh_with_nerf_colors(scene, mesh)
 
 
 

@@ -4,8 +4,6 @@ from scipy.spatial.transform import Rotation
 from torchsummary import summary
 import cv2
 import open3d as o3d
-from torch_cluster import grid_cluster
-from pytorch3d.ops.knn import knn_points
 from pytorch3d.io import IO
 import imageio.v2 as imageio
 from PIL import Image
@@ -1073,6 +1071,51 @@ class SceneModel:
 
         return result
 
+
+    def flat_render(self, poses, pixel_directions, focal_lengths):
+
+        n_pixels = poses.size()[0]
+        
+        # split each of the rendering inputs into batches for better GPU usage        
+        poses_batches = poses.split(self.args.number_of_pixels_per_batch_in_test_renders)
+        pixel_directions_batches = pixel_directions.split(self.args.number_of_pixels_per_batch_in_test_renders)
+        focal_lengths_batches = focal_lengths.split(self.args.number_of_pixels_per_batch_in_test_renders)                 
+
+        rendered_image_fine_batches = []        
+
+        number_of_fine_samples = self.args.number_of_samples_outward_per_raycast
+        number_of_coarse_samples = self.args.number_of_samples_outward_per_raycast + 1
+
+        for poses_batch, pixel_directions_batch, focal_lengths_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_batches):
+
+            # for resampling with test data, we will compute the NeRF-weighted resamples per batch
+            for depth_sampling_optimization in range(self.args.n_depth_sampling_optimizations):
+                # get the depth samples per pixel
+                if depth_sampling_optimization == 0:
+                    # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
+                    depth_samples_coarse = self.sample_depths_linearly(number_of_pixels=poses_batch.size()[0], add_noise=False) # (N_pixels, N_samples)                                       
+                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_batch.squeeze(1))  # (N_pixels, 3)
+                else:
+                    # if this is not the first iteration, then resample with the latest weights                                        
+                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering)  # (N_pixels, N_samples)                                
+                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_batch.squeeze(1))  # (N_pixels, 3)
+                                        
+            if self.args.n_depth_sampling_optimizations > 1:
+                rendered_image_fine_batches.append(rendered_data_fine['rgb_rendered']) # (n_pixels_per_row, 3)                
+
+        if self.args.n_depth_sampling_optimizations > 1:
+            rendered_image_data_fine = torch.cat(rendered_image_fine_batches, dim=0)#.cpu() # (N_pixels, 3)            
+
+        if self.args.n_depth_sampling_optimizations > 1:                                
+            rendered_image_fine = rendered_image_data_fine#.cpu()
+        
+        render_result = {
+            'rendered_pixels': rendered_image_fine            
+        }                    
+        
+        return render_result            
+
+
     # Render just the fine and coarse rgb/depth images, all on GPU
     # view_pixel_directions: assumed to be computed with respect to view_focal_length_x
     # view_focal_length_x: only needed by IPE computation
@@ -1945,7 +1988,7 @@ class SceneModel:
         self.args.skip_every_n_images_for_testing = 1
         self.args.maximum_depth = 1.0
 
-        self.args.number_of_samples_outward_per_raycast = 512
+        self.args.number_of_samples_outward_per_raycast = 128
         self.args.number_of_pixels_per_batch_in_test_renders = 180
         self.args.pixel_samples_per_epoch = 1500
         self.args.test_frequency = 1
