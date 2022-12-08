@@ -36,11 +36,13 @@ def sdf2mesh(in_file_name, out_file_name):
     u = u.numpy()
 
     # do we match marching cube's voxel representation?
-    vertices, triangles = mcubes.marching_cubes(u,0.0015)
+    vertices, triangles = mcubes.marching_cubes(u,0.01)
     print("vertices, triangles:", vertices.shape, triangles.shape)
 
     print('Outputting', out_file_name)
     mcubes.export_mesh(vertices, triangles, out_file_name, "NiceMesh")
+
+    
 
 def merge_sdfs(in_file_names, out_file_name):
 
@@ -62,14 +64,14 @@ if __name__ == '__main__':
         args = sys.argv
 
         if args[1] == 'sdf2mesh':
-            in_file_name = 'sdfs/sdf_merged.npy'
-            out_file_name = 'mesh_merged.dae'
-            #in_file_name = 'sdfs/vox001/sdf.npy'
-            #out_file_name = 'vox001_mesh.dae'            
+            #in_file_name = 'sdfs/sdf_merged.npy'
+            #out_file_name = 'mesh_merged.dae'
+            in_file_name = 'sdfs/sdf_merged.npy'#'sdfs/vox001/sdf.npy'
+            out_file_name = 'vox01_mesh.dae'            
             sdf2mesh(in_file_name, out_file_name)
         elif args[1] == 'merge':
-            n_sdfs = 4
-            in_file_names = ['sdfs/sdf_{}_real.npy'.format(i) for i in range(n_sdfs)]
+            n_sdfs = 30
+            in_file_names = ['sdfs/current_run/sdf_vox0.01_{}.npy'.format(i) for i in range(n_sdfs)]
             out_file_name = 'sdfs/sdf_merged.npy'
             merge_sdfs(in_file_names, out_file_name)
         else:

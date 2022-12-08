@@ -71,6 +71,9 @@ def construct_pose(scene, pitch, yaw, roll, x, y, z):
     return pose        
 
 
+
+
+
 def generate_spin_poses(scene, number_of_poses):
 
     # bottom of pot: y=-0.34
@@ -261,6 +264,80 @@ def render_all_training_images(scene, images_dir):
         scene.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
 
 
+def zoom_out_from_point(scene):
+
+    #fname = 'dragon_scale_tri.ply'
+    fname = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes/dragon_scale_0_luminosity_filtered_only.glb'    
+    mesh =  o3d.io.read_triangle_mesh(fname)
+    vertices = torch.tensor(np.asarray(mesh.vertices).tolist()).to(torch.device('cuda:0'))
+    vertex_normals = torch.tensor(np.asarray(mesh.vertex_normals).tolist()).to(torch.device('cuda:0'))    
+
+    view_number = 0
+    focus_point = vertices[view_number]
+    normal = vertex_normals[view_number]
+    normal = torch.nn.functional.normalize(normal, dim=0, p=2)
+    print('normal: ',normal)
+    # x (left/right) right = +
+    # y (up/down) {is upside down} down = +
+    # z (forward/back) forward = +
+    pose = torch.zeros(4,4).to(torch.device('cuda:0'))
+
+    measure_distance = 0.01
+    scene.near = torch.tensor([measure_distance]).to(torch.device('cuda:0'))
+    #scene.args.near_maximum_depth = torch.tensor([0.1])
+    #scene.args.far_maximum_depth = torch.tensor([0.11])
+
+    p_from = -normal * measure_distance + focus_point
+    p_to = focus_point    
+    print('p_from: ', p_from)
+    print('p_to: ', p_to)    
+    v_forward = -torch.nn.functional.normalize(p_from - p_to, dim=0, p=2) # original    
+    v_arbitrary = torch.tensor([0.0, 1.0, 0.0]).to(torch.device('cuda:0'))
+    v_right = -torch.cross(v_arbitrary, v_forward)     
+    v_right = torch.nn.functional.normalize(v_right, dim=0, p=2)
+    v_up = torch.cross(v_forward, v_right) # original    
+    v_up =torch.nn.functional.normalize(v_up, dim=0, p=2) # original    
+    pixel_directions = scene.pixel_directions[view_number]
+    focal_length_x, focal_length_y = scene.models["focal"](0)    
+    focal_length = focal_length_x[view_number]
+
+    # for the pose, the coordinate transform matrix is the mapping from camera to world pose,
+    # but xyz is the *world* offset
+
+    # also, z is backwards
+
+    
+    n_poses = 100
+    for i in range(n_poses):
+        print(i)
+        pose[0, :3] = v_right.clone()
+        pose[1, :3] = v_up.clone()
+        pose[2, :3] = v_forward.clone()
+        pose[3,  3] = 1.0
+        
+        #pose = scene.models['pose']()[35]
+        if i==0:
+            print([pose[:3,:3]])
+        #pose[:3, 3] = torch.matmul(pose[:3,:3], p_from.unsqueeze(1)).squeeze(1)
+        pose[:3, 3] = p_from
+        pose[:3, :3] = pose[:3,:3].inverse()
+
+        
+
+        xyz_camera = torch.tensor([0.0, 0.0, -i*measure_distance]).unsqueeze(1).to(torch.device('cuda:0'))
+        
+        pose[:3, 3] = pose[:3, 3] + torch.matmul(pose[:3,:3], xyz_camera).squeeze(1)
+
+        #pose[:3, 3] = p_from - pose[2, :3] * i * measure_distance
+        #pose[2, 3] = pose[2, 3] - measure_distance
+        #pose[3,  3] = 1.0                
+
+        
+        print(pose)
+        render_result = scene.basic_render(pose, pixel_directions, focal_length)     
+        scene.save_render_as_png(render_result, color_file_name_fine='tmp/color_{}.png'.format(i), depth_file_name_fine='tmp/depth_{}.png'.format(i), color_file_name_coarse=None, depth_file_name_coarse=None)
+        
+
 
 
 def color_mesh_with_nerf_colors(scene, mesh):
@@ -270,84 +347,122 @@ def color_mesh_with_nerf_colors(scene, mesh):
     # top of pot: y=-                          
     # center of pot: x=(-0.0057 + 0.059) / 2 = 
     # center of pot: z=(-0.212 + -0.267) / 2 = 
-
-    #x= 0.02665
-    #y = 0.26
-    #z = -0.2395
-
-    # (92.195770 42.179070 81.832375)
-
-    # translation in blender: X =  76.3136
-    #                         Y = -207.614
-    #                         Z =  184.213
-    # scale: 500
-
-    measure_distance = 0.075
-    scene.far = measure_distance + 0.02
-    scale = 500    
-    faces = np.asarray(mesh.triangles)          
     
-    vertices = np.asarray(mesh.vertices)        
-    vertex_normals = np.asarray(mesh.vertex_normals)
-    face_vertices = torch.tensor(vertices[faces]).float().to(torch.device('cuda:0'))              
-    face_vertices = torch.mean(face_vertices, dim=1)
-    n_faces = face_vertices.size()[0]
+    # Using a very small measure distance makes things more robust to inaccurate normals. We really only
+    # care about the general direction the normal is pointing.
+    measure_distance = torch.tensor(0.001).to(torch.device('cuda:0'))        
 
-    face_vertices = face_vertices * scale
-    face_vertices[:, 0] = face_vertices[:, 0] + 76.3136
-    face_vertices[:, 1] = face_vertices[:, 1] + 184.213
-    face_vertices[:, 2] = face_vertices[:, 2] + -207.614
+    scene.near = torch.tensor([measure_distance/2.0]).to(torch.device('cuda:0')) 
+    scene.far = measure_distance * (100)
+    scene.far =scene.near + measure_distance*20.0
+    scene.args.near_maximum_depth = 2000.0 * measure_distance
+    scene.args.far_maximum_depth = scene.args.near_maximum_depth
+    scene.args.percentile_of_samples_in_near_region = 1.0
+
+    vertices = torch.tensor(np.asarray(mesh.vertices).tolist()).to(torch.device('cuda:0'))
+    vertex_normals = torch.tensor(np.asarray(mesh.vertex_normals).tolist()).to(torch.device('cuda:0'))
+    normals = torch.nn.functional.normalize(vertex_normals, dim=1, p=2)
+    n_vertices = vertices.size()[0]
+        
+    print('n_vertices: ', n_vertices)
+    print('vertex_normals size: ', vertex_normals.size()[0])
+
+
+
+    min_x = -0.1519
+    max_x = 0.1625
+
+    min_y = -0.3678
+    max_y = -0.1093
+
+    min_z =  -0.4149
+    max_z =  -0.1301
+
+    vertices = vertices / 500.0
+    vertices[:, 0] += min_x
+    vertices[:, 1] += min_y
+    vertices[:, 2] += min_z
+
+    """
+
+        # blender transformation:
+        # x = -0.153701 m
+        # y = -0.363557 m
+        # z = -0.412759 m
+        # scale = 0.0002
+
+        # nerf:
+        # right = x
+        # up = y
+        # forward = -z
+
+        # blender:
+        # right = x
+        # up = z
+        # forward = -y
+
+        # 0.008674 -0.166496 -0.196280
+        #0.008865 -0.209839 -0.139628] 
+
+
+        # 0.009557 -0.170050 -0.189943
+        # 0.008283 -0.168344 -0.194182
+
+        vertices = vertices / 500.0
+
+        x_offset = (-0.153701) + (0.008674  - 0.008865) + (0.009557 - 0.008283)
+        y_offset = (-0.412759) + (-0.166496 - -0.209839) + (-0.170050 - -0.168344)
+        z_offset = (-0.363557) + (-0.196280 - -0.139628) + (-0.189943 - -0.194182)
+        
+        
+        vertices[:, 0] += x_offset
+        vertices[:, 1] += y_offset
+        vertices[:, 2] += z_offset
+    """
     
-    vertex_normals = torch.tensor(vertex_normals[faces].tolist()).to(torch.device('cuda:0'))
-    
-    face_normals = torch.mean(vertex_normals, dim=1)    
-    face_normals = torch.nn.functional.normalize(face_normals, dim=1, p=2)
-    
-    face_xyz = torch.mean(face_vertices, dim=1)    
-    
-
-    batch_size = scene.args.number_of_pixels_per_batch_in_test_renders
-
-    poses = torch.zeros(n_faces,4,4)
-    #print( (axis_angle_to_matrix(-face_normals)).shape)
-    poses[:,:3,:3] = axis_angle_to_matrix(-face_normals)
-    poses[:,3,:3] = -face_normals * measure_distance + face_vertices
-    #poses = poses.unsqueeze(0).expand(n_faces, -1, -1)
-
-    pixel_directions = scene.pixel_directions[0,scene.H//2, scene.W//2].unsqueeze(0).expand(n_faces, 3)
-
-    focal_length_x, focal_length_y = scene.models["focal"](0)
-    focal_lengths = focal_length_x[0].expand(n_faces)
-    
-
-    pose_batches = poses.split(1)
-    pixel_directions_batches = pixel_directions.split(1)
-    focal_lengths_batches = focal_lengths.split(1)
-
-    #faces_batches = ...
-
-    for pose_batch, pixel_directions_batch, focal_lengths_batch in zip(pose_batches, pixel_directions_batches, focal_lengths_batches):
 
         
-        # def flat_render(self, poses, pixel_directions, focal_lengths):   
-        render_result = scene.basic_render(poses[0].to(torch.device('cuda:0')), scene.pixel_directions[0].to(torch.device('cuda:0')), focal_length_x[0].to(torch.device('cuda:0')))     
-        scene.save_render_as_png(render_result, 'test_color.png', 'test_depth.png')
+    
 
+    # construct local coordinate system for each camera (looking at vertex)
+    # https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/lookat-function                
+    poses = torch.zeros(n_vertices,4,4).to(torch.device('cuda:0'))
 
-        quit()
-        
+    p_from = -normals * measure_distance + vertices
+    p_to = vertices
+    print('p_from: ', p_from)
+    print('p_to: ', p_to)    
+    v_forward = -torch.nn.functional.normalize(p_from - p_to, dim=1, p=2) 
+    v_arbitrary = torch.tensor([0.0, 1.0, 0.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
+    v_right = -torch.cross(v_arbitrary, v_forward, dim=1)     
+    v_right = torch.nn.functional.normalize(v_right, dim=1, p=2)
+    v_up = torch.cross(v_forward, v_right, dim=1)
+    v_up = torch.nn.functional.normalize(v_up, dim=1, p=2) 
 
-    #return None
+    poses[:,0, :3] = v_right
+    poses[:,1, :3] = v_up
+    poses[:,2, :3] = v_forward
+    poses[:,3,  3] = 1.0
 
+    pixel_directions = torch.tensor([0.0,0.0,1.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
+    #pixel_directions = scene.pixel_directions[0][scene.H//2, scene.W//2].unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
+    focal_length_x, focal_length_y = scene.models["focal"](0)    
+    focal_lengths = focal_length_x[0].expand(n_vertices)
+
+    
+    poses[:, :3, 3] = p_from #poses[:, :3, 3] - measure_distance*poses[:,2,:3]
+    render_result = scene.flat_render(poses, pixel_directions, focal_lengths)     
+    vertex_colors = render_result['rendered_pixels'] 
+    mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors.cpu())   
+    mesh.vertices = o3d.utility.Vector3dVector(vertices.cpu())
+    o3d.io.write_triangle_mesh('colored_mesh.ply', mesh, write_ascii = True)    
 
 if __name__ == '__main__':
     
     with torch.no_grad():
 
-
-    
         scene = SceneModel(args=parse_args(), experiment_args='test')
-        scene.args.number_of_samples_outward_per_raycast = 1024                        
+        scene.args.number_of_samples_outward_per_raycast = 128                   
         scene.args.use_sparse_fine_rendering = False
         """
                 
@@ -363,160 +478,10 @@ if __name__ == '__main__':
             imgs_to_video(experiment_dir, n_poses)
             print("video output to {}".format(experiment_dir))
         """
-        fname = 'dragon_scale_tri.obj'
-        print('Loading mesh: {}'.format(fname))
+        fname = 'dragon_scale_tri.ply'
+        #fname = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes/dragon_scale_0_luminosity_filtered_only.glb'
+        #print('Loading mesh: {}'.format(fname))
         mesh =  o3d.io.read_triangle_mesh(fname)
         color_mesh_with_nerf_colors(scene, mesh)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###################################### code for printing out weights and gradients of network input layer
-#print(self.models['density'.])
-"""
-    print("density weights:")
-    for i in range(128):
-        print(self.models['geometry'].layers0[0].weight.size())
-        quit()
-        print("_________________________________")
-        print("unit {}: ".format(i))
-        print("weights:")
-        print(self.models['geometry'].layers0[0].weight[i,:])
-        print("gradient:")
-        print(self.models['geometry'].layers0[0].weight.grad[i,:])
-    
-"""
-
-
-"""
-    xs = x[0, :, 0].detach().cpu().numpy()
-    ys = x[0, :, 1].detach().cpu().numpy()
-    zs = x[0, :, 2].detach().cpu().numpy()
-    xs2 = depth_xyzs[0,:, 0].detach().cpu().numpy()
-    ys2 = depth_xyzs[0,:, 1].detach().cpu().numpy()
-    zs2 = depth_xyzs[0,:, 2].detach().cpu().numpy()        
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')    
-    ax.scatter(xs, ys, zs, s=4, c='blue')    
-    ax.scatter(xs2, ys2, zs2, s=4, c='green')        
-    plt.show()    
-"""    
-
-
-
-
-########################## code for printing out features fromn pos_enc.py
-#for i in [202]:    
-#for i in range(0, sampling_depths[0].size()[0]-1):
-"""
-    for j in range(0,90//3):
-        f = features[0][0,i, j*3 : j*3 + 3]                        
-        v = features[1][0,i, j*3 : j*3 + 3]
-"""
-#f = features[0][0,i, 86:89]
-#v = features[1][0,i, 86:89]
-#print("depth {} feature {}: ({:8f}, {:8f}, {:8f} (var: {:8f}, {:8f}, {:8f}))".format(i, j, f[0].item(), f[1].item(), f[2].item(), v[0].item(), v[1].item(), v[2].item()))
-        
-#print("depth {} feature 86-89: ({:8f}, {:8f}, {:8f} (var: {:8f}, {:8f}, {:8f}))".format(i, f[0].item(), f[1].item(), f[2].item(), v[0].item(), v[1].item(), v[2].item()))
-
-
-"""
-    for i in range(0, 96//3):        
-        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(10, i, (features[0][10,20,i].item()), (features[0][10,20,i+1].item()), (features[0][10,20,i+2].item())))
-        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(50, i, features[0][10,100,i].item(), features[0][10,100,i+1].item(), features[0][10,100,i+2].item()))
-        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(150, i, (features[0][10,300,i].item()), (features[0][10,300,i+1].item()), (features[0][10,300,i+2].item())))
-        print("depth {} feature {}: ({:8f}, {:8f}, {:8f})".format(250, i, (features[0][10,500,i].item()), (features[0][10,500,i+1].item()), (features[0][10,500,i+2].item())))
-    print("___________________________________________________________________")    
-"""
-
-""" test for explicitly treating focal_length as distance from lense to principal point
-    #dp_x = (camera_coordinates_x - self.principal_point_x)
-    #dp_y = (camera_coordinates_y - self.principal_point_y)
-    #angles_x = torch.atan(dp_x / focal_length_x_rep)
-    #angles_y = torch.atan(dp_y / focal_length_y_rep)    
-    #camera_coordinates_directions_x = angles_x
-    #camera_coordinates_directions_y = angles_y
-"""
-
-"""
-
-    def debug_visualization(scene, rgb, xyz, depth_weights, rendered_image, downsample_ratio=50):
-        # rgb := (N_pixels, N_samples, 3)
-        # xyz :- (N_pixels, N_samples, 3)
-        # depth_weights := (N_pixels, N_samples)
-
-        fig = plt.figure()
-        ax = fig.gca(projection="3d")
-        ax.clear()
-        ax.set_title("Visualization of RGB + Depth Weights Per 128 raycast samples Per Pixel")
-        all_visible_indices = []
-        number_of_pixels, number_of_samples, _ = rgb.shape
-        for sample in range(1, number_of_samples):
-            sample_rgb = rgb[:,sample,:].cpu().detach().numpy()[int(number_of_pixels/3):int(2*number_of_pixels/3)][::downsample_ratio] # (N_pixels / 10, 3)
-            sample_xyz = xyz[:,sample,:].cpu().detach().numpy()[int(number_of_pixels/3):int(2*number_of_pixels/3)][::downsample_ratio] # (N_pixels / 10, 3)
-            sample_depth_weight = depth_weights[:,sample].cpu().detach().numpy()[int(number_of_pixels/3):int(2*number_of_pixels/3)][::downsample_ratio] # (N_pixels / 10)
-            rgba = np.concatenate([sample_rgb, np.expand_dims(sample_depth_weight, axis=1)], axis=1) # (N_pixels / 10, 4)
-
-            clearly_visible_point_indices = np.argwhere(rgba[:,3] > 0.05)
-            selected_rgba = rgba[clearly_visible_point_indices,:]
-
-            selected_x = sample_xyz[clearly_visible_point_indices,0]
-            selected_y = sample_xyz[clearly_visible_point_indices,1]
-            selected_z = sample_xyz[clearly_visible_point_indices,2]
-
-            ax.scatter(selected_x, selected_y, selected_z, color=selected_rgba, marker=".", s=400)
-            all_visible_indices.extend(clearly_visible_point_indices.flatten())
-        
-        # now show raycasts to get a sense of what the final colors are
-        all_visible_indices_in_set = list(set(all_visible_indices))
-        pixel_xyz_visible_start = xyz[int(number_of_pixels/3):int(2*number_of_pixels/3)].cpu().detach().numpy()[::downsample_ratio][all_visible_indices_in_set, 0, :]
-        pixel_xyz_visible_end = xyz[int(number_of_pixels/3):int(2*number_of_pixels/3)].cpu().detach().numpy()[::downsample_ratio][all_visible_indices_in_set, -1, :]
-        rendered_colors_of_visible_pixels = rendered_image[int(number_of_pixels/3):int(2*number_of_pixels/3), :].cpu().detach().numpy()[::downsample_ratio][all_visible_indices_in_set, :]
-
-        pixel_raycast_x = np.stack([pixel_xyz_visible_start[:,0], pixel_xyz_visible_end[:,0]]) # (N_selected_pixels, 2)
-        pixel_raycast_y = np.stack([pixel_xyz_visible_start[:,1], pixel_xyz_visible_end[:,1]]) # (N_selected_pixels, 2)
-        pixel_raycast_z = np.stack([pixel_xyz_visible_start[:,2], pixel_xyz_visible_end[:,2]]) # (N_selected_pixels, 2)
-
-        number_start_stop, number_of_pixels_to_raycast = pixel_raycast_x.shape
-        for ray in range(number_of_pixels_to_raycast):
-            xs = pixel_raycast_x[:,ray]
-            ys = pixel_raycast_y[:,ray]
-            zs = pixel_raycast_z[:,ray]
-            color = rendered_colors_of_visible_pixels[ray,:]
-            ax.plot3D(xs, ys, zs, color=color, linewidth=0.1)
-
-        ax.set_xlabel("x")
-        ax.set_ylabel("y")
-        ax.set_zlabel("z")
-
-        plt.show()
-"""
-
-"""
-    def visualize_n_point_clouds(scene, n=None, save=False):
-        if type(n) == type(None):
-            n = scene.number_of_images
-        pcds = []
-        for image_number in range(n):
-            pcd, xyz_coordinates, image_colors = scene.get_point_cloud(image_number)
-            pcds.append(pcd)
-        o3d.visualization.draw_geometries(pcds)
-        if save:
-            for image_number, pcd in enumerate(pcds):
-                o3d.io.write_point_cloud("ground_truth_visualization_{}.ply".format(image_number), pcd)
-"""
+        #zoom_out_from_point(scene)

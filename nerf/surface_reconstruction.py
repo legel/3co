@@ -40,7 +40,7 @@ def load_meshes(mesh_dir, base_fname, mesh_indices, format='glb'):
     for i in mesh_indices:
         fname = "{}/{}_{}_luminosity_filtered_only.{}".format(mesh_dir, base_fname, i, format)
         print("Loading {}".format(fname))
-        mesh =  o3d.io.read_triangle_mesh(fname)               
+        mesh =  o3d.io.read_triangle_mesh(fname)
         meshes.append(mesh)
     return meshes
 
@@ -199,11 +199,22 @@ def vcg(meshes, poses, pixel_directions_world, in_f_name, out_f_name):
     W = 640    
     near = 0.1
     far = 1.0        
-    vox_size = 0.01
+    vox_size = 0.002
     save_sdf_frequency = 1
     all_vertices = [mesh.vertices for mesh in meshes]
     set_bounds(all_vertices, vox_size)
     volume = construct_volume(vox_size).to(torch.device('cuda:0'))
+
+    print('min_x: ', min_x)
+    print('max_x: ', max_x)
+    print('min_y: ', min_y)
+    print('max_y: ', max_y)
+    print('min_z: ', min_z)
+    print('max_z: ', max_z)    
+
+    quit()
+
+
 
     if in_f_name != '':      
       print("Loading sdf: ", in_f_name)      
