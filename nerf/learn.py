@@ -405,7 +405,7 @@ class SceneModel:
         print("filtering {}/{} points with angle condition".format(n_filtered_points, self.W*self.H))
 
         #entropy_condition = (entropy_image < 3.0).to(self.device)
-        entropy_condition = (entropy_image < 2.0).to(self.device)
+        entropy_condition = (entropy_image < 1.0).to(self.device)
         n_filtered_points = self.H * self.W - torch.sum(entropy_condition.flatten())
         print("filtering {}/{} points with entropy condition".format(n_filtered_points, self.W*self.H))
 
@@ -2034,7 +2034,7 @@ class SceneModel:
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
-        self.args.pretrained_models_directory = './models/dragon_scale_4_(max_depth_0.75)'          
+        self.args.pretrained_models_directory = './data/Avras_Orchid/hyperparam_experiments/120k'      
         self.args.start_epoch = 1
         self.args.number_of_epochs = 400000
 
@@ -2044,15 +2044,17 @@ class SceneModel:
         self.args.start_training_geometry_epoch = 0
         self.args.entropy_loss_tuning_start_epoch = 20000
         self.args.entropy_loss_tuning_end_epoch = 1000000
-        self.args.entropy_loss_weight = 0.01
+        self.args.entropy_loss_weight = 0.005
 
         self.args.nerf_density_lr_start = 0.0010
-        self.args.nerf_density_lr_end = 0.000025
+        #self.args.nerf_density_lr_end = 0.000025
+        self.args.nerf_density_lr_end = 0.0001
         self.args.nerf_density_lr_exponential_index = 4
         self.args.nerf_density_lr_curvature_shape = 1
 
         self.args.nerf_color_lr_start = 0.001
-        self.args.nerf_color_lr_end = 0.000025
+        #self.args.nerf_color_lr_end = 0.000025
+        self.args.nerf_color_lr_end = 0.0001
         self.args.nerf_color_lr_exponential_index = 2
         self.args.nerf_color_lr_curvature_shape = 1
 
@@ -2067,8 +2069,9 @@ class SceneModel:
         self.args.pose_lr_exponential_index = 9
         self.args.pose_lr_curvature_shape = 1
 
-        #self.args.depth_to_rgb_loss_start = 0.0075
+        
         self.args.depth_to_rgb_loss_start = 0.01
+        #self.args.depth_to_rgb_loss_start = 0
         self.args.depth_to_rgb_loss_end = 0.0
         #self.args.depth_to_rgb_loss_end = 0.0001
 
@@ -2101,19 +2104,20 @@ class SceneModel:
         ### GPU parameters
 
         # training
-        self.args.pixel_samples_per_epoch = 1350
-        self.args.number_of_samples_outward_per_raycast = 120
+        self.args.pixel_samples_per_epoch = 800
+        self.args.number_of_samples_outward_per_raycast = 180
 
         # testing
-        self.args.number_of_pixels_per_batch_in_test_renders = 750
-        self.args.number_of_samples_outward_per_raycast_for_test_renders = 800
+        self.args.number_of_pixels_per_batch_in_test_renders = 1500
+        self.args.number_of_samples_outward_per_raycast_for_test_renders = 360
 
         
         self.args.skip_every_n_images_for_training = 90
         
         self.args.use_sparse_fine_rendering = False        
         
-        self.args.near_maximum_depth = 0.5
+        #self.args.near_maximum_depth = 0.5
+        self.args.near_maximum_depth = 0.75
         self.args.far_maximum_depth = 3.00  
         self.args.percentile_of_samples_in_near_region = 0.80      
 
@@ -2125,31 +2129,31 @@ class SceneModel:
 
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/maxdepth1.0_128x128raysamp_v3_[200k]'
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k'
-        self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/V5_200k_160s_0.5-3.0depthbounds_entropy20k0.01'
+        self.args.pretrained_models_directory = './data/Avras_Orchid/hyperparam_experiments/400k'
         #self.args.pretrained_models_directory = './data/elastica_burgundy/hyperparam_experiments/V5_200k_160s_e0.01at20k_skip45'
         self.args.reset_learning_rates = False # start and end indices of learning rate schedules become {0, number_of_epochs}
                 
-        self.args.start_epoch = 200001
+        self.args.start_epoch = 400001
         self.args.number_of_epochs = 1
 
         self.args.save_models_frequency = 999999999
         #self.args.number_of_test_images = 157
-        self.args.number_of_test_images = 1
+        self.args.number_of_test_images = 500
 
-        self.args.skip_every_n_images_for_testing = 1        
+        self.args.skip_every_n_images_for_testing = 2
 
-        self.args.near_maximum_depth = 1.0
-        self.args.far_maximum_depth = 3.00  
+        self.args.near_maximum_depth = 0.75
+        self.args.far_maximum_depth = 3.00
 
-        self.args.number_of_samples_outward_per_raycast_for_test_renders = 960
+        self.args.number_of_samples_outward_per_raycast_for_test_renders = 360
 
-        self.args.number_of_pixels_per_batch_in_test_renders = 375
+        self.args.number_of_pixels_per_batch_in_test_renders = 1500
         #self.args.pixel_samples_per_epoch = 1500
         self.args.test_frequency = 1
         self.args.save_depth_weights_frequency = 1000000000
         self.args.save_point_cloud_frequency = 1
 
-        self.args.use_sparse_fine_rendering = False
+        self.args.use_sparse_fine_rendering = True
         
 
     def load_saved_args_entropy_tuning(self):        
@@ -2193,7 +2197,7 @@ if __name__ == '__main__':
     # Load a scene object with all data and parameters
 
     with torch.no_grad():
-        scene = SceneModel(args=parse_args(), experiment_args='train')
+        scene = SceneModel(args=parse_args(), experiment_args='test')
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:    
 
