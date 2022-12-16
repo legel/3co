@@ -374,90 +374,6 @@ class SceneModel:
         return pcd
 
 
-    def get_point_cloud(self, pose, depth, rgb, pixel_directions, label=0, save=False, remove_zero_depths=True, save_raw_xyz=False, dir='', entropy_image=None, unsparse_rendered_rgb_img=None, sparse_rendered_rgb_img=None, unsparse_depth=None, max_depth_filter_image=None):        
-
-        camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
-        camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
-        pixel_directions = pixel_directions.unsqueeze(3) # (H, W, 3, 1)        
-
-        xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth)
-        
-        xyz_coordinates = xyz_coordinates
-        if save_raw_xyz:
-            file_path = "{}/{}_xyz_raw.npy".format(dir, label)
-            with open(file_path, "wb") as f:
-                np.save(f, xyz_coordinates.cpu().detach().numpy())
-
-
-        pixel_directions = pixel_directions.squeeze(3)        
-        r = torch.sqrt(torch.sum(  (pixel_directions[60, 80] - pixel_directions[240, 320])**2, dim=0))                                                                
-
-        max_depth_condition = (max_depth_filter_image == 1).to(self.device)
-        n_filtered_points = self.H * self.W - torch.sum(max_depth_condition.flatten())
-        print("filtering {}/{} points with max depth condition".format(n_filtered_points, self.W*self.H))
-
-        depth_condition = (depth != 0).to(self.device)
-        n_filtered_points = self.H * self.W - torch.sum(depth_condition.flatten())
-        print("filtering {}/{} points with depth=0 condition".format(n_filtered_points, self.W*self.H))
-
-        angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[240, 320, :])**2, dim=2 ) ) < r).to(self.device)
-        n_filtered_points = self.H * self.W - torch.sum(angle_condition.flatten())
-        print("filtering {}/{} points with angle condition".format(n_filtered_points, self.W*self.H))
-
-        #entropy_condition = (entropy_image < 3.0).to(self.device)
-        entropy_condition = (entropy_image < 1.0).to(self.device)
-        n_filtered_points = self.H * self.W - torch.sum(entropy_condition.flatten())
-        print("filtering {}/{} points with entropy condition".format(n_filtered_points, self.W*self.H))
-
-        joint_condition = torch.logical_and(max_depth_condition, depth_condition).to(self.device)        
-        joint_condition = torch.logical_and(joint_condition, angle_condition).to(self.device)        
-        joint_condition = torch.logical_and(joint_condition, entropy_condition).to(self.device)        
-
-        sparse_depth = depth      
-
-        if self.args.use_sparse_fine_rendering:            
-            sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 8.0 * (self.far-self.near) / ( (self.args.number_of_samples_outward_per_raycast + 1))            
-            joint_condition = torch.logical_and(joint_condition, sticker_condition)
-            n_filtered_points = self.H * self.W - torch.sum(sticker_condition.flatten())
-            print("filtering {}/{} points with sticker condition".format(n_filtered_points, self.W*self.H))            
-
-        #pixel_row = 250
-        #if pixel_row != -1:
-        #    row_condition = torch.zeros(self.H, self.W)
-        #    row_condition[pixel_row, :] = 1
-        #    row_condition = (row_condition == 1)
-        #joint_condition = torch.logical_and(joint_condition, row_condition).to(self.device)
-
-    
-        n_filtered_points = self.H * self.W - torch.sum(joint_condition.flatten())
-        print("{}/{} total points filtered with intersection of conditions".format(n_filtered_points, self.W*self.H))        
-
-        joint_condition_indices = torch.where(joint_condition)
-
-        n_filtered_points = self.H * self.W - torch.sum(joint_condition.flatten())
-
-        depth = depth[joint_condition_indices]
-        rgb = rgb[joint_condition_indices]
-                
-        normals = torch.zeros(self.H, self.W, 3)
-        normals = pose[:3, 3] - xyz_coordinates
-        normals = torch.nn.functional.normalize(normals, p=2, dim=2)        
-        normals = normals[joint_condition_indices]
-
-
-
-
-
-        xyz_coordinates = xyz_coordinates[joint_condition_indices]
-        
-        pcd = self.create_point_cloud(xyz_coordinates, rgb, normals, label="point_cloud_{}".format(label), flatten_xyz=False, flatten_image=False)
-        if save:
-            file_name = "{}/view_{}_training_data_{}.ply".format(dir, label, self.epoch-1)
-            o3d.io.write_point_cloud(file_name, pcd, write_ascii = True)
-
-        return pcd
-
-
     def visualize_mask(self, pixels_to_visualize, mask_index, colors=None):
         
         if type(colors) == type(None):
@@ -566,17 +482,6 @@ class SceneModel:
             image_id_for_all_pixels = torch.full(size=[number_of_selected_pixels], fill_value=i)
             self.image_ids_per_pixel.append(image_id_for_all_pixels)
 
-            # we need indices of the selected rows and cols for every image for post-processing
-            if i in self.test_image_indices and self.args.export_test_data_for_post_processing:
-                pixel_rows_to_save = pixel_rows_selected.cpu().numpy()
-                pixel_cols_to_save = pixel_cols_selected.cpu().numpy()
-                pixel_rows_file = "{}/selected_pixel_rows_{}.npy".format(self.args.base_directory,i)
-                pixel_cols_file = "{}/selected_pixel_cols_{}.npy".format(self.args.base_directory,i)
-                with open(pixel_rows_file, "wb") as f:
-                    np.save(f, pixel_rows_to_save)
-                with open(pixel_cols_file, "wb") as f:
-                    np.save(f, pixel_cols_to_save)
-
             # script for visualizing mask
             if visualize_masks and i in self.test_image_indices:
                 #self.visualize_mask(pixels_to_visualize=xyz_coordinates_on_or_off, mask_index=i, colors=image)
@@ -600,8 +505,7 @@ class SceneModel:
         self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0)
         self.confidence_per_pixel = torch.cat(self.confidence_per_pixel, dim=0)
         
-        # and clean up
-        self.number_of_pixels = self.image_ids_per_pixel.shape[0]
+        # and clean up        
         self.near = torch.min(self.rgbd[:,3])
         self.far = torch.max(self.rgbd[:,3])
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))
@@ -611,7 +515,7 @@ class SceneModel:
         self.depth_based_pixel_sampling_weights[torch.where(self.rgbd[:,3] == self.args.far_maximum_depth)[0]] = 0.0 # set sampling probability to 0% for depth samples clamped at max
         
         max_depth_weight = torch.max(self.depth_based_pixel_sampling_weights)
-        print("Max depth sampling weight of {:.2f} at {:.2f}m. More examples of depth vs. sampling weight: {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, ...".format(
+        print("Max depth sampling weight of {:.2f} at {:.4f}m. More examples of depth vs. sampling weight: {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, ...".format(
                                                                                                                                max_depth_weight,
                                                                                                                                self.near,
                                                                                                                                self.rgbd[:,3][0*100000],
@@ -638,41 +542,7 @@ class SceneModel:
         self.pixel_indices_below_max_depth = self.pixel_indices_below_max_depth.detach().cpu().numpy().tolist()
 
         
-        print("Loaded {} images with {:,} pixels selected".format(i+1, self.number_of_pixels ))
-
-
-    def derive_xyz_coordinates(self, camera_world_position, camera_world_rotation, pixel_directions, pixel_depths, flattened=False):
-        
-        if not flattened:
-            # transform rays from camera coordinate to world coordinate
-            # camera_world_rotation: [1,1,1,3,3]
-            pixel_world_directions = torch.matmul(camera_world_rotation, pixel_directions).squeeze(4).squeeze(0)                                                            
-            pixel_world_directions = torch.nn.functional.normalize(pixel_world_directions, p=2, dim=2)  # (N_pixels, 3)
-            
-            # Get sample position in the world (1, 1, 3) + (H, W, 3) * (H, W, 1) -> (H, W, 3)
-            global_xyz = camera_world_position + pixel_world_directions * pixel_depths.unsqueeze(2)
-            global_xyz = global_xyz.squeeze(0)
-
-        else:
-            pixel_directions_world = torch.matmul(camera_world_rotation, pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3) 
-            pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=2)  # (N_pixels, 3)
-            pixel_depth_samples_world_directions = pixel_directions_world * pixel_depths.unsqueeze(1).expand(-1,3) # (N_pixels, 3)
-            global_xyz = camera_world_position + pixel_depth_samples_world_directions # (N_pixels, 3)
-
-        return global_xyz            
-
-
-    def get_sensor_xyz_coordinates(self, i=None, pose_data=None, depth_data=None):
-
-        # get camera world position and rotation
-        camera_world_position = pose_data[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
-        camera_world_rotation = pose_data[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
-
-        # get relative pixel orientations              
-        pixel_directions = self.pixel_directions[i].unsqueeze(3) # (H, W, 3, 1)                        
-        xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth_data)
-
-        return xyz_coordinates 
+        print("Loaded {} images with {:,} pixels selected".format(i+1, self.image_ids_per_pixel.shape[0] ))
 
 
     def get_min_max_bounds(self, xyz_coordinates, padding=0.025):
@@ -718,10 +588,47 @@ class SceneModel:
         self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z = self.get_min_max_bounds(xyz_coordinates, padding=100.0)
 
 
+    #########################################################################
+    ####################### Camera helper functions #########################
+    #########################################################################
+
+    def get_sensor_xyz_coordinates(self, i=None, pose_data=None, depth_data=None):
+
+        # get camera world position and rotation
+        camera_world_position = pose_data[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
+        camera_world_rotation = pose_data[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
+
+        # get relative pixel orientations              
+        pixel_directions = self.pixel_directions[i].unsqueeze(3) # (H, W, 3, 1)                        
+        xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth_data)
+
+        return xyz_coordinates 
+
+    def derive_xyz_coordinates(self, camera_world_position, camera_world_rotation, pixel_directions, pixel_depths, flattened=False):
+        
+        if not flattened:
+            # transform rays from camera coordinate to world coordinate
+            # camera_world_rotation: [1,1,1,3,3]
+            pixel_world_directions = torch.matmul(camera_world_rotation, pixel_directions).squeeze(4).squeeze(0)                                                            
+            pixel_world_directions = torch.nn.functional.normalize(pixel_world_directions, p=2, dim=2)  # (N_pixels, 3)
+            
+            # Get sample position in the world (1, 1, 3) + (H, W, 3) * (H, W, 1) -> (H, W, 3)
+            global_xyz = camera_world_position + pixel_world_directions * pixel_depths.unsqueeze(2)
+            global_xyz = global_xyz.squeeze(0)
+
+        else:
+            pixel_directions_world = torch.matmul(camera_world_rotation, pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3) 
+            pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=2)  # (N_pixels, 3)
+            pixel_depth_samples_world_directions = pixel_directions_world * pixel_depths.unsqueeze(1).expand(-1,3) # (N_pixels, 3)
+            global_xyz = camera_world_position + pixel_depth_samples_world_directions # (N_pixels, 3)
+
+        return global_xyz      
+
+
     # compute *unnormalized* ray directions for all pixels in dataset
     def compute_ray_direction_in_camera_coordinates(self, focal_length_x, focal_length_y):
         
-        # Compute ray directions in the camera coordinate, which only depends on intrinsics. This could be further transformed to world coordinate later, using camera poses.
+        # Compute ray directions in the camera coordinate, which only depends on intrinsics. This will be further transformed to world coordinate later, using camera poses.
         camera_coordinates_y, camera_coordinates_x = torch.meshgrid(torch.arange(self.H, dtype=torch.float32, device=self.device),
                                                                     torch.arange(self.W, dtype=torch.float32, device=self.device),
                                                                     indexing='ij')  # (H, W)
@@ -738,10 +645,10 @@ class SceneModel:
         focal_length_y_rep = focal_length_x.unsqueeze(1).unsqueeze(2).expand(self.n_training_images, self.H, self.W)        
         #######################################################################
 
-        # Apple's camera coordinate system (which matches most common camera model):
+        # Apple's camera coordinate system:
         # x = right
         # y = up
-        # z = forward
+        # z = forward (note, z represents "forward" in our environment, whereas it typically represents "backward" in other environments)
         camera_coordinates_directions_x = (camera_coordinates_x - self.principal_point_x.cpu()) / focal_length_x_rep  # (N_images, H, W)
         camera_coordinates_directions_y = (camera_coordinates_y - self.principal_point_y.cpu()) / focal_length_y_rep  # (N_images, H, W)
                 
@@ -750,7 +657,131 @@ class SceneModel:
         self.pixel_directions = camera_coordinates_pixel_directions.to(device=self.device)         
         
         self.focal_length_x = focal_length_x
-        self.focal_length_y = focal_length_y                
+        self.focal_length_y = focal_length_y   
+
+
+    def get_point_cloud(self, pose, depth, rgb, pixel_directions, label=0, save=False, remove_zero_depths=True, save_raw_xyz=False, dir='', entropy_image=None, unsparse_rendered_rgb_img=None, sparse_rendered_rgb_img=None, unsparse_depth=None, max_depth_filter_image=None,save_in_image_coordinates=True):        
+
+        camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
+        camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
+        pixel_directions = pixel_directions.unsqueeze(3) # (H, W, 3, 1)        
+
+        xyz_coordinates = self.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth)
+        
+        xyz_coordinates = xyz_coordinates
+        if save_raw_xyz:
+            file_path = "{}/{}_xyz_raw.npy".format(dir, label)
+            with open(file_path, "wb") as f:
+                np.save(f, xyz_coordinates.cpu().detach().numpy())
+
+
+        pixel_directions = pixel_directions.squeeze(3)        
+        r = torch.sqrt(torch.sum(  (pixel_directions[60, 80] - pixel_directions[240, 320])**2, dim=0))                                                                
+
+        max_depth_condition = (max_depth_filter_image == 1).to(self.device)
+        n_filtered_points = self.H * self.W - torch.sum(max_depth_condition.flatten())
+        print("filtering {}/{} points with max depth condition".format(n_filtered_points, self.W*self.H))
+
+        depth_condition = (depth != 0).to(self.device)
+        n_filtered_points = self.H * self.W - torch.sum(depth_condition.flatten())
+        print("filtering {}/{} points with depth=0 condition".format(n_filtered_points, self.W*self.H))
+
+        angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[240, 320, :])**2, dim=2 ) ) < r).to(self.device)
+        n_filtered_points = self.H * self.W - torch.sum(angle_condition.flatten())
+        print("filtering {}/{} points with angle condition".format(n_filtered_points, self.W*self.H))
+
+        #entropy_condition = (entropy_image < 3.0).to(self.device)
+        entropy_condition = (entropy_image < 1.0).to(self.device)
+        n_filtered_points = self.H * self.W - torch.sum(entropy_condition.flatten())
+        print("filtering {}/{} points with entropy condition".format(n_filtered_points, self.W*self.H))
+
+        joint_condition = torch.logical_and(max_depth_condition, depth_condition).to(self.device)        
+        joint_condition = torch.logical_and(joint_condition, angle_condition).to(self.device)        
+        joint_condition = torch.logical_and(joint_condition, entropy_condition).to(self.device)        
+
+        sparse_depth = depth      
+
+        if self.args.use_sparse_fine_rendering:            
+            sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005 #< 8.0 * (self.far-self.near) / ( (self.args.number_of_samples_outward_per_raycast + 1))            
+            joint_condition = torch.logical_and(joint_condition, sticker_condition)
+            n_filtered_points = self.H * self.W - torch.sum(sticker_condition.flatten())
+            print("filtering {}/{} points with sticker condition".format(n_filtered_points, self.W*self.H))            
+    
+        n_filtered_points = self.H * self.W - torch.sum(joint_condition.flatten())
+        print("{}/{} total points filtered with intersection of conditions".format(n_filtered_points, self.W*self.H))        
+
+        if save_raw_xyz:
+
+            if save_in_image_coordinates:
+                # save geometry as .npy file accessible in image coordinates (H,W,3)
+                xyz_coordinates_as_image = xyz_coordinates.reshape(self.H, self.W, 3)
+
+                joint_condition_1_or_0 = torch.where(joint_condition, 1.0, 0.0)
+
+                xyz_data = xyz_coordinates_as_image.to(device=self.device)
+                entropy_data = entropy_image.unsqueeze(2).to(device=self.device)
+                filter_data = joint_condition_1_or_0.unsqueeze(2).to(device=self.device)
+
+                # save entropy data in the 4th channel
+                xyz_entropy_filter_image = torch.cat([xyz_data, entropy_data, filter_data], dim=2)
+
+                print("Saving (x,y,z) coordinates as image with shape {}".format(xyz_entropy_filter_image.shape))
+                file_path = "{}/{}_xyz_entropy_per_pixel.npy".format(dir, label)
+                with open(file_path, "wb") as f:
+                    np.save(f, xyz_entropy_filter_image.cpu().detach().numpy())
+
+                # save normalized geometry coordinates as image (quick visual verification)
+                max_coordinate = torch.max(xyz_coordinates_as_image)
+                min_coordinate = torch.min(xyz_coordinates_as_image)
+                normalized_xyz_image_data = (xyz_coordinates_as_image - min_coordinate) / (max_coordinate - min_coordinate)
+                geometry_image_data = (normalized_xyz_image_data.cpu().numpy() * 255).astype(np.uint8)    
+                geometry_image_file_path = "{}/{}_geometry_data_color_coded.png".format(dir, label)
+                imageio.imwrite(geometry_image_file_path, geometry_image_data)
+
+                # save entropy as image (quick visual verification)
+                rendered_entropy = heatmap_to_pseudo_color(entropy_image.cpu().detach().numpy(), min_val=0.0, max_val=2.0)
+                entropy_image_data = (rendered_entropy * 255).astype(np.uint8)    
+                entropy_image_file_path = "{}/{}_entropy_data_color_coded.png".format(dir, label)
+                imageio.imwrite(entropy_image_file_path, entropy_image_data)
+
+                # save filter as image (quick visual verification)
+                rendered_filter_data = heatmap_to_pseudo_color(joint_condition_1_or_0.cpu().detach().numpy())
+                filter_image_data = (rendered_filter_data * 255).astype(np.uint8)    
+                filter_image_file_path = "{}/{}_filter_color_coded.png".format(dir, label)
+                imageio.imwrite(filter_image_file_path, filter_image_data)
+
+                # save colors, extra verification
+                rgb_as_image = rgb.reshape(self.H, self.W, 3)   
+                color_image_data = (rgb_as_image.cpu().numpy() * 255).astype(np.uint8)    
+                color_file_path = "{}/{}_color_data_restructured_same_as_geometry_data.png".format(dir, label)
+                imageio.imwrite(color_file_path, color_image_data)
+
+            else:
+                file_path = "{}/{}_xyz_raw.npy".format(dir, label)
+                with open(file_path, "wb") as f:
+                    np.save(f, xyz_coordinates.cpu().detach().numpy())
+
+
+        joint_condition_indices = torch.where(joint_condition)
+
+        n_filtered_points = self.H * self.W - torch.sum(joint_condition.flatten())
+
+        depth = depth[joint_condition_indices]
+        rgb = rgb[joint_condition_indices]
+                
+        normals = torch.zeros(self.H, self.W, 3)
+        normals = pose[:3, 3] - xyz_coordinates
+        normals = torch.nn.functional.normalize(normals, p=2, dim=2)        
+        normals = normals[joint_condition_indices]
+
+        xyz_coordinates = xyz_coordinates[joint_condition_indices]
+        
+        pcd = self.create_point_cloud(xyz_coordinates, rgb, normals, label="point_cloud_{}".format(label), flatten_xyz=False, flatten_image=False)
+        if save:
+            file_name = "{}/view_{}_training_data_{}.ply".format(dir, label, self.epoch-1)
+            o3d.io.write_point_cloud(file_name, pcd, write_ascii = True)
+
+        return pcd             
         
 
     #########################################################################
@@ -862,10 +893,10 @@ class SceneModel:
     ############################# Sampling ##################################
     #########################################################################
 
-    def sample_depths_nonlinearly(self, number_of_pixels, add_noise=True, test=False):
+    def sample_depths_nonlinearly(self, number_of_pixels, add_noise=True, test_render=False):
         # unwrap values from arguments
         n_samples = self.args.number_of_samples_outward_per_raycast + 1
-        if test:
+        if test_render:
             n_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders + 1
         near_min_focus = self.near
         near_max_focus = self.args.near_maximum_depth
@@ -923,10 +954,10 @@ class SceneModel:
 
         return sample_distances
 
-    def sample_depths_linearly(self, number_of_pixels, add_noise=True, test=False):
+    def sample_depths_linearly(self, number_of_pixels, add_noise=True, test_render=False):
         
         number_of_samples = self.args.number_of_samples_outward_per_raycast + 1
-        if test:
+        if test_render:
             number_of_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders + 1
 
         raycast_distances = torch.linspace(self.near.item(), self.far.item(), number_of_samples).to(self.device)
@@ -939,7 +970,7 @@ class SceneModel:
 
         return raycast_distances
 
-    def resample_depths_from_nerf_weights(self, number_of_pixels, weights, depth_samples, resample_padding = 0.01, use_sparse_fine_rendering=False, test=False):
+    def resample_depths_from_nerf_weights(self, number_of_pixels, weights, depth_samples, resample_padding = 0.01, use_sparse_fine_rendering=False, test_render=False):
         double_edged_weights = [weights[..., :1], weights, weights[..., -1:]]
         weights_pad = torch.cat(double_edged_weights, dim=-1)
         weights_max = torch.maximum(weights_pad[..., :-1], weights_pad[..., 1:])
@@ -948,7 +979,7 @@ class SceneModel:
         # Add in a constant (the sampling function will renormalize the PDF).
         weights = weights_blur + resample_padding
         raycast_distances = depth_samples
-        weight_based_depth_samples = self.resample_from_weights_probability_distribution(bins=raycast_distances.to(self.device), weights=weights.to(self.device), use_sparse_fine_rendering=use_sparse_fine_rendering, test=test)
+        weight_based_depth_samples = self.resample_from_weights_probability_distribution(bins=raycast_distances.to(self.device), weights=weights.to(self.device), use_sparse_fine_rendering=use_sparse_fine_rendering, test_render=test_render)
     
         # equivalent of the official TensorFlow/JAX stop_gradient, to prevent exploding gradients
         weight_based_depth_samples = weight_based_depth_samples.detach()
@@ -956,14 +987,14 @@ class SceneModel:
         return weight_based_depth_samples
 
 
-    # bins: all of the depth samples [N, pixels, number_of_samples_outward_per_raycast+1]
-    # weights: [N_pixels, number_of_samples_outward_per_raycast]
-    # note: when using sparse fine rendering, add_noise should be passed in as False when coarse samples are obtained from sample_depths_linearly
-    def resample_from_weights_probability_distribution(self, bins, weights, use_sparse_fine_rendering=False, test=False):
-        # start off by inferring how many pixels we're computing for
+    # bins: all of the depth samples [N_pixels, number_of_samples_outward_per_raycast + 1]
+    # weights:                       [N_pixels, number_of_samples_outward_per_raycast    ]
+    # notes: -when using sparse fine rendering, add_noise should be passed in as False when coarse samples are obtained from sample_depths_linearly
+    #        -here, the number of depth samples returned matches the number of bins
+    def resample_from_weights_probability_distribution(self, bins, weights, use_sparse_fine_rendering=False, test_render=False):
         
         number_of_samples = self.args.number_of_samples_outward_per_raycast + 1
-        if test:
+        if test_render:
             number_of_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders + 1
 
         number_of_pixels = weights.shape[0]
@@ -972,29 +1003,30 @@ class SceneModel:
         if use_sparse_fine_rendering:
                                     
             weights = weights + 1e-9
-            
             max_weight_indices = torch.argmax(weights.to(device=self.device), 1).to(device=self.device)
+
             pixel_rows = torch.arange(weights.shape[0]).unsqueeze(1).to(device=self.device)            
-            max_weight_indices = max_weight_indices.unsqueeze(1).to(device=self.device)                                   
+            max_weight_indices = max_weight_indices.unsqueeze(1).to(device=self.device)    
             rows_and_max_indices = torch.cat([pixel_rows, max_weight_indices], dim=1).to(device=self.device)                                                            
 
             max_depths = bins[rows_and_max_indices[:, 0], rows_and_max_indices[:, 1]]
-                                                                      
-            bin_length = (self.far.item()-self.near.item()) / (number_of_samples)
-            
+                                                                                  
+            bin_length = (self.args.near_maximum_depth - self.near.item()) / (number_of_samples)
             samples = torch.linspace(-bin_length/2.0, bin_length/2.0, number_of_samples).to(self.device)
-            samples.unsqueeze(0).expand(number_of_pixels, number_of_samples)
+            samples = samples.unsqueeze(0).expand(number_of_pixels, number_of_samples)
 
             samples = samples + max_depths.unsqueeze(1).expand(number_of_pixels, number_of_samples)
 
-            # don't try to sample outside of [self.near, self.far]
-            samples[torch.argwhere(samples > self.far)] = self.far
-            samples[torch.argwhere(samples < self.near)] = self.near            
+            # don't try to sample outside of [self.near, self.far]            
+            out_of_bounds_indices = torch.argwhere(samples > self.args.far_maximum_depth)
+            samples[out_of_bounds_indices[:,0], out_of_bounds_indices[:,1]] = self.args.far_maximum_depth
+            out_of_bounds_indices = torch.argwhere(samples < self.near)
+            samples[out_of_bounds_indices[:,0], out_of_bounds_indices[:,1]] = self.near.item()     
+            samples = torch.sort(samples, dim=1)[0]               
 
-            samples = torch.sort(samples, dim=1)[0]                        
+            return samples                            
 
-            return samples                                    
-        
+
         # prevent NaNs
         weights = weights + 1e-9
   
@@ -1040,6 +1072,7 @@ class SceneModel:
     ############################## Rendering ################################
     #########################################################################
 
+    # the core rendering function
     def render(self, poses, pixel_directions, sampling_depths, perturb_depths=False, rgb_image=None, pixel_focal_lengths_x=None):
         
         # poses := (N_pixels, 4, 4)
@@ -1058,11 +1091,7 @@ class SceneModel:
         # encode direction: (H, W, N_sample, (2L+1)*C = 27)        
         angular_directional_encoding = encode_position(pixel_directions_world, levels=self.args.directional_encoding_fourier_frequencies)  # (N_pixels, 27)
         angular_directional_encoding = angular_directional_encoding.unsqueeze(1).expand(-1, sampling_depths.size()[1] - 1, -1)  # (N_pixels, N_sample, 27)
-
-        # inference rgb and density using position and direction encoding.                
-        #xyz_position_encoding = xyz_position_encoding.float()        
-        xyz_position_encoding = xyz_position_encoding
-        
+            
         density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)                
 
         rgb = self.models["color"](features, angular_directional_encoding)  # (N_pixels, N_sample, 4)        
@@ -1090,7 +1119,7 @@ class SceneModel:
         return result
 
 
-    def flat_render(self, poses, pixel_directions, focal_lengths, test=False):
+    def flat_render(self, poses, pixel_directions, focal_lengths):
 
         n_pixels = poses.size()[0]
         
@@ -1101,12 +1130,6 @@ class SceneModel:
 
         rendered_image_fine_batches = []        
 
-        number_of_fine_samples = self.args.number_of_samples_outward_per_raycast
-        number_of_coarse_samples = self.args.number_of_samples_outward_per_raycast + 1
-        if test:
-            number_of_fine_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders
-            number_of_coarse_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders + 1            
-
         for poses_batch, pixel_directions_batch, focal_lengths_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_batches):
 
             # for resampling with test data, we will compute the NeRF-weighted resamples per batch
@@ -1114,11 +1137,12 @@ class SceneModel:
                 # get the depth samples per pixel
                 if depth_sampling_optimization == 0:
                     # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
-                    depth_samples_coarse = self.sample_depths_linearly(number_of_pixels=poses_batch.size()[0], add_noise=False) # (N_pixels, N_samples)                                                           
+                    depth_samples_coarse = self.sample_depths_linearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=True) # (N_pixels, N_samples)                                                           
+                    #depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=True) # (N_pixels, N_samples)                                                           
                     rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_batch)  # (N_pixels, 3)
                 else:
                     # if this is not the first iteration, then resample with the latest weights                                        
-                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test=test)  # (N_pixels, N_samples)                                
+                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test_render=True)  # (N_pixels, N_samples)                                
                     rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_batch)  # (N_pixels, 3)
                                         
             if self.args.n_depth_sampling_optimizations > 1:
@@ -1139,8 +1163,8 @@ class SceneModel:
 
     # Render just the fine and coarse rgb/depth images, all on GPU
     # view_pixel_directions: assumed to be computed with respect to view_focal_length_x
-    # view_focal_length_x: only needed by IPE computation
-    def basic_render(self, pose, view_pixel_directions, view_focal_length_x, test=False):
+    # view_focal_length_x: only needed by IPE computation    
+    def basic_render(self, pose, view_pixel_directions, view_focal_length_x, test_render=False):
 
         poses = pose.unsqueeze(0).expand(self.W*self.H, -1, -1)
         pixel_directions = view_pixel_directions.flatten(start_dim=0, end_dim=1)                  
@@ -1156,13 +1180,6 @@ class SceneModel:
         rendered_image_coarse_batches = []
         depth_image_coarse_batches = []
 
-        number_of_fine_samples = self.args.number_of_samples_outward_per_raycast
-        number_of_coarse_samples = self.args.number_of_samples_outward_per_raycast + 1
-        if test:
-            number_of_fine_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders
-            number_of_coarse_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders + 1            
-
-
         for poses_batch, pixel_directions_batch, focal_lengths_x_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_x_batches):
 
             # for resampling with test data, we will compute the NeRF-weighted resamples per batch
@@ -1170,11 +1187,11 @@ class SceneModel:
                 # get the depth samples per pixel
                 if depth_sampling_optimization == 0:
                     # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
-                    depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test=test) # (N_pixels, N_samples)                                       
+                    depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=test_render) # (N_pixels, N_samples)                                       
                     rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
                 else:
                     # if this is not the first iteration, then resample with the latest weights                                        
-                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test=test)  # (N_pixels, N_samples)                                
+                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test_render=test_render)  # (N_pixels, N_samples)                                
                     rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
                                         
             if self.args.n_depth_sampling_optimizations > 1:
@@ -1185,25 +1202,25 @@ class SceneModel:
             depth_image_coarse_batches.append(rendered_data_coarse['depth_map']) # (n_pixels_per_row)             
 
         if self.args.n_depth_sampling_optimizations > 1:
-            rendered_image_data_fine = torch.cat(rendered_image_fine_batches, dim=0)#.cpu() # (N_pixels, 3)
-            rendered_depth_data_fine = torch.cat(depth_image_fine_batches, dim=0)#.cpu()  # (N_pixels)
+            rendered_image_data_fine = torch.cat(rendered_image_fine_batches, dim=0) # (N_pixels, 3)
+            rendered_depth_data_fine = torch.cat(depth_image_fine_batches, dim=0)  # (N_pixels)
 
-        rendered_image_data_coarse = torch.cat(rendered_image_coarse_batches, dim=0)#.cpu() # (N_pixels, 3)
-        rendered_depth_data_coarse = torch.cat(depth_image_coarse_batches, dim=0)#.cpu()  # (N_pixels)
-
-        if self.args.n_depth_sampling_optimizations > 1:
-            rendered_image_fine = torch.zeros(self.H * self.W, 3)#.cpu()
-            rendered_depth_fine = torch.zeros(self.H * self.W)#.cpu()
-
-        rendered_image_coarse = torch.zeros(self.H * self.W, 3)#.cpu()
-        rendered_depth_coarse = torch.zeros(self.H * self.W)#.cpu()
+        rendered_image_data_coarse = torch.cat(rendered_image_coarse_batches, dim=0) # (N_pixels, 3)
+        rendered_depth_data_coarse = torch.cat(depth_image_coarse_batches, dim=0)  # (N_pixels)
 
         if self.args.n_depth_sampling_optimizations > 1:
-            rendered_image_fine = rendered_image_data_fine#.cpu()
-            rendered_depth_fine = rendered_depth_data_fine#.cpu()         
+            rendered_image_fine = torch.zeros(self.H * self.W, 3)
+            rendered_depth_fine = torch.zeros(self.H * self.W)
+
+        rendered_image_coarse = torch.zeros(self.H * self.W, 3)
+        rendered_depth_coarse = torch.zeros(self.H * self.W)
+
+        if self.args.n_depth_sampling_optimizations > 1:
+            rendered_image_fine = rendered_image_data_fine
+            rendered_depth_fine = rendered_depth_data_fine
             
-        rendered_image_coarse = rendered_image_data_coarse#.cpu()
-        rendered_depth_coarse = rendered_depth_data_coarse#.cpu()
+        rendered_image_coarse = rendered_image_data_coarse
+        rendered_depth_coarse = rendered_depth_data_coarse
 
         render_result = {
             'rendered_image_coarse': rendered_image_coarse,
@@ -1219,12 +1236,9 @@ class SceneModel:
 
     # invoke current model for the pose and mask associated with train_image_index
     # for visual results, supply result to save_render_as_png
-    def render_prediction_for_train_image(self, train_image_index, test=False):
+    def render_prediction_for_train_image(self, train_image_index):
         mask = torch.zeros(self.H, self.W)        
 
-        #pixel_indices_filter = torch.zeros(self.rgbd.size()[0])
-        #pixel_indices_filter[self.pixel_indices_below_max_depth] = 1            
-        #pixel_indices_for_this_image = torch.argwhere(torch.logical_and(self.image_ids_per_pixel == train_image_index, pixel_indices_filter == 1))            
         pixel_indices_for_this_image = torch.argwhere(self.image_ids_per_pixel == train_image_index)
 
         pixel_rows = self.pixel_rows[pixel_indices_for_this_image]
@@ -1233,18 +1247,18 @@ class SceneModel:
         mask = mask.flatten()
         pose = self.models['pose'](0)[train_image_index]
 
-        return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=mask, test=test)
+        return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=mask)
 
 
     # invoke current model for a specific pose and 1d mask
     # for visual results, supply result to save_render_as_png
     # pixels filtered out by the mask are assigned value [0,0,0] 
-    def render_prediction(self, pose, train_image_index, mask=None, max_depth=None, test=False):                
+    # train_image_index 
+    def render_prediction(self, pose, train_image_index, mask=None, max_depth=None):                
+        
+        # n_samples: the number of queries to NeRF model        
+        n_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders
 
-
-        n_samples = self.args.number_of_samples_outward_per_raycast + 1
-        if test:
-            n_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders + 1
         # copy pose to go with each individual pixel and match reference pixel directions with them
         if mask is not None:
             poses = pose.unsqueeze(0).expand(int(mask.sum().item()), -1, -1)
@@ -1274,16 +1288,9 @@ class SceneModel:
         resampled_depths_coarse_batches = []
 
         rendered_image_unsparse_fine_batches = []
-        depth_image_unsparse_fine_batches = []
+        depth_image_unsparse_fine_batches = []        
 
-        if self.args.export_test_data_for_post_processing:
-            pixel_xyz_positions_batches = []
-
-        number_of_fine_samples = n_samples
-        number_of_coarse_samples = n_samples
-        
-
-        # for each batch, compute the render and extract out RGB and depth map                  
+        # for each batch, compute the render and extract RGB and depth map
         for poses_batch, pixel_directions_batch, focal_lengths_x_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_x_batches):
 
             # for resampling with test data, we will compute the NeRF-weighted resamples per batch
@@ -1291,84 +1298,72 @@ class SceneModel:
                 # get the depth samples per pixel
                 if depth_sampling_optimization == 0:
                     # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
-                    depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test=test) # (N_pixels, N_samples)                   
-                    resampled_depths_coarse_batches.append(depth_samples_coarse[..., : number_of_coarse_samples].cpu())                    
+                    depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=True) # (N_pixels, N_samples)                              
+                    resampled_depths_coarse_batches.append(depth_samples_coarse.cpu())
                     rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
                 else:
-                    # if this is not the first iteration, then resample with the latest weights                                        
-                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test=test)  # (N_pixels, N_samples)                                
-                    
-                    resampled_depths_fine_batches.append(depth_samples_fine[..., : number_of_fine_samples].cpu())                    
+                    # if this is not the first iteration, then resample with the latest weights         
+                    depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test_render=True)  # (N_pixels, N_samples)
+                    resampled_depths_fine_batches.append(depth_samples_fine.cpu()) 
                     rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
                     
                     if self.args.use_sparse_fine_rendering:
                         # point cloud filtering needs both the sparsely rendered data the "unsparsely" (normal) rendered data
-                        depth_samples_unsparse_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=False, test=test)  # (N_pixels, N_samples)                                    
+                        depth_samples_unsparse_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=False, test_render=True)  # (N_pixels, N_samples)                                    
                         unsparse_rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_unsparse_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)                        
 
 
             if self.args.n_depth_sampling_optimizations > 1:
-                rendered_image_fine_batches.append(rendered_data_fine['rgb_rendered']) # (n_pixels_per_row, 3)
-                depth_image_fine_batches.append(rendered_data_fine['depth_map']) # (n_pixels_per_row)             
-                density_fine_batches.append(rendered_data_fine['density'])
-                depth_weights_fine_batches.append(rendered_data_fine['depth_weights'])     
-                
-                d = rendered_data_fine['depth_weights']                                
-                zero = torch.argwhere( torch.sum(d, 1) < 1.0 - 0.000001 )                
+                rendered_image_fine_batches.append(rendered_data_fine['rgb_rendered'].cpu()) # (n_pixels_per_row, 3)                
+                depth_image_fine_batches.append(rendered_data_fine['depth_map'].cpu()) # (n_pixels_per_row)             
+                density_fine_batches.append(rendered_data_fine['density'].cpu())
+                depth_weights_fine_batches.append(rendered_data_fine['depth_weights'].cpu())                                     
                                 
                 if self.args.use_sparse_fine_rendering:
-                    rendered_image_unsparse_fine_batches.append(unsparse_rendered_data_fine['rgb_rendered'])
-                    depth_image_unsparse_fine_batches.append(unsparse_rendered_data_fine['depth_map'])
+                    rendered_image_unsparse_fine_batches.append(unsparse_rendered_data_fine['rgb_rendered'].cpu())
+                    depth_image_unsparse_fine_batches.append(unsparse_rendered_data_fine['depth_map'].cpu())
 
-            rendered_image_coarse_batches.append(rendered_data_coarse['rgb_rendered']) # (n_pixels_per_row, 3)
-            depth_image_coarse_batches.append(rendered_data_coarse['depth_map']) # (n_pixels_per_row)             
-            density_coarse_batches.append(rendered_data_coarse['density'])
-            depth_weights_coarse_batches.append(rendered_data_coarse['depth_weights'])                        
-
-            if self.args.export_test_data_for_post_processing:                
-                pixel_xyz_positions_batches.append(rendered_data_fine['pixel_xyz_positions'])
+            rendered_image_coarse_batches.append(rendered_data_coarse['rgb_rendered'].cpu()) # (n_pixels_per_row, 3)
+            depth_image_coarse_batches.append(rendered_data_coarse['depth_map'].cpu()) # (n_pixels_per_row)                         
+            density_coarse_batches.append(rendered_data_coarse['density'].cpu())            
+            depth_weights_coarse_batches.append(rendered_data_coarse['depth_weights'].cpu())                        
+        
 
         # combine batch results to compose full images
-        if self.args.n_depth_sampling_optimizations > 1:
-            rendered_image_data_fine = torch.cat(rendered_image_fine_batches, dim=0).cpu() # (N_pixels, 3)
-            rendered_depth_data_fine = torch.cat(depth_image_fine_batches, dim=0).cpu()  # (N_pixels)
-            density_data_fine = torch.cat(density_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)
-            depth_weights_data_fine = torch.cat(depth_weights_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)
+        if self.args.n_depth_sampling_optimizations > 1:            
+            rendered_image_data_fine = torch.cat(rendered_image_fine_batches, dim=0).cpu() # (N_pixels, 3)            
+            rendered_depth_data_fine = torch.cat(depth_image_fine_batches, dim=0).cpu()  # (N_pixels)            
+            density_data_fine = torch.cat(density_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)            
+            depth_weights_data_fine = torch.cat(depth_weights_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)            
             resampled_depths_data_fine = torch.cat(resampled_depths_fine_batches, dim=0).cpu()  # (N_pixels, N_samples)
             if self.args.use_sparse_fine_rendering:
                 rendered_image_data_unsparse_fine = torch.cat(rendered_image_unsparse_fine_batches, dim=0).cpu()
                 depth_image_data_unsparse_fine = torch.cat(depth_image_unsparse_fine_batches, dim=0).cpu()
 
         rendered_image_data_coarse = torch.cat(rendered_image_coarse_batches, dim=0).cpu() # (N_pixels, 3)
-        rendered_depth_data_coarse = torch.cat(depth_image_coarse_batches, dim=0).cpu()  # (N_pixels)
+        rendered_depth_data_coarse = torch.cat(depth_image_coarse_batches, dim=0).cpu()  # (N_pixels)        
         density_data_coarse = torch.cat(density_coarse_batches, dim=0).cpu()  # (N_pixels, N_samples)
         depth_weights_data_coarse = torch.cat(depth_weights_coarse_batches, dim=0).cpu()  # (N_pixels, N_samples)
         resampled_depths_data_coarse = torch.cat(resampled_depths_coarse_batches, dim=0).cpu()  # (N_pixels, N_samples)
-
-        if self.args.export_test_data_for_post_processing:
-            depth_weight_per_sample = torch.cat(depth_weights_fine_batches, dim=0)
-            xyz_for_all_samples = torch.cat(pixel_xyz_positions_batches, dim=0)
-            self.export_geometry_data(depth_weight_per_sample=depth_weight_per_sample, xyz_for_all_samples=xyz_for_all_samples, test_view_number=train_image_index, top_n_depth_weights = 10)
-
+        
         if self.args.n_depth_sampling_optimizations > 1:
             rendered_image_fine = torch.zeros(self.H * self.W, 3).cpu()
             rendered_depth_fine = torch.zeros(self.H * self.W).cpu()
-            density_fine = torch.zeros(self.H * self.W, number_of_fine_samples-1).cpu()
-            depth_weights_fine = torch.zeros(self.H * self.W, number_of_fine_samples-1).cpu()
-            resampled_depths_fine = torch.zeros(self.H * self.W, number_of_fine_samples).cpu()        
+            density_fine = torch.zeros(self.H * self.W, n_samples).cpu()
+            depth_weights_fine = torch.zeros(self.H * self.W, n_samples).cpu()
+            resampled_depths_fine = torch.zeros(self.H * self.W, n_samples+1).cpu()        
             if self.args.use_sparse_fine_rendering:
                 rendered_image_unsparse_fine = torch.zeros(self.H * self.W, 3).cpu()
                 depth_image_unsparse_fine = torch.zeros(self.H * self.W).cpu()
 
         rendered_image_coarse = torch.zeros(self.H * self.W, 3).cpu()
         rendered_depth_coarse = torch.zeros(self.H * self.W).cpu()
-        density_coarse = torch.zeros(self.H * self.W, number_of_coarse_samples-1).cpu()
-        depth_weights_coarse = torch.zeros(self.H * self.W, number_of_coarse_samples-1).cpu()        
-        resampled_depths_coarse = torch.zeros(self.H * self.W, number_of_coarse_samples).cpu()        
+        density_coarse = torch.zeros(self.H * self.W, n_samples).cpu()
+        depth_weights_coarse = torch.zeros(self.H * self.W, n_samples).cpu()        
+        resampled_depths_coarse = torch.zeros(self.H * self.W, n_samples+1).cpu()        
 
         # if we're using a mask, we need to find the right pixel positions
         if mask is not None:
-
             if self.args.n_depth_sampling_optimizations > 1:
                 rendered_image_fine[torch.argwhere(mask==1).squeeze()] = rendered_image_data_fine.cpu()                
                 rendered_depth_fine[torch.argwhere(mask==1).squeeze()] = rendered_depth_data_fine.cpu()
@@ -1545,7 +1540,7 @@ class SceneModel:
                 depth_samples = self.sample_depths_nonlinearly(number_of_pixels=n_pixels, add_noise=True) # (N_pixels, N_samples)
             else:
                 # if this is not the first iteration, then resample with the latest weights
-                depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=n_pixels, weights=nerf_depth_weights, depth_samples=depth_samples)  # (N_pixels, N_samples)
+                depth_samples = self.resample_depths_from_nerf_weights(number_of_pixels=n_pixels, weights=nerf_depth_weights, depth_samples=depth_samples)  # (N_pixels, N_samples)                
             
             n_samples = depth_samples.size()[1]
 
@@ -1606,7 +1601,7 @@ class SceneModel:
                 coarse_interpretable_depth_loss_per_confident_pixel = interpretable_depth_loss_per_confident_pixel
 
             else:
-                # no fine KL divergence loss
+                # Note: no fine KL divergence loss
                 #depth_loss = 0
                 #entropy_depth_loss = 0
                 #total_weighted_loss += 0.9 * (depth_to_rgb_importance * depth_loss + (1 - depth_to_rgb_importance) * rgb_loss + entropy_depth_loss)
@@ -1621,7 +1616,7 @@ class SceneModel:
         for optimizer in self.optimizers.values():
             optimizer.zero_grad()   
 
-        # release unused GPU memory
+        # release unused GPU memory (for memory usage monitoring purposes)
         torch.cuda.empty_cache()
 
         # backward propagate the gradients to update the values which are parameters to this loss
@@ -1667,23 +1662,26 @@ class SceneModel:
         self.epoch += 1
 
 
-    def sample_next_batch(self):
-        # first, subsample set of pixels to do weighted sampling from
-        randomly_sampled_pixel_indices = torch.randperm(torch.tensor(self.number_of_pixels).to(self.device), dtype=torch.long, device=self.device)[:int(self.args.pixel_samples_per_epoch * 2500)]
+    def sample_next_batch(self, weighted=True):
 
-        # get 2500x number of samples to collect, we do weighted sampling with this subset, which will have sub-sampled indices
-        subsampled_depth_weights = self.depth_based_pixel_sampling_weights[randomly_sampled_pixel_indices].to(self.device)
+        if weighted:
+            # first, subsample set of pixels to do weighted sampling from
+            randomly_sampled_pixel_indices = torch.randperm(torch.tensor(self.image_ids_per_pixel.shape[0]).to(self.device), dtype=torch.long, device=self.device)[:int(self.args.pixel_samples_per_epoch * 2500)]
 
-        # now we actually do weighted sampling
-        subsampled_indices_from_weights = torch.multinomial(input=subsampled_depth_weights, num_samples=self.args.pixel_samples_per_epoch, replacement=False)
+            # get 2500x number of samples to collect, we do weighted sampling with this subset, which will have sub-sampled indices
+            subsampled_depth_weights = self.depth_based_pixel_sampling_weights[randomly_sampled_pixel_indices].to(self.device)
 
-        # now we need to grab from our global pixel indices which ones we actually selected, after weighted sampling
-        indices_of_random_pixels_for_this_epoch = randomly_sampled_pixel_indices[subsampled_indices_from_weights]
+            # now we actually do weighted sampling
+            subsampled_indices_from_weights = torch.multinomial(input=subsampled_depth_weights, num_samples=self.args.pixel_samples_per_epoch, replacement=False)
 
-        #indices_of_random_pixels_for_this_epoch = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)                    
-        #indices_of_random_pixels_for_this_epoch = random.sample(population=self.pixel_indices_below_max_depth, k=self.args.pixel_samples_per_epoch)
+            # now we need to grab from our global pixel indices which ones we actually selected, after weighted sampling
+            indices_of_random_pixels_for_this_epoch = randomly_sampled_pixel_indices[subsampled_indices_from_weights]
+        else:
+            indices_of_random_pixels_for_this_epoch = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)                    
+            indices_of_random_pixels_for_this_epoch = random.sample(population=self.pixel_indices_below_max_depth, k=self.args.pixel_samples_per_epoch)            
 
         return indices_of_random_pixels_for_this_epoch
+            
 
 
     #########################################################################
@@ -1744,91 +1742,6 @@ class SceneModel:
             else:
                 self.learning_rate_histories[topic] = [lr]            
                 
-
-    def export_geometry_data(self, depth_weight_per_sample, xyz_for_all_samples, test_view_number=0, top_n_depth_weights = 15):
-        # wrap up NeRF and baseline data for offline post-processing
-        print("Exporting data for test image {}...".format(test_view_number))
-        
-        x_per_sample = xyz_for_all_samples[:,:,0] # (N_pixels, N_samples)
-        y_per_sample = xyz_for_all_samples[:,:,1]
-        z_per_sample = xyz_for_all_samples[:,:,2]
-
-        number_of_pixels = x_per_sample.shape[0]
-        number_of_samples = x_per_sample.shape[1]
-
-        sorted_depth_weights = torch.argsort(depth_weight_per_sample, dim=1, descending=True)
-
-        all_xyz_depth = []
-        all_xyz_slopes = []
-        all_xyz_intercepts = []
-        all_depth_weights = []
-
-        all_x_slope = []
-        all_y_slope = []
-        all_z_slope = []
-
-        all_x_intercept = []
-        all_y_intercept = []
-        all_z_intercept = []
-
-        for pixel_index in range(0, number_of_pixels):                         
-            # first, grab our "focus" geometry
-            top_sample_indices = sorted_depth_weights[pixel_index,:top_n_depth_weights]
-
-            # now, get the minimum and maximum (x,y,z) points along the ray, and save information for this line: we will fit only between these
-            min_top_index = torch.min(top_sample_indices)
-            max_top_index = torch.max(top_sample_indices)
-
-            # min (x,y,z) along raycast
-            x1 = x_per_sample[pixel_index, min_top_index]
-            y1 = y_per_sample[pixel_index, min_top_index]
-            z1 = z_per_sample[pixel_index, min_top_index]
-
-            # max (x,y,z) along raycast
-            x2 = x_per_sample[pixel_index, max_top_index]
-            y2 = y_per_sample[pixel_index, max_top_index]
-            z2 = z_per_sample[pixel_index, max_top_index]
-
-            # save information for the line that is defined by the minimum to maximum points along the ray, i.e. x = x_slope * t + x_intercept where x_slope = x_2 - x_1 and x_intercept = x_1
-            xyz_slope = torch.stack([x2 - x1, y2 - y1, z2 - z1], dim=0)
-            all_xyz_slopes.append(xyz_slope)
-
-            xyz_intercept = torch.stack([x1, y1, z1], dim=0)
-            all_xyz_intercepts.append(xyz_intercept)
-
-            # get all of the (x,y,z) for the top depth weights and save them for later analysis
-            top_depth_x = x_per_sample[pixel_index, top_sample_indices]
-            top_depth_y = y_per_sample[pixel_index, top_sample_indices]
-            top_depth_z = z_per_sample[pixel_index, top_sample_indices]
-            top_depth_xyz = torch.stack([top_depth_x, top_depth_y, top_depth_z], dim=0)
-            all_xyz_depth.append(top_depth_xyz)
-
-            # get the top weights and normalize them so that they sum to 1.0
-            top_weights = depth_weight_per_sample[pixel_index, top_sample_indices]
-            normalized_top_weights = torch.nn.functional.normalize(top_weights, p=1, dim=0)
-            all_depth_weights.append(normalized_top_weights)
-
-            if pixel_index % 1000 == 0:
-                print("(TEST VIEW {}) {} Indices: {} with Min Index: {}, Max Index: {}\n >>> Weights: {}".format(test_view_number, pixel_index, top_sample_indices, min_top_index, max_top_index, top_weights))
-
-        xyz_depths = torch.stack(all_xyz_depth, dim=0)
-        xyz_slopes = torch.stack(all_xyz_slopes, dim=0)
-        xyz_intercepts = torch.stack(all_xyz_intercepts, dim=0)
-        depth_weights = torch.stack(all_depth_weights, dim=0)
-
-        with open("{}/xyz_depths_view_{}.npy".format(self.args.geometry_data_out_dir, test_view_number), "wb") as f:
-            np.save(f, xyz_depths.cpu().numpy())
-
-        with open("{}/xyz_slopes_view_{}.npy".format(self.args.geometry_data_out_dir, test_view_number), "wb") as f:
-            np.save(f, xyz_slopes.cpu().numpy())
-
-        with open("{}/xyz_intercepts_view_{}.npy".format(self.args.geometry_data_out_dir, test_view_number), "wb") as f:
-            np.save(f, xyz_intercepts.cpu().numpy())
-
-        with open("{}/depth_weights_view_{}.npy".format(self.args.geometry_data_out_dir, test_view_number), "wb") as f:
-            np.save(f, depth_weights.cpu().numpy())
-
-
     def test(self):
         
         epoch = self.epoch - 1        
@@ -1838,9 +1751,13 @@ class SceneModel:
         
         # compute the ray directions using the latest focal lengths, derived for the first image
         focal_length_x, focal_length_y = self.models["focal"](0)
-        self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
+        self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)        
 
-        for image_index in self.test_image_indices:
+        for image_index in np.array(self.test_image_indices):
+        #for image_index in np.array( self.test_image_indices[ 148,166]):
+        #for image_index in [self.test_image_indices[i] for i in [106,148,166,112,178,179,180,181]  ]:
+        #for image_index in [self.test_image_indices[i] for i in [0,106,148]  ]:
+            
             
             # todo: improve clarity / specificity of variable names
             #pixel_indices = torch.argwhere(torch.logical_and(self.image_ids_per_pixel == image_index, pixel_indices_filter == 1))            
@@ -1860,7 +1777,7 @@ class SceneModel:
             
             # always render              
             print("Rendering for image {}".format(image_index))
-            render_result = self.render_prediction_for_train_image(train_image_index=image_index, test=True)
+            render_result = self.render_prediction_for_train_image(train_image_index=image_index)
             #render_result = self.basic_render(self.models['pose']()[image_index], self.pixel_directions[image_index], self.focal_length_x[image_index])
 
             nerf_weights_coarse = render_result['depth_weights_coarse']
@@ -1919,7 +1836,7 @@ class SceneModel:
                 entropy_image = coarse_weights_entropy.reshape(self.H, self.W)                
                 this_image_pixel_directions = self.pixel_directions[image_index]                                
 
-                self.get_point_cloud(pose=pose, depth=depth_img, rgb=ground_truth_image, pixel_directions=this_image_pixel_directions, label="_{}_{}".format(epoch,image_index), save=True, dir=self.depth_view_out_dir, entropy_image=entropy_image, sparse_rendered_rgb_img=rendered_rgb_img, unsparse_rendered_rgb_img=unsparse_rendered_rgb_img, unsparse_depth=unsparse_depth_img, max_depth_filter_image=max_depth_filter_image)               
+                self.get_point_cloud(pose=pose, depth=depth_img, rgb=ground_truth_image, pixel_directions=this_image_pixel_directions, label="_{}_{}".format(epoch,image_index), save=True, remove_zero_depths=True, save_raw_xyz=True, dir=self.depth_view_out_dir, entropy_image=entropy_image, sparse_rendered_rgb_img=rendered_rgb_img, unsparse_rendered_rgb_img=unsparse_rendered_rgb_img, unsparse_depth=unsparse_depth_img, max_depth_filter_image=max_depth_filter_image)               
 
             # optional: save graphs of nerf density weights visualization
             if epoch % self.args.save_depth_weights_frequency == 0 and epoch != 0:               
@@ -2028,18 +1945,17 @@ class SceneModel:
         torch.cuda.empty_cache()
 
     def load_saved_args_train(self):
-
-        #self.args.base_directory = './data/elastica_burgundy/'
-        self.args.base_directory = './data/Avras_Orchid'
+        
+        self.args.base_directory = './data/orchid'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
-        self.args.pretrained_models_directory = './data/Avras_Orchid/hyperparam_experiments/120k'      
+        #self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/40k'
         self.args.start_epoch = 1
         self.args.number_of_epochs = 400000
 
         self.args.start_training_extrinsics_epoch = 500        
-        self.args.start_training_intrinsics_epoch = 5000        
+        self.args.start_training_intrinsics_epoch = 5000
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
         self.args.entropy_loss_tuning_start_epoch = 20000
@@ -2064,8 +1980,8 @@ class SceneModel:
         self.args.focal_lr_exponential_index = 9
         self.args.focal_lr_exponential_index = 1
 
-        self.args.pose_lr_start = 0.0001
-        self.args.pose_lr_end = 0.0000025
+        self.args.pose_lr_start = 0.001
+        self.args.pose_lr_end = 0.0001
         self.args.pose_lr_exponential_index = 9
         self.args.pose_lr_curvature_shape = 1
 
@@ -2088,8 +2004,8 @@ class SceneModel:
         self.args.min_confidence = 2.0
 
         ### test images
-        self.args.skip_every_n_images_for_testing = 60
-        self.args.number_of_test_images = 1    
+        self.args.skip_every_n_images_for_testing = 1
+        self.args.number_of_test_images = 200
 
         ### test frequency parameters
         self.args.test_frequency = 5000
@@ -2104,7 +2020,7 @@ class SceneModel:
         ### GPU parameters
 
         # training
-        self.args.pixel_samples_per_epoch = 800
+        self.args.pixel_samples_per_epoch = 1000
         self.args.number_of_samples_outward_per_raycast = 180
 
         # testing
@@ -2117,7 +2033,7 @@ class SceneModel:
         self.args.use_sparse_fine_rendering = False        
         
         #self.args.near_maximum_depth = 0.5
-        self.args.near_maximum_depth = 0.75
+        self.args.near_maximum_depth = 0.5
         self.args.far_maximum_depth = 3.00  
         self.args.percentile_of_samples_in_near_region = 0.80      
 
@@ -2129,20 +2045,20 @@ class SceneModel:
 
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/maxdepth1.0_128x128raysamp_v3_[200k]'
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k'
-        self.args.pretrained_models_directory = './data/Avras_Orchid/hyperparam_experiments/400k'
+        self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/100k'
         #self.args.pretrained_models_directory = './data/elastica_burgundy/hyperparam_experiments/V5_200k_160s_e0.01at20k_skip45'
         self.args.reset_learning_rates = False # start and end indices of learning rate schedules become {0, number_of_epochs}
                 
-        self.args.start_epoch = 400001
+        self.args.start_epoch = 100001
         self.args.number_of_epochs = 1
 
         self.args.save_models_frequency = 999999999
         #self.args.number_of_test_images = 157
-        self.args.number_of_test_images = 500
+        self.args.number_of_test_images = 200
 
-        self.args.skip_every_n_images_for_testing = 2
+        self.args.skip_every_n_images_for_testing = 1
 
-        self.args.near_maximum_depth = 0.75
+        self.args.near_maximum_depth = 0.5
         self.args.far_maximum_depth = 3.00
 
         self.args.number_of_samples_outward_per_raycast_for_test_renders = 360
@@ -2187,8 +2103,7 @@ class SceneModel:
         self.args.save_models_frequency = 1000
         self.args.number_of_test_images = 2
         self.args.skip_every_n_images_for_training = 30
-        self.args.skip_every_n_images_for_testing = 152
-        
+        self.args.skip_every_n_images_for_testing = 152        
         
         self.args.use_sparse_fine_rendering = False        
 
@@ -2197,16 +2112,17 @@ if __name__ == '__main__':
     # Load a scene object with all data and parameters
 
     with torch.no_grad():
-        scene = SceneModel(args=parse_args(), experiment_args='test')
+        scene = SceneModel(args=parse_args(), experiment_args='train')
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:    
 
+        
         if scene.epoch == scene.args.start_epoch:
-            with torch.no_grad():                
+            with torch.no_grad():                            
                 scene.test()
-
-        batch = scene.sample_next_batch()        
-        #with torch.autograd.detect_anomaly():
+        
+        batch = scene.sample_next_batch(weighted=True)
+        #with torch.autograd.detect_anomaly():  # no need to enable this because there are never errors
         scene.train(batch) 
         
         if (scene.epoch-1) % scene.args.test_frequency == 0 and (scene.epoch-1) != 0:

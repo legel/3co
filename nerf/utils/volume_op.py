@@ -10,7 +10,7 @@ def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=Tru
     N_pixels = pixel_directions.shape[0]
     N_samples = sampling_depths.shape[1]
 
-    # transform rays from camera coordinate to world coordinate
+    # transform rays from camera coordinate to world coordinate    
     pixel_directions_world = torch.matmul(poses[:,:3, :3], pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3) 
     poses_xyz = poses[:, :3, 3]  # the translation vectors (N, 3)
 
@@ -44,7 +44,15 @@ def volume_rendering(rgb, density, depths):
     N_pixels, N_samples = depths.shape[0], depths.shape[1]
 
     rgb = torch.sigmoid(rgb)
-    density = torch.squeeze(density.relu(), dim=2)  # (N_pixels, N_sample)    
+    #density2 = torch.squeeze(density.relu(), dim=2).clone()  # (N_pixels, N_sample)        
+    density = torch.squeeze(density.relu(), dim=2)  # (N_pixels, N_sample)        
+    
+    #s = torch.sum(density2, dim=0)
+    #density2[:, : ((N_samples//5) * 4) ] = density2[:, : ((N_samples//5) * 4) ].clone() * 0.8
+    #density2[:, ((N_samples//5) * 4) : ] = density2[:, ((N_samples //5) * 4) :].clone() * 0.2          
+    #density2 = density2.clone() * s / torch.sum(density2.clone(), dim=0)
+    
+    #density = density / torch.sum()  torch.nn.functional.normalize(weight, dim=0, p=1)        
     
     # Compute distances between samples.
     # 1. compute the distances among first (N-1) samples
@@ -65,7 +73,10 @@ def volume_rendering(rgb, density, depths):
     acc_transmittance = torch.roll(acc_transmittance, shifts=1, dims=1)  # (N_pixels, N_sample)
     acc_transmittance[:, 0] = 1.0  # (N_pixels, N_sample)
 
-    weight = acc_transmittance * alpha  # (N_pixels, N_sample)            
+    weight = acc_transmittance * alpha  # (N_pixels, N_sample)      
+    #weight[:, : ((N_samples//5) * 4) ] = weight[:, : ((N_samples//5) * 4) ] * 0.8
+    #weight[:, ((N_samples//5) * 4) : ] = weight[:, ((N_samples //5) * 4) :] * 0.2          
+    #weight = torch.nn.functional.normalize(weight, dim=0, p=1)    
     
     # (N_pixels, N_sample, 1) * (N_pixels, N_sample, 3) = (N_pixels, N_sample, 3) -> (N_pixels, 3)
     rgb_rendered = torch.sum(weight.unsqueeze(2) * rgb, dim=1)

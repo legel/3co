@@ -39,7 +39,7 @@ def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, focal_
     
     N_pixels = sampling_depths.size(0)        
     
-    pixels_shifted_x = (pixel_directions[:, 0] + (1.0 / focal_lengths_x)) #.reshape(pixel_directions.size(0), 1)
+    pixels_shifted_x = (pixel_directions[:, 0] + (1.0 / focal_lengths_x)) 
     pixels_shifted_y = pixel_directions[:, 1]
     pixels_shifted_z = pixel_directions[:, 2]
     
