@@ -39,10 +39,17 @@ def sdf2mesh(in_file_name, out_file_name):
     vertices, triangles = mcubes.marching_cubes(u,0.01)
     print("vertices, triangles:", vertices.shape, triangles.shape)
 
+
+    
+
+
     print('Outputting', out_file_name)
+
     mcubes.export_mesh(vertices, triangles, out_file_name, "NiceMesh")
 
     
+
+
 
 def merge_sdfs(in_file_names, out_file_name):
 

@@ -1,10 +1,11 @@
 import torch
+import torch._dynamo
 from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
 from scipy.spatial.transform import Rotation
 from torchsummary import summary
 import cv2
 import open3d as o3d
-from pytorch3d.io import IO
+#from pytorch3d.io import IO
 import imageio.v2 as imageio
 from PIL import Image
 import numpy as np
@@ -27,6 +28,8 @@ from models.nerf_models import NeRFDensity, NeRFColor
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
+
+
 
 set_randomness()
 
@@ -141,8 +144,7 @@ class SceneModel:
         # initialize high-level arguments        
         self.epoch = self.args.start_epoch
         self.start_time = int(time.time()) 
-        self.device = torch.device('cuda:0') 
-        self.gpu2 = torch.device('cuda:1')        
+        self.device = torch.device('cuda:0')         
 
         # # set cache directory
         os.environ['PYTORCH_KERNEL_CACHE_PATH'] = self.args.base_directory
@@ -170,6 +172,8 @@ class SceneModel:
         self.load_image_and_depth_data_within_xyz_bounds()
         
         # initialize all models        
+        torch.set_float32_matmul_precision('high')
+        torch._dynamo.config.verbose=True        
         self.initialize_models()        
         self.initialize_learning_rates()  
         
@@ -182,8 +186,8 @@ class SceneModel:
             self.load_pretrained_models()
 
             # compute the ray directions using the latest focal lengths
-            focal_length_x, focal_length_y = self.models["focal"](0)
-            self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)            
+            focal_length = self.models["focal"](0)
+            self.compute_ray_direction_in_camera_coordinates(focal_length)            
         else:            
             print("Training from scratch")
             
@@ -309,13 +313,12 @@ class SceneModel:
 
         self.camera_intrinsics = torch.Tensor(camera_intrinsics_matrix).to(device=self.device)
 
-        self.initial_focal_length_x = self.camera_intrinsics[0,0].repeat(self.n_training_images)
-        self.initial_focal_length_y = self.camera_intrinsics[1,1].repeat(self.n_training_images)
+        self.initial_focal_length = self.camera_intrinsics[0,0].repeat(self.n_training_images)        
 
         self.principal_point_x = self.camera_intrinsics[0,2]
         self.principal_point_y = self.camera_intrinsics[1,2]
         
-        self.compute_ray_direction_in_camera_coordinates(focal_length_x=self.initial_focal_length_x, focal_length_y=self.initial_focal_length_y)
+        self.compute_ray_direction_in_camera_coordinates(focal_length=self.initial_focal_length)
 
 
     def load_camera_extrinsics(self):
@@ -502,10 +505,10 @@ class SceneModel:
                 
         self.pixel_rows = torch.cat(self.pixel_rows, dim=0)
         self.pixel_cols = torch.cat(self.pixel_cols, dim=0)
-        self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0)
+        self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0).to(self.device)
         self.confidence_per_pixel = torch.cat(self.confidence_per_pixel, dim=0)
         
-        # and clean up        
+        # and clean up                
         self.near = torch.min(self.rgbd[:,3])
         self.far = torch.max(self.rgbd[:,3])
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))
@@ -626,7 +629,7 @@ class SceneModel:
 
 
     # compute *unnormalized* ray directions for all pixels in dataset
-    def compute_ray_direction_in_camera_coordinates(self, focal_length_x, focal_length_y):
+    def compute_ray_direction_in_camera_coordinates(self, focal_length):
         
         # Compute ray directions in the camera coordinate, which only depends on intrinsics. This will be further transformed to world coordinate later, using camera poses.
         camera_coordinates_y, camera_coordinates_x = torch.meshgrid(torch.arange(self.H, dtype=torch.float32, device=self.device),
@@ -637,27 +640,20 @@ class SceneModel:
         camera_coordinates_y = camera_coordinates_y.unsqueeze(0).expand(self.n_training_images, self.H, self.W)                  
         camera_coordinates_x = camera_coordinates_x.unsqueeze(0).expand(self.n_training_images, self.H, self.W)
         
-        focal_length_x_rep = focal_length_x.unsqueeze(1).unsqueeze(2).expand(self.n_training_images, self.H, self.W)
-
-        #######################################################################
-        # focal_length_y forced to be same as focal_length_x for each image    
-        # TODO: refactor to use single focal length instead of x and y    
-        focal_length_y_rep = focal_length_x.unsqueeze(1).unsqueeze(2).expand(self.n_training_images, self.H, self.W)        
-        #######################################################################
+        focal_length_rep = focal_length.unsqueeze(1).unsqueeze(2).expand(self.n_training_images, self.H, self.W)                                
 
         # Apple's camera coordinate system:
         # x = right
         # y = up
         # z = forward (note, z represents "forward" in our environment, whereas it typically represents "backward" in other environments)
-        camera_coordinates_directions_x = (camera_coordinates_x - self.principal_point_x.cpu()) / focal_length_x_rep  # (N_images, H, W)
-        camera_coordinates_directions_y = (camera_coordinates_y - self.principal_point_y.cpu()) / focal_length_y_rep  # (N_images, H, W)
+        camera_coordinates_directions_x = (camera_coordinates_x - self.principal_point_x.cpu()) / focal_length_rep  # (N_images, H, W)
+        camera_coordinates_directions_y = (camera_coordinates_y - self.principal_point_y.cpu()) / focal_length_rep  # (N_images, H, W)
                 
         camera_coordinates_directions_z = torch.ones(self.n_training_images,self.H, self.W, dtype=torch.float32, device=self.device)  # (N_images, H, W)        
         camera_coordinates_pixel_directions = torch.stack([camera_coordinates_directions_x, camera_coordinates_directions_y, camera_coordinates_directions_z], dim=-1)  # (N_images, H, W, 3)        
         self.pixel_directions = camera_coordinates_pixel_directions.to(device=self.device)         
         
-        self.focal_length_x = focal_length_x
-        self.focal_length_y = focal_length_y   
+        self.focal_length = focal_length        
 
 
     def get_point_cloud(self, pose, depth, rgb, pixel_directions, label=0, save=False, remove_zero_depths=True, save_raw_xyz=False, dir='', entropy_image=None, unsparse_rendered_rgb_img=None, sparse_rendered_rgb_img=None, unsparse_depth=None, max_depth_filter_image=None,save_in_image_coordinates=True):        
@@ -785,17 +781,33 @@ class SceneModel:
         
 
     #########################################################################
-    ####### Define model data structures and set learning parameters ########
+    ############ Initialize models and set learning parameters ##############
     #########################################################################
 
     def initialize_models(self):
         self.models = {}
+        
+        print("focal")
 
-        # Load the relevant models
-        self.models["focal"] = CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length_x, self.initial_focal_length_y, self.n_training_images).to(device=self.device)
-        self.models["pose"] = CameraPoseModel(self.initial_poses).to(device=self.device)
-        self.models["geometry"] = NeRFDensity(self.args).to(device=self.device)
-        self.models["color"] = NeRFColor(self.args).to(device=self.device)
+        # [WARNING] skipping cudagraphs due to multiple devices
+        #self.models["focal"] = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images).to(device=self.device), mode="reduce-overhead")
+        self.models["focal"] = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images).to(device=self.device), mode='reduce-overhead')
+
+
+        print('pose')        
+        self.models["pose"] = torch.compile(CameraPoseModel(self.initial_poses).to(device=self.device))#CameraPoseModel(self.initial_poses).to(device=self.device)
+
+
+        #self.models["geometry"] = torch.compile(NeRFDensity(self.args).to(device=self.device)) #torch.compile(NeRFDensity(self.args).to(device=self.device))
+        print("geoemtry")
+        self.models["geometry"] = torch.compile(NeRFDensity(self.args).to(device=self.device)) #torch.compile(NeRFDensity(self.args).to(device=self.device))
+        #self.models["color"] = NeRFColor(self.args).to(device=self.device) #torch.compile(NeRFColor(self.args).to(device=self.device), mode="max-autotune")
+
+
+        print('color')
+        #self.models["color"] = torch.compile(NeRFColor(self.args).to(device=self.device), mode="reduce-overhead") #torch.compile(NeRFColor(self.args).to(device=self.device), mode="max-autotune")
+        self.models["color"] = torch.compile(NeRFColor(self.args).to(device=self.device)) #torch.compile(NeRFColor(self.args).to(device=self.device), mode="max-autotune")
+        # [WARNING] skipping cudagraphs due to complex input striding
 
         # Set up Weights & Biases logging on top of the network in order to record its structure
         wandb.watch(self.models["focal"])
@@ -1073,7 +1085,7 @@ class SceneModel:
     #########################################################################
 
     # the core rendering function
-    def render(self, poses, pixel_directions, sampling_depths, perturb_depths=False, rgb_image=None, pixel_focal_lengths_x=None):
+    def render(self, poses, pixel_directions, sampling_depths, pixel_focal_lengths, perturb_depths=False):
         
         # poses := (N_pixels, 4, 4)
         # pixel_directions := (N_images, N_pixels, 3)
@@ -1085,15 +1097,15 @@ class SceneModel:
         pixel_xyz_positions, pixel_directions_world, resampled_depths = volume_sampling(poses=poses, pixel_directions=pixel_directions, sampling_depths=sampling_depths, perturb_depths=perturb_depths)
         pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)
         
-        xyz_position_encoding = encode_ipe(poses[:, :3, 3], pixel_xyz_positions, pixel_directions_world, sampling_depths, pixel_focal_lengths_x, self.principal_point_x, self.principal_point_y)                            
+        xyz_position_encoding = encode_ipe(poses[:, :3, 3], pixel_xyz_positions, pixel_directions_world, sampling_depths, pixel_focal_lengths, self.principal_point_x, self.principal_point_y)                            
         xyz_position_encoding = xyz_position_encoding.to(self.device)
                             
         # encode direction: (H, W, N_sample, (2L+1)*C = 27)        
         angular_directional_encoding = encode_position(pixel_directions_world, levels=self.args.directional_encoding_fourier_frequencies)  # (N_pixels, 27)
-        angular_directional_encoding = angular_directional_encoding.unsqueeze(1).expand(-1, sampling_depths.size()[1] - 1, -1)  # (N_pixels, N_sample, 27)
-            
-        density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)                
-
+        angular_directional_encoding = angular_directional_encoding.unsqueeze(1).expand(-1, sampling_depths.size()[1] - 1, -1)  # (N_pixels, N_sample, 27)                    
+        
+        density, features = self.models["geometry"](xyz_position_encoding) # (N_pixels, N_sample, 1), # (N_pixels, N_sample, D)                                
+        
         rgb = self.models["color"](features, angular_directional_encoding)  # (N_pixels, N_sample, 4)        
         
         render_result = volume_rendering(rgb, density, resampled_depths[:, : -1])                
@@ -1139,11 +1151,11 @@ class SceneModel:
                     # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
                     depth_samples_coarse = self.sample_depths_linearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=True) # (N_pixels, N_samples)                                                           
                     #depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=True) # (N_pixels, N_samples)                                                           
-                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_batch)  # (N_pixels, 3)
+                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, pixel_focal_lengths=focal_lengths_batch, perturb_depths=False)  # (N_pixels, 3)
                 else:
                     # if this is not the first iteration, then resample with the latest weights                                        
                     depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test_render=True)  # (N_pixels, N_samples)                                
-                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_batch)  # (N_pixels, 3)
+                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, pixel_focal_lengths=focal_lengths_batch, perturb_depths=False)  # (N_pixels, 3)
                                         
             if self.args.n_depth_sampling_optimizations > 1:
                 rendered_image_fine_batches.append(rendered_data_fine['rgb_rendered']) # (n_pixels_per_row, 3)                
@@ -1162,25 +1174,25 @@ class SceneModel:
 
 
     # Render just the fine and coarse rgb/depth images, all on GPU
-    # view_pixel_directions: assumed to be computed with respect to view_focal_length_x
-    # view_focal_length_x: only needed by IPE computation    
-    def basic_render(self, pose, view_pixel_directions, view_focal_length_x, test_render=False):
+    # view_pixel_directions: assumed to be computed with respect to view_focal_length
+    # view_focal_length: only needed by IPE computation    
+    def basic_render(self, pose, view_pixel_directions, view_focal_length, test_render=False):
 
         poses = pose.unsqueeze(0).expand(self.W*self.H, -1, -1)
         pixel_directions = view_pixel_directions.flatten(start_dim=0, end_dim=1)                  
-        focal_lengths_x = view_focal_length_x.unsqueeze(0).expand(self.W*self.H, 1)
+        focal_lengths = view_focal_length.unsqueeze(0).expand(self.W*self.H, 1)
 
         # split each of the rendering inputs into batches for better GPU usage        
         poses_batches = poses.split(self.args.number_of_pixels_per_batch_in_test_renders)
         pixel_directions_batches = pixel_directions.split(self.args.number_of_pixels_per_batch_in_test_renders)
-        focal_lengths_x_batches = focal_lengths_x.split(self.args.number_of_pixels_per_batch_in_test_renders)                 
+        focal_lengths_batches = focal_lengths.split(self.args.number_of_pixels_per_batch_in_test_renders)                 
 
         rendered_image_fine_batches = []
         depth_image_fine_batches = []
         rendered_image_coarse_batches = []
         depth_image_coarse_batches = []
 
-        for poses_batch, pixel_directions_batch, focal_lengths_x_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_x_batches):
+        for poses_batch, pixel_directions_batch, focal_lengths_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_batches):
 
             # for resampling with test data, we will compute the NeRF-weighted resamples per batch
             for depth_sampling_optimization in range(self.args.n_depth_sampling_optimizations):
@@ -1188,11 +1200,11 @@ class SceneModel:
                 if depth_sampling_optimization == 0:
                     # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
                     depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=test_render) # (N_pixels, N_samples)                                       
-                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
+                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, pixel_focal_lengths=focal_lengths_batch.squeeze(1), perturb_depths=False)  # (N_pixels, 3)
                 else:
                     # if this is not the first iteration, then resample with the latest weights                                        
                     depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test_render=test_render)  # (N_pixels, N_samples)                                
-                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
+                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, pixel_focal_lengths=focal_lengths_batch.squeeze(1), perturb_depths=False)  # (N_pixels, 3)
                                         
             if self.args.n_depth_sampling_optimizations > 1:
                 rendered_image_fine_batches.append(rendered_data_fine['rgb_rendered']) # (n_pixels_per_row, 3)
@@ -1264,16 +1276,16 @@ class SceneModel:
             poses = pose.unsqueeze(0).expand(int(mask.sum().item()), -1, -1)
             pixel_directions = self.pixel_directions[train_image_index].flatten(start_dim=0, end_dim=1)[torch.argwhere(mask==1)]
             pixel_directions = pixel_directions.squeeze(1)                                                
-            focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(int(mask.sum().item()), 1)              
+            focal_lengths = self.focal_length[train_image_index].unsqueeze(0).expand(int(mask.sum().item()), 1)              
         else:
             poses = pose.unsqueeze(0).expand(self.W*self.H, -1, -1)
             pixel_directions = self.pixel_directions[train_image_index].flatten(start_dim=0, end_dim=1)                  
-            focal_lengths_x = self.focal_length_x[train_image_index].unsqueeze(0).expand(self.W*self.H, 1)
+            focal_lengths = self.focal_length[train_image_index].unsqueeze(0).expand(self.W*self.H, 1)
 
         # split each of the rendering inputs into batches for better GPU usage        
         poses_batches = poses.split(self.args.number_of_pixels_per_batch_in_test_renders)
         pixel_directions_batches = pixel_directions.split(self.args.number_of_pixels_per_batch_in_test_renders)
-        focal_lengths_x_batches = focal_lengths_x.split(self.args.number_of_pixels_per_batch_in_test_renders)         
+        focal_lengths_batches = focal_lengths.split(self.args.number_of_pixels_per_batch_in_test_renders)         
 
         rendered_image_fine_batches = []
         depth_image_fine_batches = []
@@ -1291,7 +1303,7 @@ class SceneModel:
         depth_image_unsparse_fine_batches = []        
 
         # for each batch, compute the render and extract RGB and depth map
-        for poses_batch, pixel_directions_batch, focal_lengths_x_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_x_batches):
+        for poses_batch, pixel_directions_batch, focal_lengths_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_batches):
 
             # for resampling with test data, we will compute the NeRF-weighted resamples per batch
             for depth_sampling_optimization in range(self.args.n_depth_sampling_optimizations):
@@ -1300,17 +1312,17 @@ class SceneModel:
                     # if this is the first iteration, collect linear depth samples to query NeRF, uniformly in space                    
                     depth_samples_coarse = self.sample_depths_nonlinearly(number_of_pixels=poses_batch.size()[0], add_noise=False, test_render=True) # (N_pixels, N_samples)                              
                     resampled_depths_coarse_batches.append(depth_samples_coarse.cpu())
-                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
+                    rendered_data_coarse = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_coarse, pixel_focal_lengths=focal_lengths_batch.squeeze(1), perturb_depths=False)  # (N_pixels, 3)
                 else:
                     # if this is not the first iteration, then resample with the latest weights         
                     depth_samples_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=self.args.use_sparse_fine_rendering, test_render=True)  # (N_pixels, N_samples)
                     resampled_depths_fine_batches.append(depth_samples_fine.cpu()) 
-                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)
+                    rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_fine, pixel_focal_lengths=focal_lengths_batch.squeeze(1), perturb_depths=False)  # (N_pixels, 3)
                     
                     if self.args.use_sparse_fine_rendering:
                         # point cloud filtering needs both the sparsely rendered data the "unsparsely" (normal) rendered data
                         depth_samples_unsparse_fine = self.resample_depths_from_nerf_weights(number_of_pixels=poses_batch.size()[0], weights=rendered_data_coarse['depth_weights'], depth_samples=depth_samples_coarse, use_sparse_fine_rendering=False, test_render=True)  # (N_pixels, N_samples)                                    
-                        unsparse_rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_unsparse_fine, perturb_depths=False, pixel_focal_lengths_x=focal_lengths_x_batch.squeeze(1))  # (N_pixels, 3)                        
+                        unsparse_rendered_data_fine = self.render(poses=poses_batch, pixel_directions=pixel_directions_batch, sampling_depths=depth_samples_unsparse_fine, pixel_focal_lengths=focal_lengths_batch.squeeze(1), perturb_depths=False)  # (N_pixels, 3)                        
 
 
             if self.args.n_depth_sampling_optimizations > 1:
@@ -1467,8 +1479,7 @@ class SceneModel:
         if self.epoch >= self.args.start_training_extrinsics_epoch:
             self.models["pose"].train()
         else:
-            self.models["pose"].eval()
-
+            self.models["pose"].eval()            
         if self.epoch >= self.args.start_training_intrinsics_epoch:
             self.models["focal"].train()
         else:
@@ -1503,32 +1514,43 @@ class SceneModel:
 
         # initialize our total weighted loss, which will be computed as the weighted sum of coarse and fine losses
         total_weighted_loss = torch.tensor(0.0).to(self.device)
+        
+        focal_length = self.models['focal'](0)
+        poses = self.models['pose'](0)
+        
+
+        self.compute_ray_direction_in_camera_coordinates(focal_length)
+        #print('focal length: ', focal_length[0])
+        #print('pose:' )
+        #print(self.models['pose'](0)[50])
+
 
         for depth_sampling_optimization in range(self.args.n_depth_sampling_optimizations):
 
             # get the camera intrinsics, train if this is not the coarse render
-            if self.epoch >= self.args.start_training_intrinsics_epoch and depth_sampling_optimization > 0:
-                focal_length_x, focal_length_y = self.models["focal"](0)
-            else:
-                with torch.no_grad():
-                    focal_length_x, focal_length_y = self.models["focal"](0)
+            #if self.epoch >= self.args.start_training_intrinsics_epoch and depth_sampling_optimization > 0:
+            #    focal_length = self.models["focal"](0)                
+            #    print('focal length: ', torch.mean(focal_length))
+            #else:
+            #    with torch.no_grad():
+            #        focal_length = self.models["focal"](0)
             
-            self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
+            
 
             # get all camera poses from model
-            if self.epoch >= self.args.start_training_extrinsics_epoch and depth_sampling_optimization > 0:
-                poses = self.models["pose"](0) # (N_images, 4, 4)
-            else:
-                with torch.no_grad():
-                    poses = self.models["pose"](0)  # (N_images, 4, 4)
+            #if self.epoch >= self.args.start_training_extrinsics_epoch and depth_sampling_optimization > 0:
+            #    poses = self.models["pose"](0) # (N_images, 4, 4)
+            #else:
+            #    with torch.no_grad():
+            #        poses = self.models["pose"](0)  # (N_images, 4, 4)
 
             # get a tensor with the poses per pixel
             image_ids = self.image_ids_per_pixel[indices_of_random_pixels].to(self.device) # (N_pixels)
             selected_poses = poses[image_ids].to(self.device) # (N_pixels, 4, 4)
 
             # get the focal lengths for every pixel given the images that were actually selected for each pixel
-            selected_focal_lengths_x = focal_length_x[image_ids].to(self.device)
-            selected_focal_lengths_y = focal_length_y[image_ids].to(self.device)
+            selected_focal_lengths = focal_length[image_ids].to(self.device)
+            
 
             # get pixel directions
             pixel_directions_selected = self.pixel_directions[image_ids, pixel_rows, pixel_cols]  # (N_pixels, 3)        
@@ -1545,7 +1567,7 @@ class SceneModel:
             n_samples = depth_samples.size()[1]
 
             # render an image using selected rays, pose, sample intervals, and the network
-            render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, perturb_depths=False, rgb_image=rgb, pixel_focal_lengths_x=selected_focal_lengths_x)  # (N_pixels, 3)
+            render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, pixel_focal_lengths=selected_focal_lengths, perturb_depths=False)  # (N_pixels, 3)
 
             rgb_rendered = render_result['rgb_rendered']         # (N_pixels, 3)
             nerf_depth_weights = render_result['depth_weights']  # (N_pixels, N_samples)
@@ -1623,12 +1645,32 @@ class SceneModel:
         total_weighted_loss.backward(create_graph=False, retain_graph=False)
         
         # step each optimizer forward once
-        for optimizer in self.optimizers.values():
-            optimizer.step()        
-                  
-        # update the learning rate schedulers
+
+        if self.epoch >= self.args.start_training_color_epoch:
+            self.optimizers['color'].step()   
+            #self.schedulers['color'].step()                 
+        if self.epoch >= self.args.start_training_extrinsics_epoch:
+            self.optimizers['pose'].step()
+            #self.schedulers['pose'].step()
+        if self.epoch >= self.args.start_training_intrinsics_epoch:
+            self.optimizers['focal'].step()
+            #self.schedulers['focal'].step()
+        if self.epoch >= self.args.start_training_geometry_epoch:
+            self.optimizers['geometry'].step()
+            #self.schedulers['geometry'].step()
+
         for scheduler in self.schedulers.values():
-            scheduler.step()
+            scheduler.step()            
+
+
+        """
+            for optimizer in self.optimizers.values():
+                optimizer.step()        
+                    
+            # update the learning rate schedulers
+            for scheduler in self.schedulers.values():
+                scheduler.step()
+        """
 
         if self.epoch % self.args.log_frequency == 0:
             wandb.log({"Coarse RGB Inverse Render Loss (0-255 per pixel)": coarse_interpretable_rgb_loss_per_pixel,
@@ -1677,10 +1719,10 @@ class SceneModel:
             # now we need to grab from our global pixel indices which ones we actually selected, after weighted sampling
             indices_of_random_pixels_for_this_epoch = randomly_sampled_pixel_indices[subsampled_indices_from_weights]
         else:
-            indices_of_random_pixels_for_this_epoch = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)                    
+            #indices_of_random_pixels_for_this_epoch = random.sample(population=range(self.number_of_pixels), k=self.args.pixel_samples_per_epoch)                    
             indices_of_random_pixels_for_this_epoch = random.sample(population=self.pixel_indices_below_max_depth, k=self.args.pixel_samples_per_epoch)            
 
-        return indices_of_random_pixels_for_this_epoch
+        return indices_of_random_pixels_for_this_epoch.to(self.device)
             
 
 
@@ -1750,13 +1792,11 @@ class SceneModel:
         
         
         # compute the ray directions using the latest focal lengths, derived for the first image
-        focal_length_x, focal_length_y = self.models["focal"](0)
-        self.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)        
+        focal_length = self.models["focal"](0)
+        self.compute_ray_direction_in_camera_coordinates(focal_length)        
 
-        for image_index in np.array(self.test_image_indices):
-        #for image_index in np.array( self.test_image_indices[ 148,166]):
-        #for image_index in [self.test_image_indices[i] for i in [106,148,166,112,178,179,180,181]  ]:
-        #for image_index in [self.test_image_indices[i] for i in [0,106,148]  ]:
+        #for image_index in np.array(self.test_image_indices):
+        for image_index in [self.test_image_indices[i] for i in [0,106,148]  ]:
             
             
             # todo: improve clarity / specificity of variable names
@@ -1777,8 +1817,7 @@ class SceneModel:
             
             # always render              
             print("Rendering for image {}".format(image_index))
-            render_result = self.render_prediction_for_train_image(train_image_index=image_index)
-            #render_result = self.basic_render(self.models['pose']()[image_index], self.pixel_directions[image_index], self.focal_length_x[image_index])
+            render_result = self.render_prediction_for_train_image(train_image_index=image_index)            
 
             nerf_weights_coarse = render_result['depth_weights_coarse']
             density_coarse = render_result['density_coarse']                                
@@ -1949,13 +1988,17 @@ class SceneModel:
         self.args.base_directory = './data/orchid'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
-        self.args.load_pretrained_models = False
-        #self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/40k'
-        self.args.start_epoch = 1
+        self.args.load_pretrained_models = True
+        self.args.reset_learning_rates = False
+        self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/60k'
+        self.args.start_epoch = 60001
         self.args.number_of_epochs = 400000
 
-        self.args.start_training_extrinsics_epoch = 500        
-        self.args.start_training_intrinsics_epoch = 5000
+        #self.args.start_training_extrinsics_epoch = 500        
+        #self.args.start_training_intrinsics_epoch = 5000
+        self.args.start_training_extrinsics_epoch = 500       
+        self.args.start_training_intrinsics_epoch = 5000      
+
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
         self.args.entropy_loss_tuning_start_epoch = 20000
@@ -1980,8 +2023,8 @@ class SceneModel:
         self.args.focal_lr_exponential_index = 9
         self.args.focal_lr_exponential_index = 1
 
-        self.args.pose_lr_start = 0.001
-        self.args.pose_lr_end = 0.0001
+        self.args.pose_lr_start = 0.0005
+        self.args.pose_lr_end = 0.00001
         self.args.pose_lr_exponential_index = 9
         self.args.pose_lr_curvature_shape = 1
 
@@ -2013,7 +2056,7 @@ class SceneModel:
         self.args.save_ply_point_clouds_of_sensor_data = False
         self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses = False        
         self.args.save_point_cloud_frequency = 50000000000
-        self.args.save_depth_weights_frequency = 20000
+        self.args.save_depth_weights_frequency = 5000000000
         self.args.log_frequency = 1
         self.args.save_models_frequency = 5000
 
@@ -2118,10 +2161,14 @@ if __name__ == '__main__':
 
         
         if scene.epoch == scene.args.start_epoch:
-            with torch.no_grad():                            
+            with torch.no_grad():                                            
                 scene.test()
+                print("")
+                
+                
         
-        batch = scene.sample_next_batch(weighted=True)
+        batch = scene.sample_next_batch(weighted=True).to(scene.device)
+        # note: detect_anomaly is incompatible with Inductor
         #with torch.autograd.detect_anomaly():  # no need to enable this because there are never errors
         scene.train(batch) 
         

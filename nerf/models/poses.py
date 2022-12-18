@@ -8,17 +8,18 @@ class CameraPoseModel(nn.Module):
         super(CameraPoseModel, self).__init__()
 
         self.num_cams = poses.shape[0]
-        self.poses = nn.Parameter(poses, requires_grad=False)
+        self.poses = nn.Parameter(poses, requires_grad=False).to(torch.device('cuda:0'))
 
-        self.r = nn.Parameter(torch.zeros(size=(self.num_cams, 3), dtype=torch.float32), requires_grad=True)  # (N, 3)
-        self.t = nn.Parameter(torch.zeros(size=(self.num_cams, 3), dtype=torch.float32), requires_grad=True)  # (N, 3)
+        # note: sending the nn.Parameter to GPU instead of ones/zeros below somehow prevents training
+        self.r = nn.Parameter(torch.ones(size=(self.num_cams, 3), dtype=torch.float32).to(torch.device('cuda:0')), requires_grad=True)  # (N, 3)
+        self.t = nn.Parameter(torch.zeros(size=(self.num_cams, 3), dtype=torch.float32).to(torch.device('cuda:0')), requires_grad=True)  # (N, 3)        
 
     def forward(self, i=None):
         r = self.r  # (N, 3) axis-angle
         t = self.t  # (N, 3)
         delta_pose = make_pose(r, t)  # (N, 4, 4)
 
-        # learn a delta pose between init pose and target pose
+        # learn a delta pose between init pose and target pose        
         poses = delta_pose @ self.poses
 
         return poses

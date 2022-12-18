@@ -74,39 +74,10 @@ def volume_rendering(rgb, density, depths):
     acc_transmittance[:, 0] = 1.0  # (N_pixels, N_sample)
 
     weight = acc_transmittance * alpha  # (N_pixels, N_sample)      
-    #weight[:, : ((N_samples//5) * 4) ] = weight[:, : ((N_samples//5) * 4) ] * 0.8
-    #weight[:, ((N_samples//5) * 4) : ] = weight[:, ((N_samples //5) * 4) :] * 0.2          
-    #weight = torch.nn.functional.normalize(weight, dim=0, p=1)    
     
     # (N_pixels, N_sample, 1) * (N_pixels, N_sample, 3) = (N_pixels, N_sample, 3) -> (N_pixels, 3)
     rgb_rendered = torch.sum(weight.unsqueeze(2) * rgb, dim=1)
-    depth_map = torch.sum(weight * depths, dim=1)  # (N_pixels)  
-
-    
-    """
-    indices = torch.argwhere( torch.sum(weight, dim=1) < (0.5) )
-    if indices.size()[0] > 0:
-        bindex = indices[0]        
-        print("dists:")
-        print(dists[bindex].size())
-        print(dists[bindex])
-        print("depths:")
-        print(depths[bindex].size())
-        print(depths[bindex])
-        print("weight:")
-        print(weight[bindex].size())
-        print(weight[bindex])
-        print("weight sum:")
-        print(torch.sum(weight[bindex].squeeze(0), dim=0).item())
-        print("density:")
-        print(density[bindex].size())
-        print(density[bindex])
-        print("at 127:")
-        print("{:10f}".format(density[bindex, 127].item()))
-        quit()
-    """
-    
-        
+    depth_map = torch.sum(weight * depths, dim=1)  # (N_pixels)          
 
     result = {
         'rgb_rendered': rgb_rendered,  # (N_pixels, 3)
