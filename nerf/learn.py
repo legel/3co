@@ -861,8 +861,8 @@ class SceneModel:
         # "[WARNING] skipping cudagraphs due to multiple devices"
         self.models["focal"] = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images).to(device=self.device), mode='reduce-overhead')
 
-        self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses).to(device=self.device))
-        #self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses[::self.args.skip_every_n_images_for_training]).to(device=self.device))
+        #self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses).to(device=self.device))
+        self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses[::self.args.skip_every_n_images_for_training]).to(device=self.device))
         
 
         self.models["geometry"] = torch.compile(NeRFDensity(self.args).to(device=self.device))
