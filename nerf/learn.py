@@ -551,7 +551,7 @@ class SceneModel:
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))
         #self.all_initial_poses = self.all_initial_poses[::self.args.skip_every_n_images_for_training]
 
-        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.33))).to(self.device) # bias sampling of closer pixels probabilistically
+        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.33))).cpu() # bias sampling of closer pixels probabilistically
         # self.depth_based_pixel_sampling_weights[torch.where(self.rgbd[:,3] == self.args.far_maximum_depth)[0]] = 0.0 # set sampling probability to 0% for depth samples clamped at max
         max_depth_weight = torch.max(self.depth_based_pixel_sampling_weights)
         print("Max depth sampling weight of {:.2f} at {:.4f}m. More examples of depth vs. sampling weight: {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, ...".format(
@@ -861,8 +861,8 @@ class SceneModel:
         # "[WARNING] skipping cudagraphs due to multiple devices"
         self.models["focal"] = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images).to(device=self.device), mode='reduce-overhead')
 
+        self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses).to(device=self.device))
         #self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses[::self.args.skip_every_n_images_for_training]).to(device=self.device))
-        self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses[::self.args.skip_every_n_images_for_training]).to(device=self.device))
         
 
         self.models["geometry"] = torch.compile(NeRFDensity(self.args).to(device=self.device))
@@ -2040,7 +2040,7 @@ class SceneModel:
 
     def load_saved_args_train(self):
         
-        self.args.base_directory = './data/petrified_bonsai'
+        self.args.base_directory = './data/orchid'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
@@ -2051,8 +2051,8 @@ class SceneModel:
 
         #self.args.start_training_extrinsics_epoch = 500        
         #self.args.start_training_intrinsics_epoch = 5000
-        self.args.start_training_extrinsics_epoch = 3000       
-        self.args.start_training_intrinsics_epoch = 10000      
+        self.args.start_training_extrinsics_epoch = 500
+        self.args.start_training_intrinsics_epoch = 5000
 
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
@@ -2098,7 +2098,7 @@ class SceneModel:
 
         ### test images
         self.args.skip_every_n_images_for_testing = 1
-        self.args.number_of_test_images = 1
+        self.args.number_of_test_images = 200
 
         ### test frequency parameters
         self.args.test_frequency = 5000
