@@ -551,11 +551,8 @@ class SceneModel:
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))
         #self.all_initial_poses = self.all_initial_poses[::self.args.skip_every_n_images_for_training]
 
-        #self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.66))).to(self.device) # bias sampling of closer pixels probabilistically
-
-        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.66))).cpu() # bias sampling of closer pixels probabilistically
-        self.depth_based_pixel_sampling_weights[torch.where(self.rgbd[:,3] == self.args.far_maximum_depth)[0]] = 0.0 # set sampling probability to 0% for depth samples clamped at max
-        
+        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.33))).to(self.device) # bias sampling of closer pixels probabilistically
+        # self.depth_based_pixel_sampling_weights[torch.where(self.rgbd[:,3] == self.args.far_maximum_depth)[0]] = 0.0 # set sampling probability to 0% for depth samples clamped at max
         max_depth_weight = torch.max(self.depth_based_pixel_sampling_weights)
         print("Max depth sampling weight of {:.2f} at {:.4f}m. More examples of depth vs. sampling weight: {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, ...".format(
                                                                                                                                max_depth_weight,
@@ -758,7 +755,7 @@ class SceneModel:
         print("filtering {}/{} points with angle condition".format(n_filtered_points, self.W*self.H))
 
         #entropy_condition = (entropy_image < 3.0).to(self.device)
-        entropy_condition = (entropy_image < 1.0).to(self.device)
+        entropy_condition = (entropy_image < 3.0).to(self.device)
         n_filtered_points = self.H * self.W - torch.sum(entropy_condition.flatten())
         print("filtering {}/{} points with entropy condition".format(n_filtered_points, self.W*self.H))
 
@@ -769,7 +766,7 @@ class SceneModel:
         sparse_depth = depth      
 
         if self.args.use_sparse_fine_rendering:            
-            sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005 #< 8.0 * (self.far-self.near) / ( (self.args.number_of_samples_outward_per_raycast + 1))            
+            sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.01 #< 8.0 * (self.far-self.near) / ( (self.args.number_of_samples_outward_per_raycast + 1))            
             joint_condition = torch.logical_and(joint_condition, sticker_condition)
             n_filtered_points = self.H * self.W - torch.sum(sticker_condition.flatten())
             print("filtering {}/{} points with sticker condition".format(n_filtered_points, self.W*self.H))            
@@ -833,6 +830,8 @@ class SceneModel:
 
         n_filtered_points = self.H * self.W - torch.sum(joint_condition.flatten())
 
+        rgb = rgb.to(device=self.device)
+       
         depth = depth[joint_condition_indices]
         rgb = rgb[joint_condition_indices]
                 
@@ -1915,15 +1914,15 @@ class SceneModel:
                     depth_img = render_result['rendered_depth_coarse'].reshape(self.H, self.W).to(device=self.device)
                     rendered_rgb_img = render_result['rendered_image_coarse'].reshape(self.H, self.W, 3).to(device=self.device)
 
-                entropy_image = torch.zeros(self.H * self.W, 1).cpu()  
+                entropy_image = torch.zeros(self.H * self.W, 1) #.cpu()  
                 
-                pixel_indices_filter = torch.zeros(self.rgbd.size()[0])
+                pixel_indices_filter = torch.zeros(self.rgbd.size()[0]).to(device=self.device)
                 pixel_indices_filter[self.pixel_indices_below_max_depth] = 1                    
                 filtered_pixel_indices = torch.argwhere(torch.logical_and(self.image_ids_per_pixel == image_index, pixel_indices_filter == 1))            
                 filtered_pixel_rows = self.pixel_rows[filtered_pixel_indices]
                 filtered_pixel_cols = self.pixel_cols[filtered_pixel_indices]
 
-                max_depth_filter_image = torch.zeros(self.H, self.W).cpu()                
+                max_depth_filter_image = torch.zeros(self.H, self.W) #.cpu()                
                 max_depth_filter_image[filtered_pixel_rows, filtered_pixel_cols] = 1
                 #max_depth_filter_image = max_depth_filter_image.reshape(self.H, self.W)                                              
                                 
@@ -2041,19 +2040,19 @@ class SceneModel:
 
     def load_saved_args_train(self):
         
-        self.args.base_directory = './data/orchid'
-        #self.args.base_directory = './data/orchid'
+        self.args.base_directory = './data/petrified_bonsai'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
         self.args.reset_learning_rates = False
-        self.args.pretrained_models_directory = './data/orchid_large/hyperparam_experiments/40k_no_entropy'
+        self.args.pretrained_models_directory = '/home/ubuntu/research/nerf/data/petrified_bonsai/hyperparam_experiments/1673093521_depth_loss_0.01_to_0.0_k9_N1_NeRF_Density_LR_0.001_to_0.0001_k4_N1_pose_LR_0.0005_to_1e-05_k9_N1'
         self.args.start_epoch = 1
         self.args.number_of_epochs = 500000
 
-        self.args.start_training_extrinsics_epoch = 500       
-        #self.args.start_training_intrinsics_epoch = 5000      
-        self.args.start_training_intrinsics_epoch = 5000
+        #self.args.start_training_extrinsics_epoch = 500        
+        #self.args.start_training_intrinsics_epoch = 5000
+        self.args.start_training_extrinsics_epoch = 3000       
+        self.args.start_training_intrinsics_epoch = 10000      
 
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
@@ -2061,8 +2060,9 @@ class SceneModel:
         self.args.entropy_loss_tuning_end_epoch = 1000000
         self.args.entropy_loss_weight = 0.01
 
-        self.args.nerf_density_lr_start = 0.0010        
-        self.args.nerf_density_lr_end = 0.0001
+        self.args.nerf_density_lr_start = 0.00125
+        #self.args.nerf_density_lr_end = 0.000025
+        self.args.nerf_density_lr_end = 0.0005
         self.args.nerf_density_lr_exponential_index = 4
         self.args.nerf_density_lr_curvature_shape = 1
 
@@ -2081,7 +2081,6 @@ class SceneModel:
         self.args.pose_lr_exponential_index = 9
         self.args.pose_lr_curvature_shape = 1
 
-        
         self.args.depth_to_rgb_loss_start = 0.01        
         self.args.depth_to_rgb_loss_end = 0.0        
 
@@ -2099,14 +2098,14 @@ class SceneModel:
 
         ### test images
         self.args.skip_every_n_images_for_testing = 1
-        self.args.number_of_test_images = 200
+        self.args.number_of_test_images = 1
 
         ### test frequency parameters
         self.args.test_frequency = 5000
         self.args.export_test_data_for_testing = False
         self.args.save_ply_point_clouds_of_sensor_data = False
         self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses = False        
-        self.args.save_point_cloud_frequency = 50000000000
+        self.args.save_point_cloud_frequency = 1000000
         self.args.save_depth_weights_frequency = 5000000000
         self.args.log_frequency = 1
         self.args.save_models_frequency = 5000
@@ -2266,10 +2265,6 @@ if __name__ == '__main__':
        
         if (scene.epoch-1) % scene.args.save_models_frequency == 0 and (scene.epoch-1) !=  scene.args.start_epoch:
             scene.save_models()
-
-        if (scene.epoch-1) % scene.args.test_frequency == 0 and (scene.epoch-1) != 0:
-            with torch.no_grad():                
-                scene.test()
 
 
         
