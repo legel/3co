@@ -11,7 +11,8 @@ class CameraPoseModel(nn.Module):
         self.poses = nn.Parameter(poses, requires_grad=False).to(torch.device('cuda:0'))
 
         # note: sending the nn.Parameter to GPU instead of ones/zeros below somehow prevents training
-        self.r = nn.Parameter(torch.ones(size=(self.num_cams, 3), dtype=torch.float32).to(torch.device('cuda:0')), requires_grad=True)  # (N, 3)
+        #self.r = nn.Parameter(torch.ones(size=(self.num_cams, 3), dtype=torch.float32).to(torch.device('cuda:0')), requires_grad=True)  # (N, 3)
+        self.r = nn.Parameter(torch.zeros(size=(self.num_cams, 3), dtype=torch.float32).to(torch.device('cuda:0')), requires_grad=True)  # (N, 3)
         self.t = nn.Parameter(torch.zeros(size=(self.num_cams, 3), dtype=torch.float32).to(torch.device('cuda:0')), requires_grad=True)  # (N, 3)        
 
     def forward(self, i=None):

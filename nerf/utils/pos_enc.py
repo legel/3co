@@ -65,7 +65,7 @@ def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, focal_
 
     ##### compute expectation of fourier-encoded gaussian ####
     min_deg = 0  # 0 is default from mip-nerf code
-    max_deg = 10  # 16 is default from mip-nerf code
+    max_deg = 10  # 16 is default from mip-nerf code    
     scales = torch.tensor(np.array([2**i for i in range(min_deg, max_deg)])).to(torch.device('cuda:0'))
     shape = list(x.shape[:-1]) + [-1]    
 

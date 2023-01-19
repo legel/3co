@@ -11,6 +11,7 @@ class NeRFDensity(nn.Module):
         super(NeRFDensity, self).__init__()
 
         pos_in_dims = 60  # 10 levels in IPE. TODO: generalize
+        #pos_in_dims = 72  # 12 levels in IPE. TODO: generalize
         D = args.density_neural_network_parameters
 
         self.pos_in_dims = pos_in_dims
