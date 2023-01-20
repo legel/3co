@@ -958,7 +958,7 @@ class SceneModel:
             print("Saving with learned poses and intrinsics the raw sensor colors and sensor depth for view {}".format(i))
             image, _ = self.load_image_data(image_id=image_id)
             depth, _, _, _ = self.load_depth_data(image_id=image_id)
-            pose = self.models['pose'](0)[i].to(device=self.device)
+            pose = self.models['pose']()[i].to(device=self.device)
             self.get_point_cloud(pose=pose, depth=depth, rgb=image, pixel_directions=self.pixel_directions[image_id], label="raw_sensor_with_learned_poses_intrinsics_{}".format(i), save=True, save_raw_xyz=True)               
 
 
@@ -1388,7 +1388,7 @@ class SceneModel:
         pixel_cols = self.pixel_cols[pixel_indices_for_this_image]        
         mask[pixel_rows, pixel_cols] = 1
         mask = mask.flatten()
-        pose = self.models['pose'](0)[train_image_index]
+        pose = self.models['pose']()[train_image_index]
 
         return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=None)
 
@@ -1654,9 +1654,12 @@ class SceneModel:
         total_weighted_loss = torch.tensor(0.0).to(self.device)
         
         focal_length = self.models['focal'](0).cpu()
-        poses = self.models['pose'](0).cpu()
+        poses = self.models['pose']().cpu()
         
-        print(self.models['pose']()[100])
+        #print(self.models['pose']()[100])
+        #print(list(self.models['pose'].parameters())[0].grad)
+
+        
 
         #self.compute_ray_direction_in_camera_coordinates(focal_length)
 
@@ -1922,7 +1925,8 @@ class SceneModel:
         self.compute_ray_direction_in_camera_coordinates(focal_length)        
 
         #for image_index in np.array(self.test_image_indices):
-        for image_index in [self.test_image_indices[i] for i in [0,106,148]  ]:
+        #for image_index in [self.test_image_indices[i] for i in [0,106,148]  ]:
+        for image_index in [self.test_image_indices[i] for i in [0,159,222]  ]:
                                     
             pixel_indices = torch.argwhere(self.image_ids_per_pixel == image_index)
             this_image_rgbd = self.rgbd[pixel_indices].cpu().squeeze(1)
@@ -1968,7 +1972,7 @@ class SceneModel:
             if epoch % self.args.save_point_cloud_frequency == 0 and epoch != 0:
                 print("Saving .ply for view {}".format(image_index))
                 depth_view_file_name = os.path.join(self.depth_view_out_dir, str(out_file_suffix).zfill(4) + '_depth_view_{}.png'.format(epoch))
-                pose = self.models['pose'](0)[image_index].to(device=self.device)
+                pose = self.models['pose']()[image_index].to(device=self.device)
                 unsparse_rendered_rgb_img = None
 
                 if self.args.n_depth_sampling_optimizations > 1: 
@@ -2118,6 +2122,7 @@ class SceneModel:
         self.args.pretrained_models_directory = '/home/ubuntu/research/nerf/data/petrified_bonsai/hyperparam_experiments/1673093521_depth_loss_0.01_to_0.0_k9_N1_NeRF_Density_LR_0.001_to_0.0001_k4_N1_pose_LR_0.0005_to_1e-05_k9_N1'
         self.args.start_epoch = 1
         self.args.number_of_epochs = 500000
+        
 
         #self.args.start_training_extrinsics_epoch = 500        
         #self.args.start_training_intrinsics_epoch = 5000
@@ -2126,7 +2131,7 @@ class SceneModel:
 
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 1000000
+        self.args.entropy_loss_tuning_start_epoch = 20001
         self.args.entropy_loss_tuning_end_epoch = 1000000
         self.args.entropy_loss_weight = 0.01
 
@@ -2184,14 +2189,14 @@ class SceneModel:
 
         # training
         self.args.pixel_samples_per_epoch = 1000
-        self.args.number_of_samples_outward_per_raycast = 360
+        self.args.number_of_samples_outward_per_raycast = 180
         self.args.skip_every_n_images_for_training = 60
-        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 100
+        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 200
         self.args.resample_pixels_frequency = 5000        
 
         # testing
         self.args.number_of_pixels_per_batch_in_test_renders = 5000
-        self.args.number_of_samples_outward_per_raycast_for_test_renders = 360
+        self.args.number_of_samples_outward_per_raycast_for_test_renders = self.args.number_of_samples_outward_per_raycast
         
 
         self.args.use_sparse_fine_rendering = False        
