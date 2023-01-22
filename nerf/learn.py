@@ -32,6 +32,10 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 import gc
 
 
+from torchviz import make_dot, make_dot_from_trace
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.enabled = True
+
 
 set_randomness()
 
@@ -358,10 +362,8 @@ class SceneModel:
 
         poses = np.asarray(poses)
         rotations_translations = poses[:,:3,:] # get rotations and translations from the 4x4 matrix in a 4x3 matrix
-
-        #self.all_initial_poses = torch.Tensor(convert3x4_4x4(rotations_translations)).to(device=self.device) # (N, 4, 4)
-        self.all_initial_poses = torch.Tensor(convert3x4_4x4(rotations_translations)).cpu() # (N, 4, 4)
-        #self.all_initial_poses = self.all_initial_poses[::self.args.skip_every_n_images_for_training]
+        
+        self.all_initial_poses = torch.Tensor(convert3x4_4x4(rotations_translations)).cpu() # (N, 4, 4)        
 
     def create_point_cloud(self, xyz_coordinates, colors, normals, label=0, flatten_xyz=True, flatten_image=True):
         pcd = o3d.geometry.PointCloud()
@@ -451,7 +453,6 @@ class SceneModel:
         print('n_images: ', n_images)
         print('n_pixels_per_image: ', n_pixels_per_image)
 
-
         # now loop through all of the data, and filter out (only load and save as necessary) based on whether the points land within our focus area
         for i, image_id in enumerate(self.image_ids[::self.args.skip_every_n_images_for_training]):
         #for i, image_id in enumerate(self.image_ids):                        
@@ -460,38 +461,19 @@ class SceneModel:
             depth, near_bound, far_bound, confidence = self.load_depth_data(image_id=image_id) # (H, W)
 
             # get (x,y,z) coordinates for this image
-
-
-
-
-            xyz_coordinates = self.get_sensor_xyz_coordinates(pose_data=self.all_initial_poses[i*self.args.skip_every_n_images_for_training], depth_data=depth, i=i) # (H, W, 3)                        
-            #xyz_coordinates = self.get_sensor_xyz_coordinates(pose_data=self.models['pose']()[i].cpu(), depth_data=depth, i=i) # (H, W, 3)
+            xyz_coordinates = self.get_sensor_xyz_coordinates(pose_data=self.all_initial_poses[i*self.args.skip_every_n_images_for_training], depth_data=depth, i=i) # (H, W, 3)                                    
             
-            # now, reverse engineer which pixel coordinates are inside our convex hull of attention
+            # select only pixels whose estimated xyz coordinates fall within bounding box
             xyz_coordinates_on_or_off = self.get_xyz_inside_range(xyz_coordinates) # (H, W, 3) with True if (x,y,z) inside of previously set bounds, False if outside
 
             # select a uniformly random subset of those pixels            
             pixel_indices_selected = torch.argwhere(xyz_coordinates_on_or_off)[torch.randperm(torch.argwhere(xyz_coordinates_on_or_off).size()[0])[:n_pixels_per_image]]
-
-            #xyz_coordinates_on_or_off = xyz_coordinates_on_or_off[torch.randperm(xyz_coordinates_on_or_off.size()[0])[:n_pixels_per_image]]
-            
-            # get the indices of the pixel rows and pixel columns where the projected (x,y,z) point is inside the target convex hull region            
-            #pixel_indices_selected = torch.argwhere(xyz_coordinates_on_or_off)          
                         
-                                    
+            # get the indices of the pixel rows and pixel columns where the projected (x,y,z) point is inside the target convex hull region
             pixel_rows_selected = pixel_indices_selected[:,0]
             pixel_cols_selected = pixel_indices_selected[:,1]
             self.pixel_rows.append(pixel_rows_selected)
-            self.pixel_cols.append(pixel_cols_selected)
-
-            
-            """
-            # save general pixel indices one time here for rendering of all pixels, later
-                if i == 0:
-                    all_pixel_indices = torch.argwhere(xyz_coordinates[:,:,0] >= torch.tensor(-np.inf))
-                    self.all_pixel_rows = all_pixel_indices[:,0]
-                    self.all_pixel_cols = all_pixel_indices[:,1]
-            """
+            self.pixel_cols.append(pixel_cols_selected)            
 
             # get the corresponding (x,y,z) coordinates and depth values selected by the mask
             xyz_coordinates_selected = xyz_coordinates[pixel_rows_selected, pixel_cols_selected, :]
@@ -518,69 +500,55 @@ class SceneModel:
             image_id_for_all_pixels = torch.full(size=[number_of_selected_pixels], fill_value=i)
             self.image_ids_per_pixel.append(image_id_for_all_pixels)
 
-            # script for visualizing mask
-            visualize_masks = False
-            if visualize_masks and i in self.test_image_indices:
-                #self.visualize_mask(pixels_to_visualize=xyz_coordinates_on_or_off, mask_index=i, colors=image)
-                #on_or_off = torch.zeros(rgbd_selected.size()[0]).to(self.device)
-                on_or_off = torch.zeros(rgbd_selected.size()[0]).cpu()
-                on_or_off[torch.argwhere(rgbd_selected[:, 3] < self.args.far_maximum_depth)] = 1                    
-                on_or_off = on_or_off == 1
-                on_or_off = on_or_off.reshape(self.H, self.W)                
-                self.visualize_mask(pixels_to_visualize=on_or_off, mask_index=i, colors=image)
-
             if self.args.save_ply_point_clouds_of_sensor_data and i in self.test_image_indices:
                 pcd = self.get_point_cloud(dir=self.experiment_dir, pose=self.all_initial_poses[i*self.args.skip_every_n_images_for_training], depth=depth, rgb=image, pixel_directions=self.pixel_directions[i], label="raw_{}".format(image_id), save=True, save_raw_xyz=False)                
                 
 
-        # bring the data together
-        #self.xyz = torch.cat(self.xyz_per_view, dim=0).to(device=self.device) # to(device=torch.device('cpu')) # 
+        # bring the data together        
         self.xyz = torch.cat(self.xyz_per_view, dim=0).cpu() # to(device=torch.device('cpu')) # 
-
-        self.rgbd = torch.cat(self.rgbd, dim=0)
-                
+        self.rgbd = torch.cat(self.rgbd, dim=0)                
         self.pixel_rows = torch.cat(self.pixel_rows, dim=0)
         self.pixel_cols = torch.cat(self.pixel_cols, dim=0)
-        #self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0).to(self.device)
+        
         self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0).cpu()
         self.confidence_per_pixel = torch.cat(self.confidence_per_pixel, dim=0)
         
         # and clean up                
         self.near = torch.min(self.rgbd[:,3])
         self.far = torch.max(self.rgbd[:,3])
-        print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))
-        #self.all_initial_poses = self.all_initial_poses[::self.args.skip_every_n_images_for_training]
+        print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))        
 
-        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.33))).cpu() # bias sampling of closer pixels probabilistically
-        # self.depth_based_pixel_sampling_weights[torch.where(self.rgbd[:,3] == self.args.far_maximum_depth)[0]] = 0.0 # set sampling probability to 0% for depth samples clamped at max
+        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.33))).cpu() # bias sampling of closer pixels probabilistically        
+        #self.depth_based_pixel_sampling_weights = torch.ones(self.rgbd.size()[0]) #(1 / (self.rgbd[:,3] ** (np.e))).cpu() # bias sampling of closer pixels probabilistically        
         max_depth_weight = torch.max(self.depth_based_pixel_sampling_weights)
+
+        
         print("Max depth sampling weight of {:.2f} at {:.4f}m. More examples of depth vs. sampling weight: {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, ...".format(
-                                                                                                                               max_depth_weight,
-                                                                                                                               self.near,
-                                                                                                                               self.rgbd[:,3][0*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[0*100000],
-                                                                                                                               self.rgbd[:,3][1*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[1*100000],
-                                                                                                                               self.rgbd[:,3][2*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[2*100000],
-                                                                                                                               self.rgbd[:,3][3*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[3*100000],
-                                                                                                                               self.rgbd[:,3][4*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[4*100000],
-                                                                                                                               self.rgbd[:,3][5*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[5*100000],
-                                                                                                                               self.rgbd[:,3][6*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[6*100000],
-                                                                                                                               self.rgbd[:,3][7*100000],
-                                                                                                                               self.depth_based_pixel_sampling_weights[7*100000]))
+                                                                                                                            max_depth_weight,
+                                                                                                                            self.near,
+                                                                                                                            self.rgbd[:,3][0*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[0*100000],
+                                                                                                                            self.rgbd[:,3][1*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[1*100000],
+                                                                                                                            self.rgbd[:,3][2*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[2*100000],
+                                                                                                                            self.rgbd[:,3][3*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[3*100000],
+                                                                                                                            self.rgbd[:,3][4*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[4*100000],
+                                                                                                                            self.rgbd[:,3][5*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[5*100000],
+                                                                                                                            self.rgbd[:,3][6*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[6*100000],
+                                                                                                                            self.rgbd[:,3][7*100000],
+                                                                                                                            self.depth_based_pixel_sampling_weights[7*100000]))
 
 
+    
         
-        
-        # note that below is deprecated
-        self.pixel_indices_below_max_depth = torch.where(self.rgbd[:,3] < self.args.near_maximum_depth)[0] # note, we heavily bias sampling in the near region!
-        # print("{:,} pixels of {:,} are below maximum depth of {:.3f} meters; only these pixels will be sampled!".format(self.pixel_indices_below_max_depth.shape[0], self.rgbd[:,3].shape[0], self.args.far_maximum_depth))
-        self.pixel_indices_below_max_depth = self.pixel_indices_below_max_depth.detach().cpu().numpy().tolist()
+    
+        #self.pixel_indices_below_max_depth = torch.where(self.rgbd[:,3] < self.args.far_maximum_depth)[0]         
+        #self.pixel_indices_below_max_depth = self.pixel_indices_below_max_depth.detach().cpu().numpy().tolist()
 
         
         print("Loaded {} images with {:,} pixels selected".format(i+1, self.image_ids_per_pixel.shape[0] ))
@@ -860,15 +828,18 @@ class SceneModel:
 
         # "[WARNING] skipping cudagraphs due to multiple devices"
         self.models["focal"] = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images).to(device=self.device), mode='reduce-overhead')
-
-        #self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses).to(device=self.device))
-        self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses[::self.args.skip_every_n_images_for_training]).to(device=self.device))
+        #self.models["focal"] = CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images).to(device=self.device)
+        
+        #self.models["pose"] = torch.compile(CameraPoseModel(self.all_initial_poses[::self.args.skip_every_n_images_for_training]).to(device=self.device))
+        self.models["pose"] = CameraPoseModel(self.all_initial_poses[::self.args.skip_every_n_images_for_training]).to(device=self.device)
         
 
         self.models["geometry"] = torch.compile(NeRFDensity(self.args).to(device=self.device))
+        #self.models["geometry"] = NeRFDensity(self.args).to(device=self.device)
                         
         # "[WARNING] skipping cudagraphs due to complex input striding"
         self.models["color"] = torch.compile(NeRFColor(self.args).to(device=self.device))
+        #self.models["color"] = NeRFColor(self.args).to(device=self.device)
         
         # Set up Weights & Biases logging on top of the network in order to record its structure
         wandb.watch(self.models["focal"])
@@ -958,7 +929,7 @@ class SceneModel:
             print("Saving with learned poses and intrinsics the raw sensor colors and sensor depth for view {}".format(i))
             image, _ = self.load_image_data(image_id=image_id)
             depth, _, _, _ = self.load_depth_data(image_id=image_id)
-            pose = self.models['pose']()[i].to(device=self.device)
+            pose = self.models['pose'](0)[i].to(device=self.device)
             self.get_point_cloud(pose=pose, depth=depth, rgb=image, pixel_directions=self.pixel_directions[image_id], label="raw_sensor_with_learned_poses_intrinsics_{}".format(i), save=True, save_raw_xyz=True)               
 
 
@@ -1069,13 +1040,7 @@ class SceneModel:
         sample_distances = torch.cat(sample_distances).to(self.device)
 
         # we continue by expanding out the sample distances in the same way as the previous linear depth sampling
-        sample_distances = sample_distances.unsqueeze(0).expand(number_of_pixels, n_samples)
-
-        print(sample_distances[0])
-        d = sample_distances[0][torch.argwhere(sample_distances[0] < 0.5)] 
-        plt.scatter( d.cpu().numpy(), torch.ones(d.size()[0]).cpu().numpy() , s=3)
-        plt.show()
-        quit()
+        sample_distances = sample_distances.unsqueeze(0).expand(number_of_pixels, n_samples)        
 
         # we make sure to enable sampling of *any* distance within the bins that have been created from this non-linear discretization
         if add_noise:
@@ -1388,7 +1353,7 @@ class SceneModel:
         pixel_cols = self.pixel_cols[pixel_indices_for_this_image]        
         mask[pixel_rows, pixel_cols] = 1
         mask = mask.flatten()
-        pose = self.models['pose']()[train_image_index]
+        pose = self.models['pose'](0)[train_image_index]
 
         return self.render_prediction(pose=pose, train_image_index=train_image_index, mask=None)
 
@@ -1609,6 +1574,8 @@ class SceneModel:
 
     def train(self, indices_of_random_pixels, iteration=0):
         # initialize whether each model is in training mode or else is just in evaluation mode (no gradient updates)
+
+        
         if self.epoch >= self.args.start_training_color_epoch:
             self.models["color"].train()
         else:
@@ -1627,6 +1594,18 @@ class SceneModel:
             self.models["geometry"].train()
         else:
             self.models["geometry"].eval()
+        
+
+        """
+            self.models["color"].train()
+            self.models["color"].eval()        
+            self.models["geometry"].train()
+            self.models["geometry"].eval()
+            self.models["pose"].train()
+            self.models["pose"].eval()
+            self.models["focal"].train()
+            self.models["focal"].eval()        
+        """
 
         # get the randomly selected RGBD data        
         rgbd = self.rgbd[indices_of_random_pixels].to(self.device)  # (N_pixels, 4)
@@ -1654,9 +1633,11 @@ class SceneModel:
         total_weighted_loss = torch.tensor(0.0).to(self.device)
         
         focal_length = self.models['focal'](0).cpu()
-        poses = self.models['pose']().cpu()
-        
-        #print(self.models['pose']()[100])
+        poses = self.models['pose'](0).cpu()
+
+        print(poses[0])
+        print(focal_length[0])
+
         #print(list(self.models['pose'].parameters())[0].grad)
 
         
@@ -1776,10 +1757,12 @@ class SceneModel:
 
         
         for optimizer in self.optimizers.values():
-            optimizer.zero_grad()   
+            optimizer.zero_grad() 
 
         # release unused GPU memory (for memory usage monitoring purposes)
         torch.cuda.empty_cache()
+
+              
 
         # backward propagate the gradients to update the values which are parameters to this loss
         total_weighted_loss.backward(create_graph=False, retain_graph=False)
@@ -1797,6 +1780,8 @@ class SceneModel:
         # advance all schedulers to preserve schedule consistency
         for scheduler in self.schedulers.values():
             scheduler.step()            
+
+
 
         if self.epoch % self.args.log_frequency == 0:
             wandb.log({"Coarse RGB Inverse Render Loss (0-255 per pixel)": coarse_interpretable_rgb_loss_per_pixel,
@@ -1843,6 +1828,9 @@ class SceneModel:
             
             # now we need to grab from our global pixel indices which ones we actually selected, after weighted sampling
             indices_of_random_pixels_for_this_epoch = randomly_sampled_pixel_indices[subsampled_indices_from_weights]            
+                                    
+            print('Avg (sensor) depth of samples: ', torch.mean(self.rgbd[indices_of_random_pixels_for_this_epoch, 3] ))
+            
         else:            
             indices_of_random_pixels_for_this_epoch = random.sample(population=self.pixel_indices_below_max_depth, k=self.args.pixel_samples_per_epoch)            
 
@@ -1852,7 +1840,7 @@ class SceneModel:
 
 
     #########################################################################
-    ########################### Experiments #################################
+    ############################# Experiments ###############################
     #########################################################################
 
     def create_experiment_directory(self):
@@ -1946,7 +1934,7 @@ class SceneModel:
             print("Rendering for image {}".format(image_index))            
 
             #render_result = self.render_prediction_for_train_image(train_image_index=image_index)            
-            render_result = self.basic_render(self.models['pose']()[image_index], self.pixel_directions[image_index], self.models['focal']()[image_index])
+            render_result = self.basic_render(self.models['pose'](0)[image_index], self.pixel_directions[image_index], self.models['focal'](0)[image_index], test_render=True)
 
             #nerf_weights_coarse = render_result['depth_weights_coarse']
             #density_coarse = render_result['density_coarse']                                
@@ -1972,7 +1960,7 @@ class SceneModel:
             if epoch % self.args.save_point_cloud_frequency == 0 and epoch != 0:
                 print("Saving .ply for view {}".format(image_index))
                 depth_view_file_name = os.path.join(self.depth_view_out_dir, str(out_file_suffix).zfill(4) + '_depth_view_{}.png'.format(epoch))
-                pose = self.models['pose']()[image_index].to(device=self.device)
+                pose = self.models['pose'](0)[image_index].to(device=self.device)
                 unsparse_rendered_rgb_img = None
 
                 if self.args.n_depth_sampling_optimizations > 1: 
@@ -2127,31 +2115,31 @@ class SceneModel:
         #self.args.start_training_extrinsics_epoch = 500        
         #self.args.start_training_intrinsics_epoch = 5000
         self.args.start_training_extrinsics_epoch = 500
-        self.args.start_training_intrinsics_epoch = 5000
+        self.args.start_training_intrinsics_epoch = 1000
 
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 20001
+        self.args.entropy_loss_tuning_start_epoch = 5001
         self.args.entropy_loss_tuning_end_epoch = 1000000
-        self.args.entropy_loss_weight = 0.01
+        self.args.entropy_loss_weight = 0.001
 
-        self.args.nerf_density_lr_start = 0.00125
+        self.args.nerf_density_lr_start = 0.0005
         #self.args.nerf_density_lr_end = 0.000025
-        self.args.nerf_density_lr_end = 0.0005
+        self.args.nerf_density_lr_end = 0.0001
         self.args.nerf_density_lr_exponential_index = 4
         self.args.nerf_density_lr_curvature_shape = 1
 
-        self.args.nerf_color_lr_start = 0.001        
+        self.args.nerf_color_lr_start = 0.0005
         self.args.nerf_color_lr_end = 0.0001
         self.args.nerf_color_lr_exponential_index = 2
         self.args.nerf_color_lr_curvature_shape = 1
 
-        self.args.focal_lr_start = 0.001        
+        self.args.focal_lr_start = 0.0001        
         self.args.focal_lr_end = 0.0000025
         self.args.focal_lr_exponential_index = 9
         self.args.focal_lr_exponential_index = 1
 
-        self.args.pose_lr_start = 0.0005
+        self.args.pose_lr_start = 0.0003
         self.args.pose_lr_end = 0.00001
         self.args.pose_lr_exponential_index = 9
         self.args.pose_lr_curvature_shape = 1
@@ -2168,12 +2156,12 @@ class SceneModel:
         
         self.args.epsilon = 0.0000001
         #self.args.depth_sensor_error = 0.5
-        self.args.depth_sensor_error = 0.3
+        self.args.depth_sensor_error = 0.5
         self.args.min_confidence = 2.0
 
         ### test images
         self.args.skip_every_n_images_for_testing = 1
-        self.args.number_of_test_images = 200
+        self.args.number_of_test_images = 250
 
         ### test frequency parameters
         self.args.test_frequency = 5000
@@ -2189,7 +2177,7 @@ class SceneModel:
 
         # training
         self.args.pixel_samples_per_epoch = 1000
-        self.args.number_of_samples_outward_per_raycast = 180
+        self.args.number_of_samples_outward_per_raycast = 360
         self.args.skip_every_n_images_for_training = 60
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 200
         self.args.resample_pixels_frequency = 5000        
@@ -2212,23 +2200,23 @@ class SceneModel:
         self.args.load_pretrained_models = True
         self.args.n_depth_sampling_optimizations = 2
 
-        self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/200k_noentropy'
+        self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/385k_180samples'
         self.args.reset_learning_rates = False # start and end indices of learning rate schedules become {0, number_of_epochs}
                 
         self.args.start_epoch = 200001
         self.args.number_of_epochs = 1
 
         self.args.save_models_frequency = 999999999        
-        self.args.number_of_test_images = 200
+        self.args.number_of_test_images = 250
 
         self.args.skip_every_n_images_for_testing = 1
 
         self.args.near_maximum_depth = 0.5
         self.args.far_maximum_depth = 3.00
 
-        self.args.number_of_samples_outward_per_raycast_for_test_renders = 360
+        self.args.number_of_samples_outward_per_raycast_for_test_renders = 180
 
-        self.args.number_of_pixels_per_batch_in_test_renders = 5000        
+        self.args.number_of_pixels_per_batch_in_test_renders = 4000
         self.args.test_frequency = 1
         self.args.save_depth_weights_frequency = 1000000000
         self.args.save_point_cloud_frequency = 1000000000
@@ -2250,7 +2238,35 @@ class SceneModel:
         self.mem_report()
         print("__________________________________")
 
+# Based on https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10
 
+    def plot_grad_flow(named_parameters):
+        '''Plots the gradients flowing through different layers in the net during training.
+        Can be used for checking for possible gradient vanishing / exploding problems.
+        
+        Usage: Plug this function in Trainer class after loss.backwards() as 
+        "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+        ave_grads = []
+        max_grads= []
+        layers = []
+        for n, p in named_parameters:
+            if(p.requires_grad) and ("bias" not in n):
+                layers.append(n)
+                ave_grads.append(p.grad.abs().mean())
+                max_grads.append(p.grad.abs().max())
+        plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
+        plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
+        plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+        plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+        plt.xlim(left=0, right=len(ave_grads))
+        plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+        plt.xlabel("Layers")
+        plt.ylabel("average gradient")
+        plt.title("Gradient flow")
+        plt.grid(True)
+        plt.legend([Line2D([0], [0], color="c", lw=4),
+                    Line2D([0], [0], color="b", lw=4),
+                    Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
 
     ## MEM utils ##
     # https://gist.github.com/Stonesjtu/368ddf5d9eb56669269ecdf9b0d21cbe
@@ -2337,6 +2353,10 @@ if __name__ == '__main__':
         #with torch.autograd.detect_anomaly():  # no need to enable this because there are never errors
         scene.train(batch) 
 
+
+        #network = make_dot(scene.models['pose'](0), params=dict(scene.models['pose'].named_parameters()), show_attrs=True, show_saved=True)
+        #print(network)
+        #quit()
        
         if (scene.epoch-1) % scene.args.save_models_frequency == 0 and (scene.epoch-1) !=  scene.args.start_epoch:
             scene.save_models()
