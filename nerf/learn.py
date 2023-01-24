@@ -32,7 +32,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 import gc
 
 
-from torchviz import make_dot, make_dot_from_trace
+#from torchviz import make_dot, make_dot_from_trace
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.enabled = True
 
@@ -444,6 +444,7 @@ class SceneModel:
         self.pixel_cols = []
         self.xyz_per_view = []
         self.confidence_per_pixel = []                      
+        neighbor_distance_per_pixel = []
     
         n_pixels_in_training_dataset = self.args.number_of_pixels_in_training_dataset
         n_images = len(self.image_ids[::self.args.skip_every_n_images_for_training])
@@ -468,6 +469,7 @@ class SceneModel:
 
             # select a uniformly random subset of those pixels            
             pixel_indices_selected = torch.argwhere(xyz_coordinates_on_or_off)[torch.randperm(torch.argwhere(xyz_coordinates_on_or_off).size()[0])[:n_pixels_per_image]]
+            number_of_selected_pixels = pixel_indices_selected.size()[0]
                         
             # get the indices of the pixel rows and pixel columns where the projected (x,y,z) point is inside the target convex hull region
             pixel_rows_selected = pixel_indices_selected[:,0]
@@ -479,8 +481,7 @@ class SceneModel:
             xyz_coordinates_selected = xyz_coordinates[pixel_rows_selected, pixel_cols_selected, :]
             self.xyz_per_view.append(xyz_coordinates_selected)
 
-            # get the confidence of the selected pixels
-            # confidence = confidence.cpu()
+            # get the confidence of the selected pixels            
             selected_confidence = confidence[pixel_rows_selected, pixel_cols_selected]
             self.confidence_per_pixel.append(selected_confidence)
 
@@ -488,15 +489,44 @@ class SceneModel:
 
             # now, load the (r,g,b) image and filter the pixels we're only focusing on
             image, image_name = self.load_image_data(image_id=image_id)
-            rgb_selected = image[pixel_rows_selected, pixel_cols_selected, :] # (N selected, 3)
+            rgb_selected = image[pixel_rows_selected, pixel_cols_selected, :] # (N selected, 3)            
+
+            # measure how different the selected pixels are from their neighboring pixels
+            # (there's probably a more elegant way to do this with built-in tensor functions)
+            up = pixel_rows_selected - 1                        
+            down = pixel_rows_selected + 1
+            left = pixel_cols_selected - 1
+            right = pixel_cols_selected + 1
+            
+            up[torch.argwhere(up < 0)] = 0
+            down[torch.argwhere(down > self.H-1)] = self.H-1
+            left[torch.argwhere(left < 0)] = 0
+            right[torch.argwhere(right > self.W-1)] = self.W-1
+            
+            patches = (
+                torch.stack([
+                    image[up, left],
+                    image[up, pixel_cols_selected],
+                    image[up, right],
+                    image[pixel_rows_selected, left],
+                    image[pixel_rows_selected, right],
+                    image[down, left],
+                    image[down, pixel_cols_selected],
+                    image[down, right]
+                ], dim=1)
+            )
+
+            rgb_selected_expand = rgb_selected.unsqueeze(1).expand(number_of_selected_pixels, 8, 3)
+            avg_pixel_neighbor_rgb_dist = torch.sqrt(torch.sum((rgb_selected_expand - patches)**2, dim=2))
+            avg_pixel_neighbor_rgb_dist = torch.mean(avg_pixel_neighbor_rgb_dist, dim=1)
+            neighbor_distance_per_pixel.append(avg_pixel_neighbor_rgb_dist)                                    
 
             # concatenate the (R,G,B) data with the Depth data to create a RGBD vector for each pixel
             rgbd_selected = torch.cat([rgb_selected, depth_selected.view(-1, 1)], dim=1)
             self.rgbd.append(rgbd_selected)            
 
             # now, save this image index, multiplied by the number of pixels selected, in a global vector across all images 
-            #number_of_selected_pixels = torch.sum(xyz_coordinates_on_or_off)
-            number_of_selected_pixels = pixel_indices_selected.size()[0]
+            #number_of_selected_pixels = torch.sum(xyz_coordinates_on_or_off)            
             image_id_for_all_pixels = torch.full(size=[number_of_selected_pixels], fill_value=i)
             self.image_ids_per_pixel.append(image_id_for_all_pixels)
 
@@ -512,16 +542,17 @@ class SceneModel:
         
         self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0).cpu()
         self.confidence_per_pixel = torch.cat(self.confidence_per_pixel, dim=0)
+
+        neighbor_distance_per_pixel = torch.cat(neighbor_distance_per_pixel, dim=0)
+
         
-        # and clean up                
+        # apply sampling weights        
         self.near = torch.min(self.rgbd[:,3])
         self.far = torch.max(self.rgbd[:,3])
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))        
 
-        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.33))).cpu() # bias sampling of closer pixels probabilistically        
-        #self.depth_based_pixel_sampling_weights = torch.ones(self.rgbd.size()[0]) #(1 / (self.rgbd[:,3] ** (np.e))).cpu() # bias sampling of closer pixels probabilistically        
+        self.depth_based_pixel_sampling_weights = (1 / (self.rgbd[:,3] ** (0.33))).cpu() # bias sampling of closer pixels probabilistically                
         max_depth_weight = torch.max(self.depth_based_pixel_sampling_weights)
-
         
         print("Max depth sampling weight of {:.2f} at {:.4f}m. More examples of depth vs. sampling weight: {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, {:.2f}m = {:.2f}, ...".format(
                                                                                                                             max_depth_weight,
@@ -544,11 +575,15 @@ class SceneModel:
                                                                                                                             self.depth_based_pixel_sampling_weights[7*100000]))
 
 
-    
+                        
+
+        max_rgb_distance = np.sqrt(3)
+        steepness = 20.0
         
-    
-        #self.pixel_indices_below_max_depth = torch.where(self.rgbd[:,3] < self.args.far_maximum_depth)[0]         
-        #self.pixel_indices_below_max_depth = self.pixel_indices_below_max_depth.detach().cpu().numpy().tolist()
+        neighbor_rgb_distance_sampling_weights = torch.log2( (steepness * neighbor_distance_per_pixel / max_rgb_distance + 1.0))
+        self.depth_based_pixel_sampling_weights = self.depth_based_pixel_sampling_weights * neighbor_rgb_distance_sampling_weights
+        #print(neighbor_rgb_distance_sampling_weights[:10])
+        
 
         
         print("Loaded {} images with {:,} pixels selected".format(i+1, self.image_ids_per_pixel.shape[0] ))
