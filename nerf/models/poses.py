@@ -15,8 +15,18 @@ class CameraPoseModel(nn.Module):
 
     def forward(self, i=None):
         r = self.r  # (N, 3) axis-angle
-        t = self.t  # (N, 3)
-        delta_pose = make_pose(r, t)  # (N, 4, 4)
+        t = self.t  # (N, 3)        
 
+        delta_pose = make_pose(r, t)  # (N, 4, 4)
         poses = delta_pose @ self.poses   
+        
+        #rotation_matrix[:, 2] = -rotation_matrix[:, 2]
+        #rotation_matrix[2, :3] = rotation_matrix[2, :3]
+        #translation_vector[2] = -translation_vector[2] 
+        #poses[:, :, 2] = -poses[:, :, 2]
+        #poses[:, 2, :3] = poses[:, 2]       
         return poses
+
+        #c2w = make_c2w(r, t)
+        #c2w = c2w @ self.poses[i]
+        #return c2w        

@@ -30,12 +30,11 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import    
 
 
-
-def rotate_pose_in_camera_space(scene, pose, d_pitch, d_roll, d_yaw):
+def rotate_pose_in_camera_space(scene, pose, d_pitch, d_yaw, d_roll):
     camera_rotation_matrix = pose[:3,:3]
     
     pose_quaternion = matrix_to_quaternion(camera_rotation_matrix)
-    new_quaternion = quaternion_multiply(pose_quaternion, axis_angle_to_quaternion(torch.FloatTensor([d_pitch,d_roll,d_yaw])))
+    new_quaternion = quaternion_multiply(pose_quaternion, axis_angle_to_quaternion(torch.FloatTensor([d_pitch,d_yaw,d_roll])))
 
     new_camera_rotation_matrix = quaternion_to_matrix(new_quaternion)
     new_camera_axis_angles = matrix_to_axis_angle(new_camera_rotation_matrix)
@@ -47,9 +46,7 @@ def rotate_pose_in_camera_space(scene, pose, d_pitch, d_roll, d_yaw):
 
     return new_pose        
     
-
-def translate_pose_in_global_space(scene, pose, d_x, d_y, d_z):        
-    camera_rotation_matrix = pose[:3,:3]
+def translate_pose_in_global_space(scene, pose, d_x, d_y, d_z):            
     translation = torch.FloatTensor([d_x,d_y,d_z])
 
     new_pose = torch.clone(pose)
@@ -59,101 +56,105 @@ def translate_pose_in_global_space(scene, pose, d_x, d_y, d_z):
 
     return new_pose
 
+def translate_pose_in_camera_space(scene, pose, d_x, d_y, d_z):        
+    camera_rotation_matrix = pose[:3,:3]
+    translation = camera_rotation_matrix[:3,:3] @ torch.FloatTensor([d_x,d_y,d_z])
+    
+    new_pose = torch.clone(pose)
+    new_pose[:3,:3] = pose[:3,:3]
+    new_pose[:3,3] = pose[:3,3] + translation
+    new_pose[3,3] = 1.0
 
-def construct_pose(scene, pitch, yaw, roll, x, y, z):
-    pose = torch.zeros((4,4))
-    pose_quaternion = axis_angle_to_quaternion(torch.FloatTensor([pitch, yaw, roll]))
-    pose_rotation_matrix = quaternion_to_matrix(pose_quaternion)
-    pose[:3,:3] = pose_rotation_matrix
-    pose[:3,3] = torch.FloatTensor([x,y,z])
-    pose[3,3] = 1.0
-
-    return pose        
-
-
-
-
+    return new_pose    
 
 def generate_spin_poses(scene, number_of_poses):
 
-    # bottom of pot: y=-0.34
-    # top of pot: y=-0.26
-    # center of pot: x=(-0.0057 + 0.059) / 2
-    # center of pot: z=(-0.212 + -0.267) / 2
-    # [0.051322 -0.364376 -0.272635]
-    # [0.004562 -0.364395 -0.222432]
-
-    # dragon scale
-    center_x = (0.051322 + 0.004562) / 2
-    center_y = -0.26
-    center_z = (-0.272635 -0.222432) / 2    
-    initial_pitch = np.pi - np.pi/4.5
-    r = 0.2
+    object_xyzs = scene.xyz[torch.where(scene.rgbd[:, 3] < 1.0)]
+    center_x = torch.mean(object_xyzs[:, 0:1])
+    center_y = torch.mean(object_xyzs[:, 1:2])
+    center_z = torch.mean(object_xyzs[:, 2:3])
+            
+    p_center = torch.tensor([center_x, center_y, center_z])
+    p_to = p_center # point to look at
+    
+    dx = -0.01
     dy = 0.2
-    dx = 0
-    dz = r  
+    dz = 0.01
+        
+    p_from = p_to + torch.tensor([dx, dy, dz])
+    v_forward = torch.nn.functional.normalize(p_from - p_to, dim=0, p=2).float()
+    v_arbitrary = torch.tensor([0.0, 1.0, 0.0])
+    v_right = torch.cross(v_arbitrary, v_forward, dim=0)
+    v_right = torch.nn.functional.normalize(v_right, dim=0, p=2)
+    v_up = torch.cross(v_forward, v_right, dim=0)
+    v_up = torch.nn.functional.normalize(v_up, dim=0, p=2)
+    
+    initial_pose = torch.zeros(4,4)    
+    initial_pose[0, :3] = v_right
+    initial_pose[1, :3] = v_up
+    initial_pose[2, :3] = v_forward
+    initial_pose[3,  3] = 1.0
+    initial_pose[:3, 3] = p_from          
 
-    # elastica
-    # center of soil surface: [-0.021638 -0.548057 -0.290823] [689,618]
-    # top of stem
-    #center_x = -0.0236
-    #center_y = -0.278801
-    #center_z = -0.203017            
-    # center of soil surface + stem height
-    #center_x = -0.021638
-    #center_y = -0.278801
-    #center_z = -0.290823
-    #initial_pitch = np.pi - np.pi/3.4  # pointing down minus 30 degrees from horizon
-    #r = 0.33
-    #dy = 0.22
-    #dx = 0
-    #dz = r    
-    
-    initial_yaw = 0 # north
-    initial_roll = 0 # horizon
-    initial_y = center_y + dy
-    initial_x = center_x + dx
-    initial_z = center_z + dz    
-    
-    next_cam_pose = torch.zeros(4,4)
-    matrix = euler_angles_to_matrix(torch.tensor([initial_pitch, initial_roll, initial_yaw]), "XYZ")
-    next_cam_pose[:3, :3] = matrix
-    next_cam_pose[:3, 3] = torch.tensor([initial_x, initial_y, initial_z])
-                
+    focal_length = scene.models['focal'](0)[0]
+    scene.compute_ray_direction_in_camera_coordinates(focal_length.unsqueeze(0))
+    pixel_directions = scene.pixel_directions[0].to(torch.device('cuda:0'))    
+
+    #initial_pose = scene.models['pose'](0)[0].cpu()
+    next_cam_pose = torch.clone(initial_pose)
+
+    xyzs = []        
     new_pose = torch.clone(next_cam_pose)  
     poses = [new_pose]
-    pose_debug = []        
-    
-    center_pixel_xyz = torch.tensor([center_x, center_y, center_z])
+    spin_radius = torch.abs(p_from[2] - p_to[2])
+        
     for i in range(0, number_of_poses):
-                
+                        
         x = next_cam_pose[0,3]
         y = next_cam_pose[2,3]
 
         # convert to polar coordinates with center_pixel_xyz as origin     
-        theta = torch.atan2(torch.FloatTensor([y - center_pixel_xyz[2]]),torch.FloatTensor([x - center_pixel_xyz[0]]))               
+        theta = torch.atan2(torch.FloatTensor([y - p_to[2]]),torch.FloatTensor([x - p_to[0]]))                       
 
         # rotate
         theta = theta + 2.0*np.pi/number_of_poses
 
         # convert back to cartesian coordinates
-        xp = r * math.cos(theta) + center_pixel_xyz[0]
-        yp = r * math.sin(theta) + center_pixel_xyz[2]
+        xp = spin_radius * math.cos(theta) + p_to[0]
+        yp = spin_radius * math.sin(theta) + p_to[2]
+        
+        pitch = matrix_to_euler_angles(next_cam_pose[:3,:3], "XYZ")[0]
+        print(pitch)
 
-        # translate then rotate        
-        next_cam_pose = translate_pose_in_global_space(scene, next_cam_pose, (xp - x), 0.0, (yp - y))
+        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)
+        next_cam_pose = next_cam_pose
+        # translate in global coordinates
+        #next_cam_pose = translate_pose_in_global_space(scene, next_cam_pose, (xp - x), 0.0, (yp - y))
+
+        # rotate in camera coordinates
+        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, (np.pi/2.0 - pitch), 0.0, 0.0)
+        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)
+        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, -(np.pi/2.0 - pitch), 0.0, 0.0)
         
-        # convention: pitch, yaw, roll
-        next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, np.pi - initial_pitch, 0.0, 0.0)
-        next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)                    
-        next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, -(np.pi - initial_pitch), 0.0, 0.0)
-        
+        xyzs.append(next_cam_pose[:,3])          
         new_pose = torch.clone(next_cam_pose)        
-        pose_debug.append([new_pose[0,3], new_pose[2,3], new_pose[1,3]])                        
         poses.append(new_pose)         
     
+    xyzs = torch.stack(xyzs, dim=0)
+
+    # visualize path
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    xs = xyzs[:, 0]
+    ys = xyzs[:, 1]
+    zs = xyzs[:, 2]
+    ax.scatter(xs, zs, ys, marker='o')
+    ax.scatter(xs[0], zs[0], ys[0], marker='o', c='red')
+    ax.scatter(p_to[0], p_to[2], p_to[1], marker='o', c='green')
+    plt.show()
+
     poses = torch.stack(poses, 0)    
-    poses = convert3x4_4x4(poses).to(scene.device)
+    poses = poses.to(scene.device)    
 
     return poses
 
@@ -187,15 +188,15 @@ def render_poses(scene, poses, video_dir):
     depth_out_dir.mkdir(parents=True, exist_ok=True)   
     color_images = []
     depth_images = []
-    focal_length_x, focal_length_y = scene.models["focal"](0)
+    focal_length = scene.models["focal"](0)
         
-    print('using focal length {}'.format(focal_length_x[0]))
-    scene.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
+    print('using focal length {}'.format(focal_length[0]))
+    scene.compute_ray_direction_in_camera_coordinates(focal_length)
 
     for i,pose in enumerate(poses):
         index = i
         print('rendering pose {}'.format(i))
-        render_result = scene.basic_render(pose, scene.pixel_directions[0], focal_length_x[0])
+        render_result = scene.basic_render(pose, scene.pixel_directions[0], focal_length[0])
         render_result = render_on_background(scene, render_result['rendered_image_fine'], render_result['rendered_depth_fine'], pose, scene.pixel_directions[0])
         color_out_file_name = os.path.join(color_out_dir, "color_{}.png".format(index))                
         depth_out_file_name = os.path.join(depth_out_dir, "depth_{}.png".format(index))                        
@@ -216,8 +217,8 @@ def render_on_background(scene, rgb, depth, pose, pixel_directions):
 
     camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
     camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
-    pixel_directions = pixel_directions.reshape(scene.H, scene.W, 3).unsqueeze(3)
-
+    pixel_directions = pixel_directions.reshape(scene.H, scene.W, 3).unsqueeze(3).to(device=scene.device)
+    pixel_directions = torch.nn.functional.normalize(pixel_directions, p=2, dim=2)
     rgb_img = rgb.reshape(scene.H, scene.W, 3).to(device=scene.device)
     depth_img = depth.reshape(scene.H, scene.W).to(device=scene.device)    
     xyz_coordinates = scene.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth_img)    
@@ -226,8 +227,10 @@ def render_on_background(scene, rgb, depth, pose, pixel_directions):
     corner = torch.tensor([-0.1450, -0.3655, -0.4069]).to(scene.device)
     # elastica_burgundy
     #center = torch.tensor([0.0058, -0.4112, -0.2170]).to(scene.device)    
-    #mins = torch.tensor([-0.1934, -0.6670, -0.3852]).to(scene.device)
-    #maxs = torch.tensor([0.2049, -0.1554, -0.0488]).to(scene.device)
+
+
+    #mins = torch.tensor([-0.1934, -0.6670+0.25, -0.3852]).to(scene.device)*1.5
+    #maxs = torch.tensor([0.2049, -0.1554+0.1, -0.0488+0.1]).to(scene.device)*1.5
     #bounding_box_condition = torch.logical_and(xyz_coordinates > mins, xyz_coordinates < maxs).float()
     #bounding_box_condition = torch.sum(bounding_box_condition, dim=2)    
     #bounding_box_condition_indices = torch.where(bounding_box_condition != 3.0)
@@ -238,8 +241,8 @@ def render_on_background(scene, rgb, depth, pose, pixel_directions):
     bounding_box_condition =  (torch.sqrt(torch.sum( (xyz_coordinates - center)**2, dim=2)) > bounding_sphere_radius).to(scene.device)
     bounding_box_condition_indices = torch.where(bounding_box_condition)
 
-    rgb_img[bounding_box_condition_indices] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
-    depth_img[bounding_box_condition_indices] = 1.0
+    #rgb_img[bounding_box_condition_indices] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
+    #depth_img[bounding_box_condition_indices] = 1.0
 
     result = {
         'rendered_image_fine': rgb_img,
@@ -253,8 +256,8 @@ def render_on_background(scene, rgb, depth, pose, pixel_directions):
 
 def render_all_training_images(scene, images_dir):
     
-    focal_length_x, focal_length_y = scene.models["focal"](0)
-    scene.compute_ray_direction_in_camera_coordinates(focal_length_x, focal_length_y)
+    focal_length = scene.models["focal"](0)
+    scene.compute_ray_direction_in_camera_coordinates(focal_length)
 
     for image_id in range(0, 157):
         print("rendering image {}".format(image_id))
@@ -264,89 +267,7 @@ def render_all_training_images(scene, images_dir):
         scene.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
 
 
-def zoom_out_from_point(scene):
-
-    #fname = 'dragon_scale_tri.ply'
-    fname = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes/dragon_scale_0_luminosity_filtered_only.glb'    
-    mesh =  o3d.io.read_triangle_mesh(fname)
-    vertices = torch.tensor(np.asarray(mesh.vertices).tolist()).to(torch.device('cuda:0'))
-    vertex_normals = torch.tensor(np.asarray(mesh.vertex_normals).tolist()).to(torch.device('cuda:0'))    
-
-    view_number = 0
-    focus_point = vertices[view_number]
-    normal = vertex_normals[view_number]
-    normal = torch.nn.functional.normalize(normal, dim=0, p=2)
-    print('normal: ',normal)
-    # x (left/right) right = +
-    # y (up/down) {is upside down} down = +
-    # z (forward/back) forward = +
-    pose = torch.zeros(4,4).to(torch.device('cuda:0'))
-
-    measure_distance = 0.01
-    scene.near = torch.tensor([measure_distance]).to(torch.device('cuda:0'))
-    #scene.args.near_maximum_depth = torch.tensor([0.1])
-    #scene.args.far_maximum_depth = torch.tensor([0.11])
-
-    p_from = -normal * measure_distance + focus_point
-    p_to = focus_point    
-    print('p_from: ', p_from)
-    print('p_to: ', p_to)    
-    v_forward = -torch.nn.functional.normalize(p_from - p_to, dim=0, p=2) # original    
-    v_arbitrary = torch.tensor([0.0, 1.0, 0.0]).to(torch.device('cuda:0'))
-    v_right = -torch.cross(v_arbitrary, v_forward)     
-    v_right = torch.nn.functional.normalize(v_right, dim=0, p=2)
-    v_up = torch.cross(v_forward, v_right) # original    
-    v_up =torch.nn.functional.normalize(v_up, dim=0, p=2) # original    
-    pixel_directions = scene.pixel_directions[view_number]
-    focal_length_x, focal_length_y = scene.models["focal"](0)    
-    focal_length = focal_length_x[view_number]
-
-    # for the pose, the coordinate transform matrix is the mapping from camera to world pose,
-    # but xyz is the *world* offset
-
-    # also, z is backwards
-
-    
-    n_poses = 100
-    for i in range(n_poses):
-        print(i)
-        pose[0, :3] = v_right.clone()
-        pose[1, :3] = v_up.clone()
-        pose[2, :3] = v_forward.clone()
-        pose[3,  3] = 1.0
-        
-        #pose = scene.models['pose']()[35]
-        if i==0:
-            print([pose[:3,:3]])
-        #pose[:3, 3] = torch.matmul(pose[:3,:3], p_from.unsqueeze(1)).squeeze(1)
-        pose[:3, 3] = p_from
-        pose[:3, :3] = pose[:3,:3].inverse()
-
-        
-
-        xyz_camera = torch.tensor([0.0, 0.0, -i*measure_distance]).unsqueeze(1).to(torch.device('cuda:0'))
-        
-        pose[:3, 3] = pose[:3, 3] + torch.matmul(pose[:3,:3], xyz_camera).squeeze(1)
-
-        #pose[:3, 3] = p_from - pose[2, :3] * i * measure_distance
-        #pose[2, 3] = pose[2, 3] - measure_distance
-        #pose[3,  3] = 1.0                
-
-        
-        print(pose)
-        render_result = scene.basic_render(pose, pixel_directions, focal_length)     
-        scene.save_render_as_png(render_result, color_file_name_fine='tmp/color_{}.png'.format(i), depth_file_name_fine='tmp/depth_{}.png'.format(i), color_file_name_coarse=None, depth_file_name_coarse=None)
-        
-
-
-
 def color_mesh_with_nerf_colors(scene, mesh):
-    
-
-    # bottom of pot: y=-0.34
-    # top of pot: y=-                          
-    # center of pot: x=(-0.0057 + 0.059) / 2 = 
-    # center of pot: z=(-0.212 + -0.267) / 2 = 
     
     # Using a very small measure distance makes things more robust to inaccurate normals. We really only
     # care about the general direction the normal is pointing.
@@ -367,8 +288,6 @@ def color_mesh_with_nerf_colors(scene, mesh):
     print('n_vertices: ', n_vertices)
     print('vertex_normals size: ', vertex_normals.size()[0])
 
-
-
     min_x = -0.1519
     max_x = 0.1625
 
@@ -383,45 +302,6 @@ def color_mesh_with_nerf_colors(scene, mesh):
     vertices[:, 1] += min_y
     vertices[:, 2] += min_z
 
-    """
-
-        # blender transformation:
-        # x = -0.153701 m
-        # y = -0.363557 m
-        # z = -0.412759 m
-        # scale = 0.0002
-
-        # nerf:
-        # right = x
-        # up = y
-        # forward = -z
-
-        # blender:
-        # right = x
-        # up = z
-        # forward = -y
-
-        # 0.008674 -0.166496 -0.196280
-        #0.008865 -0.209839 -0.139628] 
-
-
-        # 0.009557 -0.170050 -0.189943
-        # 0.008283 -0.168344 -0.194182
-
-        vertices = vertices / 500.0
-
-        x_offset = (-0.153701) + (0.008674  - 0.008865) + (0.009557 - 0.008283)
-        y_offset = (-0.412759) + (-0.166496 - -0.209839) + (-0.170050 - -0.168344)
-        z_offset = (-0.363557) + (-0.196280 - -0.139628) + (-0.189943 - -0.194182)
-        
-        
-        vertices[:, 0] += x_offset
-        vertices[:, 1] += y_offset
-        vertices[:, 2] += z_offset
-    """
-    
-
-        
     
 
     # construct local coordinate system for each camera (looking at vertex)
@@ -446,9 +326,8 @@ def color_mesh_with_nerf_colors(scene, mesh):
 
     pixel_directions = torch.tensor([0.0,0.0,1.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
     #pixel_directions = scene.pixel_directions[0][scene.H//2, scene.W//2].unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
-    focal_length_x, focal_length_y = scene.models["focal"](0)    
-    focal_lengths = focal_length_x[0].expand(n_vertices)
-
+    focal_length = scene.models["focal"](0)    
+    focal_lengths = focal_length[0].expand(n_vertices)
     
     poses[:, :3, 3] = p_from #poses[:, :3, 3] - measure_distance*poses[:,2,:3]
     render_result = scene.flat_render(poses, pixel_directions, focal_lengths)     
@@ -461,27 +340,42 @@ if __name__ == '__main__':
     
     with torch.no_grad():
 
-        scene = SceneModel(args=parse_args(), experiment_args='test')
-        scene.args.number_of_samples_outward_per_raycast = 128                   
-        scene.args.use_sparse_fine_rendering = False
-        """
-                
-            data_out_dir = "{}/videos".format(scene.args.base_directory)            
-            #experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                    
-            experiment_label = '1667331314_spin_video'
-            experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
+        dynamic_args = {
+            "number_of_samples_outward_per_raycast" : 180,
+            "number_of_samples_outward_per_raycast_for_test_renders" : 180,
+            "percentile_of_samples_in_near_region" : 0.8,
+            "number_of_pixels_per_batch_for_test_renders" : 5000,            
+            "near_maximum_depth" : 1.0,
+            "skip_every_n_images_for_training" : 60,
+            "use_sparse_fine_rendering" : False,
+            #"base_directory" : '\'./data/orchid\'',
+            #"base_directory" : '\'./data/dragon_scale\'',
+            "base_directory" : '\'./data/dragon_scale\'',            
+            "pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/5k_camerafixed/\'',                        
+            "start_epoch" : 5001,
+            "load_pretrained_models" : True,
+        }
+        scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)          
+            
+        print (scene.args.near_maximum_depth)
+        data_out_dir = "{}/videos".format(scene.args.base_directory)            
+        experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                            
+        experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
 
-            n_poses = 479
-            print("creating spin video images")        
-            #create_spin_video_images(scene, n_poses, experiment_dir)
-            print("converting images to video")        
-            imgs_to_video(experiment_dir, n_poses)
-            print("video output to {}".format(experiment_dir))
-        """
-        fname = 'dragon_scale_tri.ply'
-        #fname = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes/dragon_scale_0_luminosity_filtered_only.glb'
-        #print('Loading mesh: {}'.format(fname))
-        mesh =  o3d.io.read_triangle_mesh(fname)
-        color_mesh_with_nerf_colors(scene, mesh)
+        n_poses = 200
+        print("creating spin video images")        
+        create_spin_video_images(scene, n_poses, experiment_dir)
+        print("converting images to video")        
+        imgs_to_video(experiment_dir, n_poses)
+        print("video output to {}".format(experiment_dir))
 
-        #zoom_out_from_point(scene)
+
+        """
+            fname = 'dragon_scale_tri.ply'
+            #fname = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes/dragon_scale_0_luminosity_filtered_only.glb'
+            #print('Loading mesh: {}'.format(fname))
+            mesh =  o3d.io.read_triangle_mesh(fname)
+            color_mesh_with_nerf_colors(scene, mesh)
+
+            #zoom_out_from_point(scene)
+        """

@@ -11,7 +11,8 @@ def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=Tru
     N_samples = sampling_depths.shape[1]
 
     # transform rays from camera coordinate to world coordinate    
-    pixel_directions_world = torch.matmul(poses[:,:3, :3], pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3) 
+    pixel_directions_world = torch.matmul(poses[:,:3, :3], pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3)     
+    
     poses_xyz = poses[:, :3, 3]  # the translation vectors (N, 3)
 
     # this perturb only works if we sample depth linearly, not the disparity.
