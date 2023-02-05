@@ -625,7 +625,7 @@ class SceneModel:
                         
 
         max_rgb_distance = np.sqrt(3)
-        steepness = 1.0
+        steepness = 20.0
         
         neighbor_rgb_distance_sampling_weights = torch.log2( (steepness * neighbor_distance_per_pixel / max_rgb_distance + 1.0))
         self.depth_based_pixel_sampling_weights = self.depth_based_pixel_sampling_weights * neighbor_rgb_distance_sampling_weights
@@ -1406,11 +1406,8 @@ class SceneModel:
     # view_focal_length: only needed by IPE computation    
     def basic_render(self, pose, view_pixel_directions, view_focal_length, test_render=False):
 
-        poses = pose.unsqueeze(0).expand(self.W*self.H, -1, -1).to(self.device)
-        print("pix directions:")
-        print(view_pixel_directions[0, :10])
-        pixel_directions = view_pixel_directions.flatten(start_dim=0, end_dim=1).to(self.device)
-        print(pixel_directions[:10])
+        poses = pose.unsqueeze(0).expand(self.W*self.H, -1, -1).to(self.device)                
+        pixel_directions = view_pixel_directions.flatten(start_dim=0, end_dim=1).to(self.device)        
         focal_lengths = view_focal_length.unsqueeze(0).expand(self.W*self.H, 1).to(self.device)
 
         # split each of the rendering inputs into batches for better GPU usage        
@@ -2259,7 +2256,7 @@ class SceneModel:
     def load_saved_args_train(self):
         
         #self.args.base_directory = './data/elastica_burgundy'
-        self.args.base_directory = './data/dragon_scale'
+        self.args.base_directory = './data/cactus'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
@@ -2278,7 +2275,8 @@ class SceneModel:
         self.args.start_training_geometry_epoch = 0
         self.args.entropy_loss_tuning_start_epoch = 5001
         self.args.entropy_loss_tuning_end_epoch = 1000000
-        self.args.entropy_loss_weight = 0.001
+        #self.args.entropy_loss_weight = 0.001
+        self.args.entropy_loss_weight = 0.005
 
         self.args.nerf_density_lr_start = 0.0005
         #self.args.nerf_density_lr_end = 0.000025
@@ -2321,20 +2319,20 @@ class SceneModel:
         self.args.number_of_test_images = 1
 
         ### test frequency parameters
-        self.args.test_frequency = 1000
+        self.args.test_frequency = 5000
         self.args.export_test_data_for_testing = False
         self.args.save_ply_point_clouds_of_sensor_data = False
         self.args.save_ply_point_clouds_of_sensor_data_with_learned_poses = False        
         self.args.save_point_cloud_frequency = 1000000
         self.args.save_depth_weights_frequency = 5000000000
         self.args.log_frequency = 1
-        self.args.save_models_frequency = 1000
+        self.args.save_models_frequency = 5000
 
         
 
         # training
         self.args.pixel_samples_per_epoch = 1000
-        self.args.number_of_samples_outward_per_raycast = 120
+        self.args.number_of_samples_outward_per_raycast = 360
         self.args.skip_every_n_images_for_training = 60
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 500
         self.args.resample_pixels_frequency = 5000
@@ -2346,7 +2344,7 @@ class SceneModel:
 
         self.args.use_sparse_fine_rendering = False        
                 
-        self.args.near_maximum_depth = 0.5
+        self.args.near_maximum_depth = 1.0
         self.args.far_maximum_depth = 3.00  
         self.args.percentile_of_samples_in_near_region = 0.80 
 
