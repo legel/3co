@@ -50,6 +50,8 @@ def parse_args():
     parser.add_argument('--load_pretrained_models', type=bool, default=False, help='Whether to start training from models loaded with load_pretrained_models()')
     parser.add_argument('--pretrained_models_directory', type=str, default='./data/dragon_scale/hyperparam_experiments/1662755515_depth_loss_0.00075_to_0.0_k9_N1_NeRF_Density_LR_0.0005_to_0.0001_k4_N1_pose_LR_0.0025_to_1e-05_k9_N1', help='The directory storing models to load')    
     parser.add_argument('--reset_learning_rates', type=bool, default=False, help='When loading pretrained models, whether to reset learning rate schedules instead of resuming them')
+    parser.add_argument('--H_for_test_renders', type=int, default=480, help='The image height used for test renders and pointclouds')
+    parser.add_argument('--W_for_test_renders = 640', type=int, default=640, help='The image width used for test renders and pointclouds')                
     
     # Define number of epochs, and timing by epoch for when to start training per network
     parser.add_argument('--start_epoch', default=0, type=int, help='Epoch on which to begin or resume training')
@@ -1173,7 +1175,7 @@ class SceneModel:
             #'alpha': render_result['alpha'],               # (N_pixels, N_sample),
             #'acc_transmittance': render_result['acc_transmittance'], # (N_pixels, N_sample),
             #'resampled_depths': resampled_depths,           # (N_samples)
-            #'distances': render_result['distances'],
+            'distances': render_result['distances'],
         }
 
         return result
@@ -2096,8 +2098,8 @@ class SceneModel:
 
         #self.args.H_for_test_renders = 1440
         #self.args.W_for_test_renders = 1920        
-        #self.args.H_for_test_renders = 480
-        #self.args.W_for_test_renders = 640
+        self.args.H_for_test_renders = 480
+        self.args.W_for_test_renders = 640
 
 
 
@@ -2142,7 +2144,7 @@ class SceneModel:
 if __name__ == '__main__':
     
     with torch.no_grad():
-        scene = SceneModel(args=parse_args(), experiment_args='test')
+        scene = SceneModel(args=parse_args(), experiment_args='train')
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:    
         
