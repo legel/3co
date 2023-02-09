@@ -30,22 +30,37 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import    
 
 
-def rotate_pose_in_camera_space(scene, pose, d_pitch, d_yaw, d_roll):
+def rotate_pose_in_camera_space(scene, pose, dx, dy, dz):
     camera_rotation_matrix = pose[:3,:3]
     
-    pose_quaternion = matrix_to_quaternion(camera_rotation_matrix)
-    new_quaternion = quaternion_multiply(pose_quaternion, axis_angle_to_quaternion(torch.FloatTensor([d_pitch,d_yaw,d_roll])))
+    Rx = torch.tensor([
+        [1.0,    0.0,      0.0       ],
+        [0,   np.cos(dx), -np.sin(dx)],
+        [0,   np.sin(dx),  np.cos(dx) ]
+    ]).float()
 
-    new_camera_rotation_matrix = quaternion_to_matrix(new_quaternion)
-    new_camera_axis_angles = matrix_to_axis_angle(new_camera_rotation_matrix)
+    Ry = torch.tensor([
+        [np.cos(dy),   0.0,   np.sin(dy)],
+        [0,            1.0,   0.0       ],
+        [-np.sin(dy),  0.0,   np.cos(dy)]
+    ]).float()
+
+    Rz = torch.tensor([
+        [np.cos(dz), -np.sin(dz),   0.0 ],
+        [np.sin(dz), np.cos(dz),    0.0 ],
+        [0.0,          0.0,         1.0]
+    ]).float()
+
+    R = Rz @ Ry @ Rx
+    new_camera_rotation_matrix = R @ camera_rotation_matrix
 
     new_pose = torch.zeros((4,4))
     new_pose[:3,:3] = new_camera_rotation_matrix
     new_pose[:3,3] = pose[:3,3]
-    new_pose[3,3] = 1.0
-
+    new_pose[3,3] = 1.0    
     return new_pose        
-    
+
+
 def translate_pose_in_global_space(scene, pose, d_x, d_y, d_z):            
     translation = torch.FloatTensor([d_x,d_y,d_z])
 
@@ -69,17 +84,19 @@ def translate_pose_in_camera_space(scene, pose, d_x, d_y, d_z):
 
 def generate_spin_poses(scene, number_of_poses):
 
-    object_xyzs = scene.xyz[torch.where(scene.rgbd[:, 3] < 1.0)]
+    object_xyzs = scene.xyz[torch.where(scene.rgbd[:, 3] < 0.5)]
     center_x = torch.mean(object_xyzs[:, 0:1])
     center_y = torch.mean(object_xyzs[:, 1:2])
     center_z = torch.mean(object_xyzs[:, 2:3])
-            
+                
     p_center = torch.tensor([center_x, center_y, center_z])
+    #p_center = torch.tensor([0.0044, -0.2409, -0.2728])
+    
     p_to = p_center # point to look at
     
-    dx = -0.01
-    dy = 0.2
-    dz = 0.01
+    dx = 0.015
+    dy = 0.35
+    dz = -0.15
         
     p_from = p_to + torch.tensor([dx, dy, dz])
     v_forward = torch.nn.functional.normalize(p_from - p_to, dim=0, p=2).float()
@@ -122,20 +139,13 @@ def generate_spin_poses(scene, number_of_poses):
         # convert back to cartesian coordinates
         xp = spin_radius * math.cos(theta) + p_to[0]
         yp = spin_radius * math.sin(theta) + p_to[2]
-        
-        pitch = matrix_to_euler_angles(next_cam_pose[:3,:3], "XYZ")[0]
-        print(pitch)
+                
 
-        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)
-        next_cam_pose = next_cam_pose
         # translate in global coordinates
-        #next_cam_pose = translate_pose_in_global_space(scene, next_cam_pose, (xp - x), 0.0, (yp - y))
+        next_cam_pose = translate_pose_in_global_space(scene, next_cam_pose, (xp - x), 0.0, (yp - y))        
 
         # rotate in camera coordinates
-        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, (np.pi/2.0 - pitch), 0.0, 0.0)
-        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, 0.0, 1.0 * 2.0 * np.pi / number_of_poses, 0.0)
-        #next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, -(np.pi/2.0 - pitch), 0.0, 0.0)
-        
+        next_cam_pose = rotate_pose_in_camera_space(scene, next_cam_pose, 0.0, -1.0 * 2.0 * np.pi / number_of_poses, 0.0)                                
         xyzs.append(next_cam_pose[:,3])          
         new_pose = torch.clone(next_cam_pose)        
         poses.append(new_pose)         
@@ -341,8 +351,8 @@ if __name__ == '__main__':
     with torch.no_grad():
 
         dynamic_args = {
-            "number_of_samples_outward_per_raycast" : 180,
-            "number_of_samples_outward_per_raycast_for_test_renders" : 180,
+            "number_of_samples_outward_per_raycast" : 360,
+            "number_of_samples_outward_per_raycast_for_test_renders" : 360,
             "percentile_of_samples_in_near_region" : 0.8,
             "number_of_pixels_per_batch_for_test_renders" : 5000,            
             "near_maximum_depth" : 1.0,
@@ -350,9 +360,11 @@ if __name__ == '__main__':
             "use_sparse_fine_rendering" : False,
             #"base_directory" : '\'./data/orchid\'',
             #"base_directory" : '\'./data/dragon_scale\'',
-            "base_directory" : '\'./data/dragon_scale\'',            
-            "pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/5k_camerafixed/\'',                        
-            "start_epoch" : 5001,
+            #"base_directory" : '\'./data/dragon_scale\'',            
+            #"base_directory" : '\'./data/cactus\'',            
+            #"pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/5k_camerafixed/\'',                        
+            "pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run28/models/\'',                        
+            "start_epoch" : 50001,
             "load_pretrained_models" : True,
         }
         scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)          
