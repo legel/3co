@@ -14,6 +14,7 @@ import argparse
 import wandb
 from pathlib import Path
 from tqdm import tqdm
+import os
 
 sys.path.append(os.path.join(sys.path[0], '../..'))
 from utils.pos_enc import encode_position
@@ -82,19 +83,30 @@ def translate_pose_in_camera_space(scene, pose, d_x, d_y, d_z):
 
     return new_pose    
 
+
+def get_center(scene, dataset=None):
+
+    if dataset == "cactus":
+        return torch.tensor([0.009232, -0.31353, -0.29725])
+    else:
+        object_xyzs = scene.xyz[torch.where(scene.rgbd[:, 3] < 0.5)]
+        center_x = torch.mean(object_xyzs[:, 0:1])
+        center_y = torch.mean(object_xyzs[:, 1:2])
+        center_z = torch.mean(object_xyzs[:, 2:3])
+        return torch.tensor([center_x, center_y, center_z])
+
 def generate_spin_poses(scene, number_of_poses):
 
-    object_xyzs = scene.xyz[torch.where(scene.rgbd[:, 3] < 0.5)]
-    center_x = torch.mean(object_xyzs[:, 0:1])
-    center_y = torch.mean(object_xyzs[:, 1:2])
-    center_z = torch.mean(object_xyzs[:, 2:3])
+
                 
-    p_center = torch.tensor([center_x, center_y, center_z])
-    #p_center = torch.tensor([0.0044, -0.2409, -0.2728])
     
+
+    # construct local coordinate system for each camera (looking at vertex)
+    # https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/lookat-function   
+    p_center = get_center(scene, "cactus")    
     p_to = p_center # point to look at
     
-    dx = 0.015
+    dx = 0.001
     dy = 0.35
     dz = -0.15
         
@@ -112,10 +124,7 @@ def generate_spin_poses(scene, number_of_poses):
     initial_pose[2, :3] = v_forward
     initial_pose[3,  3] = 1.0
     initial_pose[:3, 3] = p_from          
-
-    focal_length = scene.models['focal'](0)[0]
-    scene.compute_ray_direction_in_camera_coordinates(focal_length.unsqueeze(0))
-    pixel_directions = scene.pixel_directions[0].to(torch.device('cuda:0'))    
+    ######################################################################
 
     #initial_pose = scene.models['pose'](0)[0].cpu()
     next_cam_pose = torch.clone(initial_pose)
@@ -153,20 +162,20 @@ def generate_spin_poses(scene, number_of_poses):
     xyzs = torch.stack(xyzs, dim=0)
 
     # visualize path
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
-    xs = xyzs[:, 0]
-    ys = xyzs[:, 1]
-    zs = xyzs[:, 2]
-    ax.scatter(xs, zs, ys, marker='o')
-    ax.scatter(xs[0], zs[0], ys[0], marker='o', c='red')
-    ax.scatter(p_to[0], p_to[2], p_to[1], marker='o', c='green')
-    plt.show()
+    #fig = plt.figure()
+    #ax = fig.add_subplot(projection='3d')
+    #xs = xyzs[:, 0]
+    #ys = xyzs[:, 1]
+    #zs = xyzs[:, 2]
+    #ax.scatter(xs, zs, ys, marker='o')
+    #ax.scatter(xs[0], zs[0], ys[0], marker='o', c='red')
+    #ax.scatter(p_to[0], p_to[2], p_to[1], marker='o', c='green')
+    #plt.show()
 
     poses = torch.stack(poses, 0)    
     poses = poses.to(scene.device)    
 
-    return poses
+    return (poses, p_center)
 
 
 def imgs_to_video(video_dir, n_poses):
@@ -186,11 +195,11 @@ def imgs_to_video(video_dir, n_poses):
 def create_spin_video_images(scene, number_of_poses, video_dir):
 
     print("generating spin poses")
-    poses = generate_spin_poses(scene, number_of_poses)
-    render_poses(scene, poses, video_dir)
+    poses, center = generate_spin_poses(scene, number_of_poses)
+    render_poses(scene, poses, video_dir, center)
 
 
-def render_poses(scene, poses, video_dir):
+def render_poses(scene, poses, video_dir, center):
 
     color_out_dir = Path("{}/color_video_images/".format(experiment_dir))
     color_out_dir.mkdir(parents=True, exist_ok=True)
@@ -198,43 +207,70 @@ def render_poses(scene, poses, video_dir):
     depth_out_dir.mkdir(parents=True, exist_ok=True)   
     color_images = []
     depth_images = []
-    focal_length = scene.models["focal"](0)
+    pp_x = scene.principal_point_x * (scene.args.W_for_test_renders / scene.W)
+    pp_y = scene.principal_point_y * (scene.args.H_for_test_renders / scene.H)           
         
-    print('using focal length {}'.format(focal_length[0]))
-    scene.compute_ray_direction_in_camera_coordinates(focal_length)
+    focal_lengths = scene.models['focal'](0)[0].expand(scene.args.H_for_test_renders*scene.args.W_for_test_renders)*(scene.args.W_for_test_renders / scene.W)
+    pixel_directions = scene.compute_pixel_directions(focal_lengths, scene.pixel_rows_for_test_renders, scene.pixel_cols_for_test_renders, pp_x, pp_y).to(torch.device('cuda:0'))
 
     for i,pose in enumerate(poses):
         index = i
         print('rendering pose {}'.format(i))
-        render_result = scene.basic_render(pose, scene.pixel_directions[0], focal_length[0])
-        render_result = render_on_background(scene, render_result['rendered_image_fine'], render_result['rendered_depth_fine'], pose, scene.pixel_directions[0])
+        poses = pose.unsqueeze(0).expand(scene.args.H_for_test_renders*scene.args.W_for_test_renders,4,4)
+        render_result = scene.render_prediction(poses, focal_lengths, scene.args.H_for_test_renders, scene.args.W_for_test_renders, principal_point_x=pp_x, principal_point_y=pp_y)        
+        render_result = filter_background(scene, render_result['rendered_image_fine'], render_result['rendered_depth_fine'], render_result['entropy_coarse'], pose, pixel_directions, center.to(scene.device))
         color_out_file_name = os.path.join(color_out_dir, "color_{}.png".format(index))                
         depth_out_file_name = os.path.join(depth_out_dir, "depth_{}.png".format(index))                        
         
-        scene.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
+        scene.save_render_as_png(render_result, scene.args.H_for_test_renders, scene.args.W_for_test_renders, color_out_file_name, depth_out_file_name)
 
         rendered_color_for_file = (render_result['rendered_image_fine'].cpu().numpy() * 255).astype(np.uint8)    
         rendered_depth_data = render_result['rendered_depth_fine'].cpu().numpy()         
+        
 
         rendered_depth_for_file = heatmap_to_pseudo_color(rendered_depth_data)
         rendered_depth_for_file = (rendered_depth_for_file * 255).astype(np.uint8)     
         color_images.append(rendered_color_for_file)   
         depth_images.append(rendered_depth_for_file)
+    
 
+def filter_background(scene, rgb, depth, entropy, pose, pixel_directions, center):
 
-
-def render_on_background(scene, rgb, depth, pose, pixel_directions):
+    
+    radius = torch.tensor([0.18]).to(scene.device)
+    center = center.to(scene.device)
+    rgb = rgb.to(scene.device)
+    entropy = entropy.to(scene.device)
+    min_y = -0.39
 
     camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
     camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
-    pixel_directions = pixel_directions.reshape(scene.H, scene.W, 3).unsqueeze(3).to(device=scene.device)
-    pixel_directions = torch.nn.functional.normalize(pixel_directions, p=2, dim=2)
-    rgb_img = rgb.reshape(scene.H, scene.W, 3).to(device=scene.device)
-    depth_img = depth.reshape(scene.H, scene.W).to(device=scene.device)    
-    xyz_coordinates = scene.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions, depth_img)    
+
+    #pixel_directions = pixel_directions.reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders, 3).unsqueeze(3).to(device=scene.device)
+    #pixel_directions = torch.nn.functional.normalize(pixel_directions, p=2, dim=2)
+    #rgb_img = rgb.reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders, 3).to(device=scene.device)
+    #depth_img = depth.reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders).to(device=scene.device)    
+
+    xyz_coordinates = scene.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions.to(scene.device), depth.to(scene.device), flattened=True).to(scene.device)
+
+    center_radius_filter = torch.sqrt(torch.sum((xyz_coordinates - center.unsqueeze(0).expand(xyz_coordinates.size()[0], 3))**2,dim=1)) > radius
+
+    rgb[center_radius_filter] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
+    depth[center_radius_filter] = 1.0
+
+    entropy_filter = entropy > 999.0    
+    rgb[entropy_filter] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
+    depth[entropy_filter] = 1.0    
+
+    y_filter = xyz_coordinates[:,1] < min_y
+    rgb[y_filter] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
+    depth[y_filter] = 1.0        
+
+
+
     # dragon_scale
-    center = torch.tensor([0.0044, -0.2409, -0.2728]).to(scene.device)
-    corner = torch.tensor([-0.1450, -0.3655, -0.4069]).to(scene.device)
+    #center = torch.tensor([0.0044, -0.2409, -0.2728]).to(scene.device)
+    #corner = torch.tensor([-0.1450, -0.3655, -0.4069]).to(scene.device)
     # elastica_burgundy
     #center = torch.tensor([0.0058, -0.4112, -0.2170]).to(scene.device)    
 
@@ -247,18 +283,18 @@ def render_on_background(scene, rgb, depth, pose, pixel_directions):
     
     #print(bounding_box_condition_indices.size())
     
-    bounding_sphere_radius = torch.sqrt( torch.sum( (center - corner)**2) ).to(scene.device)    
-    bounding_box_condition =  (torch.sqrt(torch.sum( (xyz_coordinates - center)**2, dim=2)) > bounding_sphere_radius).to(scene.device)
-    bounding_box_condition_indices = torch.where(bounding_box_condition)
+    #bounding_sphere_radius = torch.sqrt( torch.sum( (center - corner)**2) ).to(scene.device)    
+    #bounding_box_condition =  (torch.sqrt(torch.sum( (xyz_coordinates - center)**2, dim=2)) > bounding_sphere_radius).to(scene.device)
+    #bounding_box_condition_indices = torch.where(bounding_box_condition)
 
     #rgb_img[bounding_box_condition_indices] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
     #depth_img[bounding_box_condition_indices] = 1.0
 
     result = {
-        'rendered_image_fine': rgb_img,
-        'rendered_depth_fine': depth_img,
-        'rendered_image_coarse': rgb_img,
-        'rendered_depth_coarse': depth_img
+        'rendered_image_fine': rgb.reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders,3),
+        'rendered_depth_fine': depth.reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders)
+        #'rendered_image_coarse': rgb_img,
+        #'rendered_depth_coarse': depth_img
     }
 
     return result
@@ -274,7 +310,7 @@ def render_all_training_images(scene, images_dir):
         color_out_file_name = '{}/color_renders/color_{}.png'.format(images_dir, image_id).zfill(4)
         depth_out_file_name = '{}/depth_renders/depth_{}.png'.format(images_dir, image_id).zfill(4)
         render_result = scene.render_prediction_for_train_image(image_id)
-        scene.save_render_as_png(render_result, color_out_file_name, depth_out_file_name)
+        scene.save_render_as_png(render_result, scene.args.H_for_test_renders, scene.args.W_for_test_renders, color_out_file_name, depth_out_file_name)
 
 
 def color_mesh_with_nerf_colors(scene, mesh):
@@ -312,10 +348,7 @@ def color_mesh_with_nerf_colors(scene, mesh):
     vertices[:, 1] += min_y
     vertices[:, 2] += min_z
 
-    
-
-    # construct local coordinate system for each camera (looking at vertex)
-    # https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/lookat-function                
+             
     poses = torch.zeros(n_vertices,4,4).to(torch.device('cuda:0'))
 
     p_from = -normals * measure_distance + vertices
@@ -353,23 +386,25 @@ if __name__ == '__main__':
         dynamic_args = {
             "number_of_samples_outward_per_raycast" : 360,
             "number_of_samples_outward_per_raycast_for_test_renders" : 360,
+            "density_neural_network_parameters" : 256,
             "percentile_of_samples_in_near_region" : 0.8,
             "number_of_pixels_per_batch_for_test_renders" : 5000,            
-            "near_maximum_depth" : 1.0,
+            #"H_for_test_renders" : 1440,
+            #"W_for_test_renders" : 1920,
+            "H_for_test_renders" : 480,
+            "W_for_test_renders" : 640,            
+            "near_maximum_depth" : 0.5,
             "skip_every_n_images_for_training" : 60,
             "use_sparse_fine_rendering" : False,
-            #"base_directory" : '\'./data/orchid\'',
-            #"base_directory" : '\'./data/dragon_scale\'',
-            #"base_directory" : '\'./data/dragon_scale\'',            
-            #"base_directory" : '\'./data/cactus\'',            
-            #"pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/5k_camerafixed/\'',                        
-            "pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run28/models/\'',                        
-            "start_epoch" : 50001,
-            "load_pretrained_models" : True,
+            #"pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run34/models/\'',
+            "pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run28/models/\'',
+            "start_epoch" : 500001,
+            "load_pretrained_models" : True,            
         }
+
         scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)          
             
-        print (scene.args.near_maximum_depth)
+        #print (scene.args.near_maximum_depth)
         data_out_dir = "{}/videos".format(scene.args.base_directory)            
         experiment_label = "{}_{}".format(scene.start_time, 'spin_video')                            
         experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
@@ -380,7 +415,7 @@ if __name__ == '__main__':
         print("converting images to video")        
         imgs_to_video(experiment_dir, n_poses)
         print("video output to {}".format(experiment_dir))
-
+    
 
         """
             fname = 'dragon_scale_tri.ply'

@@ -434,7 +434,8 @@ class SceneModel:
             depth, near_bound, far_bound, confidence = self.load_depth_data(image_id=image_id) # (H, W)
 
             # get (x,y,z) coordinates for this image
-            xyz_coordinates = self.get_sensor_xyz_coordinates(pose_data=self.all_initial_poses[i*self.args.skip_every_n_images_for_training], depth_data=depth, i=i) # (H, W, 3)
+            
+            xyz_coordinates = self.get_sensor_xyz_coordinates(pose_data=self.all_initial_poses[i*self.args.skip_every_n_images_for_training], depth_data=depth) # (H, W, 3)
             
             # select only pixels whose estimated xyz coordinates fall within bounding box
             #xyz_coordinates_on_or_off = self.get_xyz_inside_range(xyz_coordinates) # (H, W, 3) with True if (x,y,z) inside of previously set bounds, False if outside
@@ -568,7 +569,7 @@ class SceneModel:
     ####################### Camera helper functions #########################
     #########################################################################
 
-    def get_sensor_xyz_coordinates(self, i=None, pose_data=None, depth_data=None):
+    def get_sensor_xyz_coordinates(self, pose_data, depth_data):
 
         # get camera world position and rotation
         camera_world_position = pose_data[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
@@ -581,7 +582,7 @@ class SceneModel:
         )  # (H, W)
 
         rows = pixel_rows_and_cols[0].flatten()
-        cols = pixel_rows_and_cols[1].flatten()
+        cols = pixel_rows_and_cols[1].flatten()    
 
         # get relative pixel orientations
         pixel_directions = self.compute_pixel_directions(self.initial_focal_length[0].expand(self.H*self.W).cpu(), rows, cols) # (H, W, 3, 1)
@@ -596,15 +597,16 @@ class SceneModel:
             # transform rays from camera coordinate to world coordinate
             # camera_world_rotation: [1,1,1,1,3,3]    
             pixel_world_directions = torch.matmul(camera_world_rotation, pixel_directions).squeeze(4).squeeze(0)                                                                        
-            #pixel_world_directions = torch.nn.functional.normalize(pixel_world_directions, p=2, dim=2)  # (N_pixels, 3)
+            pixel_world_directions = torch.nn.functional.normalize(pixel_world_directions, p=2, dim=2)  # (N_pixels, 3)
                         
             # Get sample position in the world (1, 1, 3) + (H, W, 3) * (H, W, 1) -> (H, W, 3)
             global_xyz = camera_world_position + pixel_world_directions * pixel_depths.unsqueeze(2)            
             global_xyz = global_xyz.squeeze(0)
         else:                        
             pixel_directions_world = torch.matmul(camera_world_rotation.squeeze(0).squeeze(0), pixel_directions.unsqueeze(2)).squeeze(2)  # (N, 3, 3) * (N, 3, 1) -> (N, 3) .squeeze(3) 
-            #pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)
+            pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)            
             pixel_depth_samples_world_directions = pixel_directions_world * pixel_depths.unsqueeze(1).expand(-1,3) # (N_pixels, 3)                        
+            
             global_xyz = camera_world_position.squeeze(0).squeeze(0) + pixel_depth_samples_world_directions # (N_pixels, 3)                                    
             
         return global_xyz      
@@ -620,7 +622,7 @@ class SceneModel:
 
         dev = focal_lengths.device
         n_pixels = focal_lengths.size()[0]                   
-        if principal_point_x is not None:
+        if principal_point_x is not None and principal_point_y is not None:
             pp_x = principal_point_x
             pp_y = principal_point_y
         else:
@@ -2057,7 +2059,7 @@ class SceneModel:
         self.args.depth_to_rgb_loss_exponential_index = 9
         self.args.depth_to_rgb_loss_curvature_shape = 1
 
-        self.args.density_neural_network_parameters = 512
+        self.args.density_neural_network_parameters = 256
         self.args.color_neural_network_parameters = 256
         self.args.directional_encoding_fourier_frequencies = 8
         
@@ -2071,7 +2073,7 @@ class SceneModel:
         self.args.number_of_test_images = 1
 
         ### test frequency parameters
-        self.args.test_frequency = 5000
+        self.args.test_frequency = 1000
         self.args.export_test_data_for_testing = False    
         self.args.save_point_cloud_frequency = 1000000
         self.args.save_depth_weights_frequency = 5000000000
@@ -2080,13 +2082,13 @@ class SceneModel:
         
         # training
         self.args.pixel_samples_per_epoch = 1024
-        self.args.number_of_samples_outward_per_raycast = 256
+        self.args.number_of_samples_outward_per_raycast = 360
         self.args.skip_every_n_images_for_training = 60
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256
-        self.args.resample_pixels_frequency = 1000
+        self.args.resample_pixels_frequency = 5000
 
         # testing
-        self.args.number_of_pixels_per_batch_in_test_renders = 10000
+        self.args.number_of_pixels_per_batch_in_test_renders = 5000
         self.args.number_of_samples_outward_per_raycast_for_test_renders = self.args.number_of_samples_outward_per_raycast
         
 
