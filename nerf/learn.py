@@ -1528,11 +1528,16 @@ class SceneModel:
             depth_to_rgb_importance = self.get_polynomial_decay(start_value=self.args.depth_to_rgb_loss_start, end_value=self.args.depth_to_rgb_loss_end, exponential_index=self.args.depth_to_rgb_loss_exponential_index, curvature_shape=self.args.depth_to_rgb_loss_curvature_shape)
 
             
-            #####################| Entropy Loss |###########################
+            #####################| E
+            # ntropy Loss |###########################
+            # tanh(0.01 * (epoch/1000.0) )/100 
+
             entropy_depth_loss = 0.0
             mean_entropy = torch.mean(-1 * torch.sum(nerf_depth_weights * torch.log(nerf_depth_weights), dim=1))
             if (self.epoch >= self.args.entropy_loss_tuning_start_epoch and self.epoch <= self.args.entropy_loss_tuning_end_epoch):                                                
-                entropy_depth_loss = self.args.entropy_loss_weight * mean_entropy
+                epoch = torch.tensor([self.epoch]).float().to(self.device).float()
+                entropy_loss_weight = torch.tanh(0.01 * epoch / 1000.0) / (1.0 / self.args.max_entropy_weight)                
+                entropy_depth_loss = self.args.entropy_loss_weight * mean_entropy                
                 depth_to_rgb_importance = 0.0                                            
             ################################################################
 
@@ -2011,7 +2016,7 @@ class SceneModel:
         
         #self.args.base_directory = './data/elastica_burgundy'
         #self.args.base_directory = './data/cactus'
-        self.args.base_directory = './data/cactus'
+        self.args.base_directory = './data/dragon_scale'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
@@ -2027,10 +2032,12 @@ class SceneModel:
 
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 5001
+        #self.args.entropy_loss_tuning_start_epoch = 5001
+        self.args.entropy_loss_tuning_start_epoch = 5000
         self.args.entropy_loss_tuning_end_epoch = 1000000
         #self.args.entropy_loss_weight = 0.001
-        self.args.entropy_loss_weight = 0.005
+        #self.args.entropy_loss_weight = 0.005
+        self.args.max_entropy_weight = 0.02
 
         self.args.nerf_density_lr_start = 0.0005
         #self.args.nerf_density_lr_end = 0.000025
@@ -2110,7 +2117,8 @@ class SceneModel:
         self.load_saved_args_train()        
         self.args.load_pretrained_models = True
         self.args.n_depth_sampling_optimizations = 2        
-        self.args.pretrained_models_directory = './data/cactus/hyperparam_experiments/from_cloud/cactus_run29/models'
+        #self.args.pretrained_models_directory = './data/cactus/hyperparam_experiments/from_cloud/cactus_run29/models'
+        self.args.pretrained_models_directory = './data/dragon_scale_large/hyperparam_experiments/from_cloud/run10/models/'        
         self.args.reset_learning_rates = False # start and end indices of learning rate schedules become {0, number_of_epochs}
                 
         self.args.start_epoch = 500001
@@ -2133,11 +2141,11 @@ class SceneModel:
 
         self.args.use_sparse_fine_rendering = True 
 
-        self.args.H_for_test_renders = 1440
-        self.args.W_for_test_renders = 1920
+        #self.args.H_for_test_renders = 1440
+        #self.args.W_for_test_renders = 1920
 
-        #self.args.H_for_test_renders = 480
-        #self.args.W_for_test_renders = 640
+        self.args.H_for_test_renders = 480
+        self.args.W_for_test_renders = 640
 
 
     ##################################################################
@@ -2152,7 +2160,7 @@ if __name__ == '__main__':
         
         if scene.epoch == scene.args.start_epoch:
             with torch.no_grad():                                            
-                scene.test()
+                #scene.test()
                 print("")                
                 
         #scene.print_memory_usage()
