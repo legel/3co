@@ -137,7 +137,8 @@ def parse_args():
 
 class SceneModel:
     def __init__(self, args, experiment_args = None, dynamic_args = None):
-    
+        self.sample_distances = []
+
         self.args = args
         self.load_args(experiment_args, dynamic_args)
 
@@ -669,53 +670,71 @@ class SceneModel:
         far_min_focus = near_max_focus        
 
         # determine number of samples in near region vs. far region
-        n_samples_near = torch.floor(torch.tensor(n_samples * percentile_of_samples_in_near_region))
-        n_samples_far = n_samples - n_samples_near
+        n_samples_near = torch.floor(torch.tensor(n_samples * percentile_of_samples_in_near_region)) + 1
+        n_samples_far = n_samples - n_samples_near + 1
                 
-        sample_distances = torch.linspace(near_min_focus, far_min_focus, int(n_samples_near)).to(self.device)
+        bins = torch.linspace(near_min_focus, far_min_focus, int(n_samples_near)).to(self.device)        
+        # this includes the near samples and the first far sample
+
         #sample_distances = sample_distances.unsqueeze(0).expand(number_of_pixels, n_samples_near.int())
 
         # compute sample distance for the far region, where the far min is equal to the near max
         far_focus_base = (far_max_focus/far_min_focus)**(1/n_samples_far)
         far_sample_numbers = torch.arange(start=0, end=n_samples_far).to(self.device)
-        far_distances = far_min_focus * far_focus_base ** far_sample_numbers
-        sample_distances = torch.cat([sample_distances, far_distances]).to(self.device)
+        far_bins = far_min_focus * far_focus_base ** far_sample_numbers
+        
+        
+        bins = torch.cat([bins, far_bins[1:] ]).to(self.device) 
         #sample_distances.append(far_distances)
 
         # combine the near and far sample distances
         #sample_distances = torch.cat(sample_distances).to(self.device)
 
         # we continue by expanding out the sample distances in the same way as the previous linear depth sampling
-        sample_distances = sample_distances.unsqueeze(0).expand(number_of_pixels, n_samples)
+        bin_sizes = torch.diff(bins)
+        bins = bins[:-1]
+        bins = bins.unsqueeze(0).expand(number_of_pixels, n_samples-1)
 
         # we make sure to enable sampling of *any* distance within the bins that have been created from this non-linear discretization
         if add_noise:
             # generate random numbers between [0,1) in the shape of (number_of_pixels, number_of_samples); this is the "entropy" that allows us to sample across everywhere in every bin
-            depth_noise = torch.rand(number_of_pixels, n_samples, device=self.device, dtype=torch.float32)
+            depth_noise = torch.rand(number_of_pixels, n_samples-1, device=self.device, dtype=torch.float32)
 
             # now we need to get the actual bin distances, which have been non-linearly generated from the sampling strategy above; time for a diff (subtraction of neighboring points in a vector)
-            bin_distances = torch.diff(sample_distances)
+            #bin_distances = torch.diff(sample_distances)
 
             # add for the 0th sample a 0.0 noise, such that the total number of bin distances equals total depth samples, and the first sample is equal to the minimum depth (i.e. near_min_focus)
-            bin_distances = torch.cat([torch.zeros(size=(number_of_pixels,1)).to(self.device), bin_distances], dim=1) 
+            #bin_distances = torch.cat([torch.zeros(size=(number_of_pixels,1)).to(self.device), bin_distances], dim=1) 
+            #torch.set_printoptions(threshold=10_000)
+            #print(sample_distances[0])
+            #print(bin_distances[0])
+            #quit()
 
             # now shift each sample by [0,1) * bin distances 
-            noise_shifted_bin_distances = depth_noise * bin_distances
-            sample_distances = sample_distances + noise_shifted_bin_distances
+            bins = bins + depth_noise * bin_sizes
+
+            #sample_distances = sample_distances + noise_shifted_bin_distances
 
             # just in case there is an error with one of the bin lengths being wrong (should be impossible), we sort
-            sample_distances = torch.sort(sample_distances, dim=1)[0]
+            #sample_distances = torch.sort(sample_distances, dim=1)[0]
 
-        """
-            print(sample_distances[0])
-            #d = sample_distances[0][torch.argwhere(sample_distances[0] < 0.5)] 
-            d = sample_distances[0]
-            plt.scatter( d.cpu().numpy(), torch.ones(d.size()[0]).cpu().numpy() , s=3)
-            plt.show()
-            quit()
-        """
 
-        return sample_distances
+            #self.sample_distances = self.sample_distances + [bins]
+
+            
+
+        
+            """
+                print(sample_distances[0])
+                #d = sample_distances[0][torch.argwhere(sample_distances[0] < 0.5)] 
+                d = sample_distances[0]
+                plt.scatter( d.cpu().numpy(), torch.ones(d.size()[0]).cpu().numpy() , s=3)
+                plt.show()
+                quit()
+            """
+    
+
+        return bins
 
 
     def sample_depths_nonlinearly(self, number_of_pixels, add_noise=True, test_render=False):
@@ -1698,7 +1717,7 @@ class SceneModel:
         self.args.number_of_test_images = 1
 
         ### test frequency parameters
-        self.args.test_frequency = 1000
+        self.args.test_frequency = 5000
         self.args.export_test_data_for_testing = False    
         self.args.save_point_cloud_frequency = 1000000
         self.args.save_depth_weights_frequency = 5000000000
@@ -1725,43 +1744,6 @@ class SceneModel:
 
         #self.args.H_for_test_renders = 1440
         #self.args.W_for_test_renders = 1920        
-        self.args.H_for_test_renders = 480
-        self.args.W_for_test_renders = 640
-
-
-
-    def load_saved_args_test(self):        
-
-        self.load_saved_args_train()        
-        self.args.load_pretrained_models = True
-        self.args.n_depth_sampling_optimizations = 2        
-        #self.args.pretrained_models_directory = './data/cactus/hyperparam_experiments/from_cloud/cactus_run29/models'
-        self.args.pretrained_models_directory = './data/dragon_scale_large/hyperparam_experiments/from_cloud/run10/models/'        
-        self.args.reset_learning_rates = False # start and end indices of learning rate schedules become {0, number_of_epochs}
-                
-        self.args.start_epoch = 500001
-        self.args.number_of_epochs = 1
-
-        self.args.save_models_frequency = 999999999        
-        self.args.number_of_test_images = 500
-
-        self.args.skip_every_n_images_for_testing = 1
-
-        self.args.near_maximum_depth = 0.5
-        self.args.far_maximum_depth = 3.00
-
-        self.args.number_of_samples_outward_per_raycast_for_test_renders = 360
-
-        self.args.number_of_pixels_per_batch_in_test_renders = 5000
-        self.args.test_frequency = 1
-        self.args.save_depth_weights_frequency = 1000000000
-        self.args.save_point_cloud_frequency = 1
-
-        self.args.use_sparse_fine_rendering = True 
-
-        #self.args.H_for_test_renders = 1440
-        #self.args.W_for_test_renders = 1920
-
         self.args.H_for_test_renders = 480
         self.args.W_for_test_renders = 640
 
@@ -1793,6 +1775,28 @@ if __name__ == '__main__':
                     sample_image = (sample_image * 255).astype(np.uint8)
                     sample_image_path = "{}/sampling_data/sample_image_{}.png".format(scene.experiment_dir, scene.epoch-1)
                     imageio.imwrite(sample_image_path, sample_image)
+
+                    
+                    
+                    #s = torch.cat(scene.sample_distances, dim=1)
+                    #s = torch.sort(s, dim=0)[0]
+
+                    #hist = torch.histc(s, bins=1000, min=0, max=4.0)
+
+                    #total_samples = s.size()[0]
+                    #cdf = []
+                    #for i in range (0, total_samples):
+                    #    cdf.append( (torch.sum(s[:i]) / total_samples).cpu().numpy()) 
+                    #print(cdf)
+                    #plt.figure()
+                    #plt.subplot(211)
+
+                    #plt.scatter(s.cpu().numpy(), np.zeros((total_samples, s.size()[1])), s=1)
+                    #plt.plot(np.linspace(0.0, 4.0, num=10), cdf)
+                    #plt.subplot(212)
+                    #plt.bar(np.linspace(0.0, 4.0, num=1000), hist.cpu(), align='center', width=0.02)
+                    #plt.suptitle(scene.args.base_directory.split('/')[-1])
+                    #plt.show()                    
 
                 print('Resampling training data...')
                 scene.sample_training_data(visualize_sampled_pixels=False)
