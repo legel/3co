@@ -26,6 +26,7 @@ from models.poses import CameraPoseModel
 from models.nerf_models import NeRFDensity, NeRFColor
 
 from learn import *
+from utils.camera import *
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import    
@@ -87,7 +88,10 @@ def translate_pose_in_camera_space(scene, pose, d_x, d_y, d_z):
 def get_center(scene, dataset=None):
 
     if dataset == "cactus":
-        return torch.tensor([0.009232, -0.31353, -0.29725])
+        return torch.tensor([0.002148, -0.30666, -0.278652])
+        return torch.tensor([0.032756, -0.31353, -0.308534])
+    elif dataset == "dragon_scale":
+        return torch.tensor([0.0044, -0.2409, -0.2728])
     else:
         object_xyzs = scene.xyz[torch.where(scene.rgbd[:, 3] < 0.5)]
         center_x = torch.mean(object_xyzs[:, 0:1])
@@ -96,19 +100,15 @@ def get_center(scene, dataset=None):
         return torch.tensor([center_x, center_y, center_z])
 
 def generate_spin_poses(scene, number_of_poses):
-
-
-                
-    
-
+            
     # construct local coordinate system for each camera (looking at vertex)
     # https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/lookat-function   
     p_center = get_center(scene, "cactus")    
     p_to = p_center # point to look at
     
-    dx = 0.001
-    dy = 0.35
-    dz = -0.15
+    dx = 0.000001
+    dy = 0.15
+    dz = -0.10
         
     p_from = p_to + torch.tensor([dx, dy, dz])
     v_forward = torch.nn.functional.normalize(p_from - p_to, dim=0, p=2).float()
@@ -211,7 +211,7 @@ def render_poses(scene, poses, video_dir, center):
     pp_y = scene.principal_point_y * (scene.args.H_for_test_renders / scene.H)           
         
     focal_lengths = scene.models['focal'](0)[0].expand(scene.args.H_for_test_renders*scene.args.W_for_test_renders)*(scene.args.W_for_test_renders / scene.W)
-    pixel_directions = scene.compute_pixel_directions(focal_lengths, scene.pixel_rows_for_test_renders, scene.pixel_cols_for_test_renders, pp_x, pp_y).to(torch.device('cuda:0'))
+    pixel_directions = compute_pixel_directions(focal_lengths, scene.pixel_rows_for_test_renders, scene.pixel_cols_for_test_renders, pp_x, pp_y).to(torch.device('cuda:0'))
 
     for i,pose in enumerate(poses):
         index = i
@@ -237,11 +237,12 @@ def render_poses(scene, poses, video_dir, center):
 def filter_background(scene, rgb, depth, entropy, pose, pixel_directions, center):
 
     
-    radius = torch.tensor([0.18]).to(scene.device)
+    #radius = torch.tensor([0.18]).to(scene.device)
+    radius = torch.tensor([0.35]).to(scene.device)
     center = center.to(scene.device)
     rgb = rgb.to(scene.device)
     entropy = entropy.to(scene.device)
-    min_y = -0.39
+    min_y = -999990.39
 
     camera_world_position = pose[:3, 3].view(1, 1, 1, 3)     # (1, 1, 1, 3)
     camera_world_rotation = pose[:3, :3].view(1, 1, 1, 3, 3) # (1, 1, 1, 3, 3)
@@ -251,20 +252,20 @@ def filter_background(scene, rgb, depth, entropy, pose, pixel_directions, center
     #rgb_img = rgb.reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders, 3).to(device=scene.device)
     #depth_img = depth.reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders).to(device=scene.device)    
 
-    xyz_coordinates = scene.derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions.to(scene.device), depth.to(scene.device), flattened=True).to(scene.device)
+    xyz_coordinates = derive_xyz_coordinates(camera_world_position, camera_world_rotation, pixel_directions.to(scene.device), depth.to(scene.device), flattened=True).to(scene.device)
 
     center_radius_filter = torch.sqrt(torch.sum((xyz_coordinates - center.unsqueeze(0).expand(xyz_coordinates.size()[0], 3))**2,dim=1)) > radius
 
     rgb[center_radius_filter] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
-    depth[center_radius_filter] = 1.0
+    depth[center_radius_filter] = 0.0
 
     entropy_filter = entropy > 999.0    
     rgb[entropy_filter] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
-    depth[entropy_filter] = 1.0    
+    depth[entropy_filter] = 0.0    
 
     y_filter = xyz_coordinates[:,1] < min_y
     rgb[y_filter] = torch.tensor([0.8, 0.8, 0.8]).to(device=scene.device)
-    depth[y_filter] = 1.0        
+    depth[y_filter] = 0.0
 
 
 
@@ -300,84 +301,74 @@ def filter_background(scene, rgb, depth, entropy, pose, pixel_directions, center
     return result
 
 
-def render_all_training_images(scene, images_dir):
-    
-    focal_length = scene.models["focal"](0)
-    scene.compute_ray_direction_in_camera_coordinates(focal_length)
-
-    for image_id in range(0, 157):
-        print("rendering image {}".format(image_id))
-        color_out_file_name = '{}/color_renders/color_{}.png'.format(images_dir, image_id).zfill(4)
-        depth_out_file_name = '{}/depth_renders/depth_{}.png'.format(images_dir, image_id).zfill(4)
-        render_result = scene.render_prediction_for_train_image(image_id)
-        scene.save_render_as_png(render_result, scene.args.H_for_test_renders, scene.args.W_for_test_renders, color_out_file_name, depth_out_file_name)
-
-
 def color_mesh_with_nerf_colors(scene, mesh):
     
     # Using a very small measure distance makes things more robust to inaccurate normals. We really only
     # care about the general direction the normal is pointing.
-    measure_distance = torch.tensor(0.001).to(torch.device('cuda:0'))        
 
-    scene.near = torch.tensor([measure_distance/2.0]).to(torch.device('cuda:0')) 
-    scene.far = measure_distance * (100)
-    scene.far =scene.near + measure_distance*20.0
-    scene.args.near_maximum_depth = 2000.0 * measure_distance
-    scene.args.far_maximum_depth = scene.args.near_maximum_depth
-    scene.args.percentile_of_samples_in_near_region = 1.0
+    """
+        measure_distance = torch.tensor(0.001).to(torch.device('cuda:0'))        
 
-    vertices = torch.tensor(np.asarray(mesh.vertices).tolist()).to(torch.device('cuda:0'))
-    vertex_normals = torch.tensor(np.asarray(mesh.vertex_normals).tolist()).to(torch.device('cuda:0'))
-    normals = torch.nn.functional.normalize(vertex_normals, dim=1, p=2)
-    n_vertices = vertices.size()[0]
+        scene.near = torch.tensor([measure_distance/2.0]).to(torch.device('cuda:0')) 
+        scene.far = measure_distance * (100)
+        scene.far =scene.near + measure_distance*20.0
+        scene.args.near_maximum_depth = 2000.0 * measure_distance
+        scene.args.far_maximum_depth = scene.args.near_maximum_depth
+        scene.args.percentile_of_samples_in_near_region = 1.0
+
+        vertices = torch.tensor(np.asarray(mesh.vertices).tolist()).to(torch.device('cuda:0'))
+        vertex_normals = torch.tensor(np.asarray(mesh.vertex_normals).tolist()).to(torch.device('cuda:0'))
+        normals = torch.nn.functional.normalize(vertex_normals, dim=1, p=2)
+        n_vertices = vertices.size()[0]
+            
+        print('n_vertices: ', n_vertices)
+        print('vertex_normals size: ', vertex_normals.size()[0])
+
+        min_x = -0.1519
+        max_x = 0.1625
+
+        min_y = -0.3678
+        max_y = -0.1093
+
+        min_z =  -0.4149
+        max_z =  -0.1301
+
+        vertices = vertices / 500.0
+        vertices[:, 0] += min_x
+        vertices[:, 1] += min_y
+        vertices[:, 2] += min_z
+
+                
+        poses = torch.zeros(n_vertices,4,4).to(torch.device('cuda:0'))
+
+        p_from = -normals * measure_distance + vertices
+        p_to = vertices
+        print('p_from: ', p_from)
+        print('p_to: ', p_to)    
+        v_forward = -torch.nn.functional.normalize(p_from - p_to, dim=1, p=2) 
+        v_arbitrary = torch.tensor([0.0, 1.0, 0.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
+        v_right = -torch.cross(v_arbitrary, v_forward, dim=1)     
+        v_right = torch.nn.functional.normalize(v_right, dim=1, p=2)
+        v_up = torch.cross(v_forward, v_right, dim=1)
+        v_up = torch.nn.functional.normalize(v_up, dim=1, p=2) 
+
+        poses[:,0, :3] = v_right
+        poses[:,1, :3] = v_up
+        poses[:,2, :3] = v_forward
+        poses[:,3,  3] = 1.0
+
+        pixel_directions = torch.tensor([0.0,0.0,1.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
+        #pixel_directions = scene.pixel_directions[0][scene.H//2, scene.W//2].unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
+        focal_length = scene.models["focal"](0)    
+        focal_lengths = focal_length[0].expand(n_vertices)
         
-    print('n_vertices: ', n_vertices)
-    print('vertex_normals size: ', vertex_normals.size()[0])
-
-    min_x = -0.1519
-    max_x = 0.1625
-
-    min_y = -0.3678
-    max_y = -0.1093
-
-    min_z =  -0.4149
-    max_z =  -0.1301
-
-    vertices = vertices / 500.0
-    vertices[:, 0] += min_x
-    vertices[:, 1] += min_y
-    vertices[:, 2] += min_z
-
-             
-    poses = torch.zeros(n_vertices,4,4).to(torch.device('cuda:0'))
-
-    p_from = -normals * measure_distance + vertices
-    p_to = vertices
-    print('p_from: ', p_from)
-    print('p_to: ', p_to)    
-    v_forward = -torch.nn.functional.normalize(p_from - p_to, dim=1, p=2) 
-    v_arbitrary = torch.tensor([0.0, 1.0, 0.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
-    v_right = -torch.cross(v_arbitrary, v_forward, dim=1)     
-    v_right = torch.nn.functional.normalize(v_right, dim=1, p=2)
-    v_up = torch.cross(v_forward, v_right, dim=1)
-    v_up = torch.nn.functional.normalize(v_up, dim=1, p=2) 
-
-    poses[:,0, :3] = v_right
-    poses[:,1, :3] = v_up
-    poses[:,2, :3] = v_forward
-    poses[:,3,  3] = 1.0
-
-    pixel_directions = torch.tensor([0.0,0.0,1.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
-    #pixel_directions = scene.pixel_directions[0][scene.H//2, scene.W//2].unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
-    focal_length = scene.models["focal"](0)    
-    focal_lengths = focal_length[0].expand(n_vertices)
-    
-    poses[:, :3, 3] = p_from #poses[:, :3, 3] - measure_distance*poses[:,2,:3]
-    render_result = scene.flat_render(poses, pixel_directions, focal_lengths)     
-    vertex_colors = render_result['rendered_pixels'] 
-    mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors.cpu())   
-    mesh.vertices = o3d.utility.Vector3dVector(vertices.cpu())
-    o3d.io.write_triangle_mesh('colored_mesh.ply', mesh, write_ascii = True)    
+        poses[:, :3, 3] = p_from #poses[:, :3, 3] - measure_distance*poses[:,2,:3]
+        render_result = scene.flat_render(poses, pixel_directions, focal_lengths)     
+        vertex_colors = render_result['rendered_pixels'] 
+        mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors.cpu())   
+        mesh.vertices = o3d.utility.Vector3dVector(vertices.cpu())
+        o3d.io.write_triangle_mesh('colored_mesh.ply', mesh, write_ascii = True)    
+    """
 
 if __name__ == '__main__':
     
@@ -387,20 +378,58 @@ if __name__ == '__main__':
             "number_of_samples_outward_per_raycast" : 360,
             "number_of_samples_outward_per_raycast_for_test_renders" : 360,
             "density_neural_network_parameters" : 256,
-            "percentile_of_samples_in_near_region" : 0.8,
+            "percentile_of_samples_in_near_region" : 0.99,
             "number_of_pixels_per_batch_for_test_renders" : 5000,            
             #"H_for_test_renders" : 1440,
             #"W_for_test_renders" : 1920,
-            "H_for_test_renders" : 480,
-            "W_for_test_renders" : 640,            
+            "H_for_test_renders" : 320,
+            "W_for_test_renders" : 240,            
             "near_maximum_depth" : 0.5,
             "skip_every_n_images_for_training" : 60,
             "use_sparse_fine_rendering" : False,
             #"pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run34/models/\'',
-            "pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run28/models/\'',
-            "start_epoch" : 500001,
+            #"pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run29/models/\'',
+            "pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run38/models\'',
+
+            "start_epoch" : 240001,
             "load_pretrained_models" : True,            
         }
+
+
+        """
+            self.load_saved_args_train()        
+            self.args.load_pretrained_models = True
+            self.args.n_depth_sampling_optimizations = 2        
+            #self.args.pretrained_models_directory = './data/cactus/hyperparam_experiments/from_cloud/cactus_run29/models'
+            self.args.pretrained_models_directory = './data/dragon_scale_large/hyperparam_experiments/from_cloud/run10/models/'        
+            self.args.reset_learning_rates = False # start and end indices of learning rate schedules become {0, number_of_epochs}
+                    
+            self.args.start_epoch = 500001
+            self.args.number_of_epochs = 1
+
+            self.args.save_models_frequency = 999999999        
+            self.args.number_of_test_images = 500
+
+            self.args.skip_every_n_images_for_testing = 1
+
+            self.args.near_maximum_depth = 0.5
+            self.args.far_maximum_depth = 3.00
+
+            self.args.number_of_samples_outward_per_raycast_for_test_renders = 360
+
+            self.args.number_of_pixels_per_batch_in_test_renders = 5000
+            self.args.test_frequency = 1
+            self.args.save_depth_weights_frequency = 1000000000
+            self.args.save_point_cloud_frequency = 1
+
+            self.args.use_sparse_fine_rendering = True 
+
+            #self.args.H_for_test_renders = 1440
+            #self.args.W_for_test_renders = 1920
+
+            self.args.H_for_test_renders = 480
+            self.args.W_for_test_renders = 640
+        """        
 
         scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)          
             
