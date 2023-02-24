@@ -2,9 +2,7 @@ import torch
 from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle, axis_angle_to_matrix, euler_angles_to_matrix
 from scipy.spatial.transform import Rotation
 from torchsummary import summary
-import cv2
 import open3d as o3d
-import imageio
 from PIL import Image
 import numpy as np
 import random, math
@@ -29,29 +27,38 @@ from learn import *
 from utils.camera import *
 
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import    
 
 
-def rotate_pose_in_camera_space(scene, pose, dx, dy, dz):
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.enabled = True
+
+set_randomness()
+torch.set_float32_matmul_precision('high')
+torch._dynamo.config.suppress_errors = True
+torch._dynamo.config.verbose=False      
+
+def rotate_pose_in_camera_space(pose, dx, dy, dz):
     camera_rotation_matrix = pose[:3,:3]
     
     Rx = torch.tensor([
         [1.0,    0.0,      0.0       ],
-        [0,   np.cos(dx), -np.sin(dx)],
-        [0,   np.sin(dx),  np.cos(dx) ]
-    ]).float()
+        [0,   torch.cos(dx), -torch.sin(dx)],
+        [0,   torch.sin(dx),  torch.cos(dx) ]
+    ]).to(torch.device('cuda:0')).float()
 
     Ry = torch.tensor([
-        [np.cos(dy),   0.0,   np.sin(dy)],
+        [torch.cos(dy),   0.0,   torch.sin(dy)],
         [0,            1.0,   0.0       ],
-        [-np.sin(dy),  0.0,   np.cos(dy)]
-    ]).float()
+        [-torch.sin(dy),  0.0,   torch.cos(dy)]
+    ]).to(torch.device('cuda:0')).float()
 
     Rz = torch.tensor([
-        [np.cos(dz), -np.sin(dz),   0.0 ],
-        [np.sin(dz), np.cos(dz),    0.0 ],
+        [torch.cos(dz), -torch.sin(dz),   0.0 ],
+        [torch.sin(dz), torch.cos(dz),    0.0 ],
         [0.0,          0.0,         1.0]
-    ]).float()
+    ]).to(torch.device('cuda:0')).float()
 
     R = Rz @ Ry @ Rx
     new_camera_rotation_matrix = R @ camera_rotation_matrix
@@ -73,9 +80,9 @@ def translate_pose_in_global_space(scene, pose, d_x, d_y, d_z):
 
     return new_pose
 
-def translate_pose_in_camera_space(scene, pose, d_x, d_y, d_z):        
+def translate_pose_in_camera_space(pose, d_x, d_y, d_z):        
     camera_rotation_matrix = pose[:3,:3]
-    translation = camera_rotation_matrix[:3,:3] @ torch.FloatTensor([d_x,d_y,d_z])
+    translation = camera_rotation_matrix[:3,:3] @ torch.FloatTensor([d_x,d_y,d_z]).to(pose.device)
     
     new_pose = torch.clone(pose)
     new_pose[:3,:3] = pose[:3,:3]
@@ -212,7 +219,7 @@ def render_poses(scene, poses, video_dir, center):
     pp_y = scene.principal_point_y * (scene.args.H_for_test_renders / scene.H)           
         
     focal_lengths = scene.models['focal'](0)[0].expand(scene.args.H_for_test_renders*scene.args.W_for_test_renders)*(scene.args.W_for_test_renders / scene.W)
-    pixel_directions = compute_pixel_directions(focal_lengths, scene.pixel_rows_for_test_renders, scene.pixel_cols_for_test_renders, pp_x, pp_y).to(torch.device('cuda:0'))
+    pixel_directions = compute_pixel_directions(focal_lengths, scene.pixel_rows_for_test_renders, scene.pixel_cols_for_test_renders, pp_y, pp_x).to(torch.device('cuda:0'))
 
     for i,pose in enumerate(poses):
         index = i
@@ -308,18 +315,20 @@ def color_mesh_with_nerf_colors(scene, mesh):
     # Using a very small measure distance makes things more robust to inaccurate normals. We really only
     # care about the general direction the normal is pointing.
 
-
-    measure_distance = torch.tensor(0.3).to(torch.device('cuda:0'))        
-
-    scene.near = torch.tensor([0.01]).to(torch.device('cuda:0')) #torch.tensor([measure_distance/2.0]).to(torch.device('cuda:0'))     
-    scene.far = torch.tensor([1.0]).to(torch.device('cuda:0'))
-    #scene.args.near_maximum_depth = torch.tensor([0.5]).to(torch.device('cuda:0'))
-    #scene.args.far_maximum_depth = torch.tensor([3.0]).to(torch.device('cuda:0'))
-    #scene.args.percentile_of_samples_in_near_region = torch.tensor([0.8]).to(torch.device('cuda:0'))
+    #quit()
+    measure_distance = torch.tensor(0.000002).to(torch.device('cuda:0'))        
+    scene.near = torch.tensor(0.0).to(torch.device('cuda:0'))
+    scene.far = torch.tensor(0.000004).to(torch.device('cuda:0'))
+    #scene.near = torch.tensor(0.01).to(torch.device('cuda:0')) #torch.tensor([measure_distance/2.0]).to(torch.device('cuda:0'))     
+    
+    scene.args.near_maximum_depth = torch.tensor(0.01).to(torch.device('cuda:0'))
+    scene.args.far_maximum_depth = torch.tensor(3.0).to(torch.device('cuda:0'))
+    scene.args.percentile_of_samples_in_near_region = torch.tensor(0.9).to(torch.device('cuda:0'))
 
     vertices = torch.tensor(np.asarray(mesh.vertices).tolist()).to(torch.device('cuda:0'))        
     
     vertex_normals = torch.tensor(np.asarray(mesh.vertex_normals).tolist()).to(torch.device('cuda:0'))
+    
     print (vertex_normals.shape)
     
     normals = torch.nn.functional.normalize(vertex_normals, dim=1, p=2)
@@ -329,18 +338,28 @@ def color_mesh_with_nerf_colors(scene, mesh):
     print('vertex_normals size: ', vertex_normals.size()[0])
             
     poses = torch.zeros(n_vertices,4,4).to(torch.device('cuda:0'))
+    #poses = torch.zeros(scene.args.W_for_test_renders * scene.args.H_for_test_renders,4,4).to(torch.device('cuda:0'))    
     
     # construct local coordinate system for each camera (looking at vertex)
-    # https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/lookat-function   
+    # https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/lookat-function/framing-lookat-function.html   
 
     p_to = vertices    
     p_from = normals * measure_distance + vertices
+
+    
     v_forward = torch.nn.functional.normalize(p_from - p_to, dim=1, p=2).float()
+    
+
     v_arbitrary = torch.tensor([0.0, 1.0, 0.0]).unsqueeze(0).expand(n_vertices, 3).to(torch.device('cuda:0'))
     v_right = torch.cross(v_arbitrary, v_forward, dim=1)
     v_right = torch.nn.functional.normalize(v_right, dim=1, p=2)
     v_up = torch.cross(v_forward, v_right, dim=1)
     v_up = torch.nn.functional.normalize(v_up, dim=1, p=2)
+
+
+    forward = torch.nn.functional.normalize(p_from - p_to, dim=1, p=2).float()
+    right = -torch.nn.functional.normalize(torch.cross(v_up, forward, dim=1), dim=1, p=2).float()
+    up = torch.nn.functional.normalize(torch.cross(forward, right, dim=1), dim=1, p=2).float()        
     
     #initial_pose = torch.zeros(4,4)    
     #initial_pose[0, :3] = v_right
@@ -348,24 +367,79 @@ def color_mesh_with_nerf_colors(scene, mesh):
     #initial_pose[2, :3] = v_forward
     #initial_pose[3,  3] = 1.0
     #initial_pose[:3, 3] = p_from     
+    poses[:,  0, :3] = right
+    poses[:,  1, :3] = up
+    poses[:,  2, :3] = forward
+    poses[:,  3,  3] = 1.0
+    poses[:, :3,  3] = p_from    
 
-    poses[:,0, :3] = v_right
-    poses[:,1, :3] = v_up
-    poses[:,2, :3] = v_forward
-    poses[:,3,  3] = 1.0
-    poses[:,:3, 3] = p_from     
 
-    pp_x = scene.principal_point_x * (scene.args.W_for_test_renders / scene.W)
-    pp_y = scene.principal_point_y * (scene.args.H_for_test_renders / scene.H)           
-        
-    focal_lengths = (scene.models['focal'](0)[0] * (scene.args.W_for_test_renders / scene.W)).expand(n_vertices)
-    rows = pp_y.int().expand(n_vertices)
-    cols = pp_x.int().expand(n_vertices)
+
+
+    #pose = scene.models['pose'](0)[0]
+    #print(pose)
+    #poses = pose.unsqueeze(0).expand(scene.args.W_for_test_renders * scene.args.H_for_test_renders, 4, 4)
+
+
+    
+    #poses = scene.models['pose'](0)[0].unsqueeze(0).expand(scene.args.W_for_test_renders * scene.args.H_for_test_renders, 4, 4)
+
+    #temp_pose = rotate_pose_in_camera_space(poses[100], torch.tensor(0.0).to(torch.device('cuda:0')), torch.tensor(-np.pi/2).to(torch.device('cuda:0')), torch.tensor(0.0).to(torch.device('cuda:0')))
+    #temp_pose = rotate_pose_in_camera_space(poses[100], torch.tensor(0.0).to(torch.device('cuda:0')), torch.tensor(0.0).to(torch.device('cuda:0')), torch.tensor(0.0).to(torch.device('cuda:0')))
+    #poses = temp_pose.unsqueeze(0).expand(scene.args.W_for_test_renders * scene.args.H_for_test_renders, 4, 4)
+    #rows = scene.pixel_rows_for_test_renders
+    #cols = scene.pixel_cols_for_test_renders
+    #focal_lengths = (scene.models['focal'](0)[0] * (scene.args.W_for_test_renders / scene.W)).expand(scene.args.W_for_test_renders * scene.args.H_for_test_renders)
+
+    pp_x = scene.principal_point_x * (scene.args.W_for_test_renders / float(scene.W))
+    pp_y = scene.principal_point_y * (scene.args.H_for_test_renders / float(scene.H))
+     
+    focal_lengths = (scene.models['focal'](0)[0] * (scene.args.W_for_test_renders / float(scene.W))).expand(n_vertices)    
+    rows = pp_y.float().expand(n_vertices)
+    cols = pp_x.float().expand(n_vertices)
     scene.pixel_rows_for_test_renders = rows
-    scene.pixel_cols_for_test_renders = cols
-    pixel_directions = compute_pixel_directions(focal_lengths, rows, cols, pp_x, pp_y).to(torch.device('cuda:0'))    
+    scene.pixel_cols_for_test_renders = cols    
+    
+    #pp_x = scene.principal_point_x * (scene.args.W_for_test_renders / scene.W)
+    #pp_y = scene.principal_point_y * (scene.args.H_for_test_renders / scene.H)               
 
+    #focal_lengths = (scene.models['focal'](0)[0] * (scene.args.W_for_test_renders / scene.W)).expand(n_vertices)    
+    #rows = pp_y.int().expand(n_vertices)
+    #cols = pp_x.int().expand(n_vertices)
+    #scene.pixel_rows_for_test_renders = rows
+    #scene.pixel_cols_for_test_renders = cols
+    #pixel_directions = torch.tensor([0.0, 0.0, -1.0]).unsqueeze(0).expand(n_vertices, 3)
+
+    #pixel_directions = compute_pixel_directions(focal_lengths=focal_lengths, pixel_rows=rows, pixel_cols=cols, principal_point_x=pp_x, principal_point_y=pp_y).to(torch.device('cuda:0'))    
+
+    #pose = poses[0]    
+    #poses = pose.unsqueeze(0).expand(scene.args.W_for_test_renders * scene.args.H_for_test_renders, 4, 4)
+    #pose[:3, 3] = pose[:3, 3] + d * pose[2, :3]
+    #render_result = scene.render_prediction(poses, focal_lengths, scene.args.H_for_test_renders, scene.args.W_for_test_renders, pp_x, pp_y)    
+    #img = render_result['rendered_image_fine'].reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders, 3)
+
+    #scene.save_render_as_png(render_result, scene.args.H_for_test_renders, scene.args.W_for_test_renders, 'vis_test/color_img_{}.png'.format(0), 'vis_test/depth_img_{}.png'.format(0))
+
+
+    """
+    d = 0.02
+    for i in range (1, 100):
+
+        pose = poses[0]
+        #pose = translate_pose_in_camera_space(pose=pose, d_x=0.0, d_y=0.0, d_z=0.05)
+        pose = rotate_pose_in_camera_space(pose.to(torch.device('cuda:0')), torch.tensor(0.0).to(torch.device('cuda:0')), torch.tensor(np.pi/16).to(torch.device('cuda:0')), torch.tensor(0.0).to(torch.device('cuda:0')))
+        poses = pose.unsqueeze(0).expand(scene.args.W_for_test_renders * scene.args.H_for_test_renders, 4, 4)
+        #pose[:3, 3] = pose[:3, 3] + d * pose[2, :3]
+        render_result = scene.render_prediction(poses, focal_lengths, scene.args.H_for_test_renders, scene.args.W_for_test_renders, pp_x, pp_y)    
+        #img = render_result['rendered_image_fine'].reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders, 3)
+
+        scene.save_render_as_png(render_result, scene.args.H_for_test_renders, scene.args.W_for_test_renders, 'vis_test/color_img_{}.png'.format(i), 'vis_test/depth_img_{}.png'.format(i))
+    
+    """    
     render_result = scene.render_prediction(poses, focal_lengths, scene.args.H_for_test_renders, scene.args.W_for_test_renders, pp_x, pp_y)    
+    #img = render_result['rendered_image_fine'].reshape(scene.args.H_for_test_renders, scene.args.W_for_test_renders, 3)
+    #scene.save_render_as_png(render_result, scene.args.H_for_test_renders, scene.args.W_for_test_renders, 'meow.png', 'meow2.png')    
+    
     vertex_colors = render_result['rendered_image_fine'] 
     mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors.cpu())   
     mesh.vertices = o3d.utility.Vector3dVector(vertices.cpu())
@@ -382,11 +456,11 @@ if __name__ == '__main__':
             "number_of_samples_outward_per_raycast_for_test_renders" : 360,
             "density_neural_network_parameters" : 256,
             "percentile_of_samples_in_near_region" : 0.80,
-            "number_of_pixels_per_batch_for_test_renders" : 5000,            
+            "number_of_pixels_per_batch_for_test_renders" : 1000,            
             #"H_for_test_renders" : 1440,
             #"W_for_test_renders" : 1920,
-            "H_for_test_renders" : 480,
-            "W_for_test_renders" : 640,            
+            "H_for_test_renders" : 240,
+            "W_for_test_renders" : 320,            
             "near_maximum_depth" : 0.5,
             "skip_every_n_images_for_training" : 60,
             "use_sparse_fine_rendering" : False,
@@ -411,7 +485,8 @@ if __name__ == '__main__':
         #imgs_to_video(experiment_dir, n_poses)
         #print("video output to {}".format(experiment_dir))    
         
-        fname = 'test/dragon_scale_mesh_im_normals.ply'
+        fname = 'test/dragon_scale/3/dragon_high_ndc_mesh_in_nerf2.ply'
+        #fname = 'test/dragon_scale/3/dragon_scale_mesh_3_bulb_removed(highres).ply'
         #fname = './data/dragon_scale/hyperparam_experiments/pretrained_with_entropy_loss_200k/amazing_pointclouds/depth_view_pointcloud/meshes/dragon_scale_0_luminosity_filtered_only.glb'
         #print('Loading mesh: {}'.format(fname))
         mesh =  o3d.io.read_triangle_mesh(fname)

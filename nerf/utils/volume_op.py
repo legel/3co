@@ -1,6 +1,6 @@
 import torch
 import sys
-from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
+#from pytorch3d.transforms.rotation_conversions import quaternion_to_matrix, matrix_to_euler_angles, matrix_to_quaternion, axis_angle_to_quaternion, quaternion_multiply, matrix_to_axis_angle
 
 def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=True):
     # poses := (N_pixels, 4, 4)

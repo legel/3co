@@ -3,7 +3,7 @@ import torch
 from scipy.spatial.transform import Rotation as RotLib
 from ahrs import Quaternion, DCM
 from ahrs.utils import angular_distance
-from pytorch3d.transforms.rotation_conversions import axis_angle_to_matrix
+#from pytorch3d.transforms.rotation_conversions import axis_angle_to_matrix
 # from pytorch3d.transforms.so3 import so3_relative_angle
 
 import math

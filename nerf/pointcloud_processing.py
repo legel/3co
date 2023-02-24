@@ -1,5 +1,5 @@
 import torch
-import torch._dynamo
+#import torch._dynamo
 import numpy as np
 import open3d as o3d
 import os
@@ -17,7 +17,8 @@ torch.backends.cudnn.enabled = True
 
 set_randomness()
 torch.set_float32_matmul_precision('high')
-torch._dynamo.config.verbose=True      
+#torch._dynamo.config.verbose=True      
+torch._dynamo.config.suppress_errors = True
 
 device = torch.device('cuda:0')         
 
@@ -29,7 +30,7 @@ os.environ['PYTORCH_KERNEL_CACHE_PATH'] = './'
 def generate_point_clouds():
 
     dynamic_args = {
-        "base_directory" : '\'./data/cactus\'',
+        "base_directory" : '\'./data/dragon_scale\'',
         "number_of_samples_outward_per_raycast" : 360,
         "number_of_samples_outward_per_raycast_for_test_renders" : 360,
         "density_neural_network_parameters" : 256,
@@ -43,9 +44,9 @@ def generate_point_clouds():
         "skip_every_n_images_for_training" : 60,
         "skip_every_n_images_for_testing" : 1,
         "use_sparse_fine_rendering" : True,
-        #"pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models\'',        
-        "pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run43/models\'',        
-        "start_epoch" : 255001,
+        "pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models\'',        
+        #"pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run43/models\'',        
+        "start_epoch" : 500001,
         "load_pretrained_models" : True,            
         "number_of_epochs" : 1,    
         "number_of_test_images" : 500,        
@@ -188,11 +189,13 @@ def generate_point_cloud(
     n_filtered_points = H * W - torch.sum(depth_condition.flatten())
     print("filtering {}/{} points with depth=0 condition".format(n_filtered_points, W*H))
 
-    angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[H//2, W//2, :])**2, dim=2 ) ) < r)
+    #angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[H//2, W//2, :])**2, dim=2 ) ) < r)
+    angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[H//2, W//2, :])**2, dim=2 ) ) < r*100.0)
     n_filtered_points = H * W - torch.sum(angle_condition.flatten())
     print("filtering {}/{} points with angle condition".format(n_filtered_points, W*H))
     
-    entropy_condition = (entropy_image < 2.0).cpu()
+    #entropy_condition = (entropy_image < 2.0).cpu()
+    entropy_condition = (entropy_image < 5.0).cpu()
     n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
     print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
 
@@ -202,7 +205,8 @@ def generate_point_cloud(
 
     if use_sparse_fine_rendering:            
         sparse_depth = depth
-        sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005
+        #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005
+        sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 50.0
         joint_condition = torch.logical_and(joint_condition, sticker_condition)
         n_filtered_points = H * W - torch.sum(sticker_condition.flatten())
         print("filtering {}/{} points with sticker condition".format(n_filtered_points, W*H))            
@@ -391,7 +395,7 @@ def remove_plane(pointcloud, threshold=0.005, init_n=3, iterations=1000):
     normals = np.delete(normals, idx,0)
     colors = np.delete(colors, idx,0)
     
-    points_below_plane = np.squeeze(np.argwhere( points[:, 1] <= -w[3]), axis=1)        
+    points_below_plane = np.squeeze(np.argwhere( points[:, 1] <= -w[3] + 0.025), axis=1)        
 
     points = np.delete(points, points_below_plane,0)    
     normals = np.delete(normals, points_below_plane,0)
@@ -411,33 +415,41 @@ def poisson_disk_resampling(pointcloud, number_of_samples, radius=None):
     normals = np.squeeze(np.asarray([pc.normals]), axis=0)
     colors = np.squeeze(np.asarray([pc.colors]), axis=0)
     idx = pcu.downsample_point_cloud_poisson_disk(points, num_samples=number_of_samples)
-    
     pc.points = o3d.utility.Vector3dVector(points[idx])
     pc.normals = o3d.utility.Vector3dVector(normals[idx])
-    pc.colors = o3d.utility.Vector3dVector(colors[idx])
+    pc.colors = o3d.utility.Vector3dVector(colors[idx])    
+
+    #cl, idx = pc.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)        
+    pc.points = o3d.utility.Vector3dVector(points[idx])
+    pc.normals = o3d.utility.Vector3dVector(normals[idx])
+    pc.colors = o3d.utility.Vector3dVector(colors[idx])    
+
     return pc
 
 
 if __name__ == '__main__':
 
-    path = '/home/rob/research_code/3co/research/nerf/data/dragon_scale/hyperparam_experiments/from_cloud/cactus_run38/pointclouds'
-
-    #print('merging and filtering by center radius...')
-    #pc = merge_and_filter_by_center_radius(path)
-    #f_out_name = 'test/merged_and_filtered.ply'    
-    #o3d.io.write_point_cloud(f_out_name, pc)  
-
-    #print('removing plane...')
-    #pc = remove_plane(pc)
-    #f_out_name = 'test/plane_removed.ply'    
-    #o3d.io.write_point_cloud(f_out_name, pc)      
-
-    #print('performing poisson disk resampling...')    
-    #pc = poisson_disk_resampling(pc, int(len(pc.points)*0.1))
-    #f_out_name = 'test/downsampled.ply'    
-    #o3d.io.write_point_cloud(f_out_name, pc)      
-
-
-
     with torch.no_grad():
-        generate_point_clouds()
+       generate_point_clouds()
+       quit()
+
+    path = '/home/rob/research_code/3co/research/nerf/data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/pointclouds/pointclouds_nofilter_highres'
+
+    print('merging and filtering by center radius...')
+    pc = merge_and_filter_by_center_radius(path)
+    f_out_name = 'test/merged_and_filtered.ply'    
+    o3d.io.write_point_cloud(f_out_name, pc)  
+
+    print('removing plane...')
+    pc = remove_plane(pc)
+    f_out_name = 'test/plane_removed.ply'    
+    o3d.io.write_point_cloud(f_out_name, pc)      
+
+    print('performing poisson disk resampling...')    
+    pc = poisson_disk_resampling(pc, int(len(pc.points)*0.1))
+    f_out_name = 'test/downsampled.ply'    
+    o3d.io.write_point_cloud(f_out_name, pc)      
+
+
+
+

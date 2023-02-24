@@ -101,8 +101,8 @@ def is_in_triangle(p_expand, faces_expand): #, ray_origin_to_plane_distance)
 # compute the angle between two vectors, in radians
 def vectors_angle(a, b):
 
-  n = torch.norm(a,dim=2) * torch.norm(b,dim=2)
-  return torch.acos(torch.sum(a*b,dim=2) / n )    
+  n = torch.norm(a,dim=-1) * torch.norm(b,dim=-1)
+  return torch.acos(torch.sum(a*b,dim=-1) / n )    
 
 # https://stackoverflow.com/questions/849211/shortest-distance-between-a-point-and-a-line-segment
 # https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/csrc/utils/geometry_utils.cuh
