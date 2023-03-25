@@ -35,31 +35,22 @@ def swath_width_for_pixel(x, y, focal_length_x, focal_length_y, principal_point_
     return
 
 
-def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, focal_lengths_x, pricipal_point_x, principal_point_y):
+def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, pixel_world_widths):
     
-    N_pixels = sampling_depths.size(0)        
+    N_pixels = sampling_depths.size(0)            
     
-    pixels_shifted_x = (pixel_directions[:, 0] + (1.0 / focal_lengths_x)) 
-    pixels_shifted_y = pixel_directions[:, 1]
-    pixels_shifted_z = pixel_directions[:, 2]
-    
-    neighbor_pixel_directions = torch.stack([pixels_shifted_x, pixels_shifted_y, pixels_shifted_z], dim=-1)        
-    neighbor_pixel_directions = neighbor_pixel_directions / torch.sqrt(torch.sum(neighbor_pixel_directions ** 2,dim=1)).unsqueeze(1).to(torch.device('cuda:0'))
-    
-    pixel_directions_neighbor_distances = torch.sqrt(torch.sum( (pixel_directions - neighbor_pixel_directions)**2,dim=1)).to(torch.device('cuda:0'))
-    pixel_directions_neighbor_distances = pixel_directions_neighbor_distances.unsqueeze(1).expand(sampling_depths.size(0), sampling_depths.size(1)-1).to(torch.device('cuda:0'))
     inscribed_circle_radius_factor = 2.0 / torch.sqrt(torch.tensor([12.0])).to(torch.device('cuda:0'))
-    radii = pixel_directions_neighbor_distances * inscribed_circle_radius_factor        
+    radii = pixel_world_widths * inscribed_circle_radius_factor        
     
     # straddle copy of depth samples over itself, shifted by one index    
-    t0 = sampling_depths[:, : sampling_depths.size(1) - 1]    
+    t0 = sampling_depths[:, : -1]    
     t1 = torch.zeros(sampling_depths.size(0), sampling_depths.size(1)-1).to(torch.device('cuda:0'))
     t1[:, :] = sampling_depths[:, 1:]            
 
     # compute parameters of gaussian approximating conical frustrum and lift to world coordinates        
     means, covs = conical_frustum_to_gaussian(pixel_directions, t0, t1, radii[:,:])
 
-    # offset mean by camera origin    
+    # offset mean by camera origin  
     x = means + origin_xyz.unsqueeze(1).expand(N_pixels, sampling_depths.size(1)-1, 3)
     x_cov_diag = covs        
 
