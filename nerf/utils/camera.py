@@ -67,5 +67,5 @@ def compute_pixel_directions(focal_lengths, pixel_rows, pixel_cols, principal_po
 
     pixel_directions = pixel_directions.squeeze(2)
     pixel_directions = torch.nn.functional.normalize(pixel_directions, p=2, dim=1)
-
+        
     return pixel_directions
