@@ -30,12 +30,13 @@ os.environ['PYTORCH_KERNEL_CACHE_PATH'] = './'
 def generate_point_clouds():
 
     dynamic_args = {
-        "base_directory" : '\'./data/dragon_scale\'',
+        "base_directory" : '\'./data/dragon_scale_large\'',
         "number_of_samples_outward_per_raycast" : 360,
         "number_of_samples_outward_per_raycast_for_test_renders" : 360,
         "density_neural_network_parameters" : 256,
         "percentile_of_samples_in_near_region" : 0.8,
-        "number_of_pixels_per_batch_for_test_renders" : 5000,            
+        "number_of_pixels_per_batch_for_test_renders" : 1000,   
+        "pixel_samples_per_epoch" : 500,         
         #"H_for_test_renders" : 1440,
         #"W_for_test_renders" : 1920,
         "H_for_test_renders" : 480,
@@ -43,7 +44,7 @@ def generate_point_clouds():
         "near_maximum_depth" : 0.5,
         "skip_every_n_images_for_training" : 60,
         "skip_every_n_images_for_testing" : 1,
-        "use_sparse_fine_rendering" : True,
+        "use_sparse_fine_rendering" : False,
         "pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models\'',        
         #"pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run43/models\'',        
         "start_epoch" : 500001,
@@ -51,9 +52,12 @@ def generate_point_clouds():
         "number_of_epochs" : 1,    
         "number_of_test_images" : 500,        
     }  
-
+    with torch.no_grad():
+        scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)
     
-    scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)
+    H = scene.args.H_for_test_renders
+    W = scene.args.W_for_test_renders       
+
 
     epoch = scene.epoch - 1        
     for model in scene.models.values():
@@ -62,7 +66,7 @@ def generate_point_clouds():
     H = scene.args.H_for_test_renders
     W = scene.args.W_for_test_renders        
     
-    all_focal_lengths = scene.models["focal"](0)
+    all_focal_lengths = scene.models["focal"]()([0])
 
     test_image_indices = scene.test_image_indices
     sub_test_image_indices = test_image_indices
@@ -98,28 +102,33 @@ def generate_point_clouds():
         # save rendered rgb and depth images
         out_file_suffix = str(image_index)
         color_file_name_fine = os.path.join(scene.color_out_dir, str(out_file_suffix).zfill(4) + '_color_fine_{}.png'.format(epoch))
-        depth_file_name_fine = os.path.join(scene.depth_out_dir, str(out_file_suffix).zfill(4) + '_depth_fine_{}.png'.format(epoch))            
+        depth_file_name_fine = os.path.join(scene.depth_out_dir, str(out_file_suffix).zfill(4) + '_depth_fine_{}.png'.format(epoch))                    
+        normals_file_name = os.path.join(scene.normals_out_dir, str(out_file_suffix).zfill(4) + '_normals_{}.png'.format(epoch))            
         if scene.args.use_sparse_fine_rendering:
             color_file_name_fine = os.path.join(scene.color_out_dir, str(out_file_suffix).zfill(4) + 'sparse_color_fine_{}.png'.format(epoch))
             depth_file_name_fine = os.path.join(scene.depth_out_dir, str(out_file_suffix).zfill(4) + 'sparse_depth_fine_{}.png'.format(epoch))                            
         
-        scene.save_render_as_png(render_result, H, W, color_file_name_fine, depth_file_name_fine, None, None)
+        scene.save_render_as_png(render_result, H, W, color_file_name_fine, depth_file_name_fine, None, None, normals_file_name)
     
         print("Saving .ply for view {}".format(image_index))                
         pointcloud_file_name = os.path.join(scene.pointcloud_out_dir, str(out_file_suffix).zfill(4) + '_depth_view_{}.png'.format(epoch))
-        pose = scene.models['pose'](0)[image_index].cpu()
+        pose = scene.models['pose']()([0])[image_index].cpu()
         unsparse_rendered_rgb_img = None
         
         rendered_depth_img = render_result['rendered_depth_fine'].reshape(H, W).to(device=scene.device)
         rendered_rgb_img = render_result['rendered_image_fine'].reshape(H, W, 3).to(device=scene.device)
+        #normals = render_result['rendered_normals'].reshape(H, W, 3).to(device=scene.device)
+        #normals_img = normals.reshape(H, W, 3)
+
+        
         if scene.args.use_sparse_fine_rendering:
-            unsparse_rendered_rgb_img = render_result['rendered_image_unsparse_fine'].reshape(H, W, 3).to(device=scene.device)
-            unsparse_depth_img = render_result['depth_image_unsparse_fine'].reshape(H, W).to(device=scene.device)
+            unsparse_rendered_rgb_img = render_result['rendered_image_unsparse_fine'].reshape(H, W, 3).cpu()
+            unsparse_depth_img = render_result['depth_image_unsparse_fine'].reshape(H, W).cpu()
             color_file_name_unsparse_fine = os.path.join(scene.color_out_dir, str(out_file_suffix).zfill(4) + '_color_fine_{}.png'.format(epoch))
             depth_file_name_unsparse_fine = os.path.join(scene.depth_out_dir, str(out_file_suffix).zfill(4) + '_depth_fine_{}.png'.format(epoch))                                    
             render_result['rendered_image_fine'] = unsparse_rendered_rgb_img
             render_result['rendered_depth_fine'] = unsparse_depth_img
-            scene.save_render_as_png(render_result, H, W, color_file_name_unsparse_fine, depth_file_name_unsparse_fine, None, None)                        
+            scene.save_render_as_png(render_result, H, W, color_file_name_unsparse_fine, depth_file_name_unsparse_fine, None, None, None)
         else:
             unsparse_rendered_rgb_img = None
             unsparse_depth_img = None                
@@ -147,16 +156,36 @@ def generate_point_clouds():
             W = W,
             xyz_coordinates=xyz_coordinates,
             entropy_image=entropy_image.cpu(), 
-            sparse_rendered_rgb_img=rendered_rgb_img.cpu(), 
-            unsparse_rendered_rgb_img=unsparse_rendered_rgb_img.cpu(), 
-            unsparse_depth=unsparse_depth_img.cpu(),
+            sparse_rendered_rgb_img=rendered_rgb_img, 
+            unsparse_rendered_rgb_img=unsparse_rendered_rgb_img, 
+            unsparse_depth=unsparse_depth_img,
             max_depth_filter_image=None,
-            use_sparse_fine_rendering=True
+            use_sparse_fine_rendering=scene.args.use_sparse_fine_rendering,
+            normals=None
         )
 
         label="_{}_{}".format(epoch,image_index)
         file_name = "{}/pointclouds/view_{}.ply".format(scene.experiment_dir, label)
         o3d.io.write_point_cloud(file_name, pcd, write_ascii = True)        
+
+
+def density_query(scene, xyz, pixel_directions):
+
+    ray_distance = torch.tensor([0.0, 0.001]).to(scene.device)
+    #origin_xyz = xyz + ray_distance[1]
+    origin_xyz = xyz
+    origin_xyz = origin_xyz.unsqueeze(0)
+    depth_xyzs = xyz.unsqueeze(0)
+    pixel_directions = pixel_directions.unsqueeze(0)
+    sampling_depths = ray_distance.unsqueeze(0)
+    focal_lengths = scene.models['focal']()([0])[0].unsqueeze(0)
+    pp_x = scene.principal_point_x
+    pp_y = scene.principal_point_y
+
+    features = encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, focal_lengths_x=focal_lengths, principal_point_x=pp_x, principal_point_y=pp_y)    
+    density, features = scene.models["geometry"]()([features])
+
+    return density
 
 
 def generate_point_cloud(
@@ -172,7 +201,8 @@ def generate_point_cloud(
     sparse_rendered_rgb_img=None, 
     unsparse_depth=None, 
     max_depth_filter_image=None,    
-    use_sparse_fine_rendering=True
+    use_sparse_fine_rendering=True,
+    normals=None
 ):        
     
     pixel_directions = pixel_directions.reshape(H, W, 3)        
@@ -195,7 +225,7 @@ def generate_point_cloud(
     print("filtering {}/{} points with angle condition".format(n_filtered_points, W*H))
     
     #entropy_condition = (entropy_image < 2.0).cpu()
-    entropy_condition = (entropy_image < 5.0).cpu()
+    entropy_condition = (entropy_image < 2.0).cpu()
     n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
     print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
 
@@ -220,11 +250,12 @@ def generate_point_cloud(
     depth = depth[joint_condition_indices]
     gt_rgb = gt_rgb[joint_condition_indices]
 
-    normals = torch.zeros(H, W, 3)
-    normals = pose[:3, 3] - xyz_coordinates
-    normals = torch.nn.functional.normalize(normals, p=2, dim=2)        
-    normals = normals[joint_condition_indices]
+    if normals is None:
+        normals = torch.zeros(H, W, 3)
+        normals = pose[:3, 3] - xyz_coordinates
+        normals = torch.nn.functional.normalize(normals, p=2, dim=2)        
 
+    #normals = normals[joint_condition_indices]
     xyz_coordinates = xyz_coordinates[joint_condition_indices]
     
     pcd = create_point_cloud(xyz_coordinates, gt_rgb, normals, flatten_xyz=False, flatten_image=False)
@@ -432,6 +463,8 @@ if __name__ == '__main__':
     with torch.no_grad():
        generate_point_clouds()
        quit()
+
+    #generate_point_clouds()
 
     path = '/home/rob/research_code/3co/research/nerf/data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/pointclouds/pointclouds_nofilter_highres'
 
