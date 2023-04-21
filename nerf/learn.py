@@ -428,7 +428,7 @@ class SceneModel:
     
         n_pixels_in_training_dataset = self.args.number_of_pixels_in_training_dataset
         n_images = len(self.image_ids[::self.args.skip_every_n_images_for_training])
-        n_pixels_per_image = n_pixels_in_training_dataset // n_images
+        n_pixels_per_image = min(n_pixels_in_training_dataset // n_images, self.H*self.W)
 
         # create meshgrid representing rows and cols, which will be used for rendering full images
         pixel_rows_and_cols_for_test_renders = torch.meshgrid(
@@ -440,10 +440,6 @@ class SceneModel:
         self.pixel_rows_for_test_renders = pixel_rows_and_cols_for_test_renders[0].flatten()
         self.pixel_cols_for_test_renders = pixel_rows_and_cols_for_test_renders[1].flatten()        
 
-        depth_img_H = 192
-        depth_img_W = 256
-        upsampled_depth_rows = torch.floor((torch.arange(0, depth_img_H) / depth_img_H) * self.H).int()
-        upsampled_depth_cols = torch.floor((torch.arange(0, depth_img_W) / depth_img_W) * self.W).int()
 
         print('n pixels in training dataset: ', n_pixels_in_training_dataset)
         print('n_images: ', n_images)
@@ -488,9 +484,6 @@ class SceneModel:
 
             depth_selected = depth[pixel_rows_selected, pixel_cols_selected] # (N selected)
 
-            interpolated_pixels_for_image = torch.ones(xyz_coordinates.size()[0], xyz_coordinates.size()[1])
-            interpolated_pixels_for_image[upsampled_depth_rows] = 0
-            interpolated_pixels_for_image[:, upsampled_depth_cols] = 0
             #is_interpolated_per_pixel.append(interpolated_pixels_for_image[pixel_rows_selected, pixel_cols_selected])
             
             # now, load the (r,g,b) image and filter the pixels we're only focusing on
@@ -559,9 +552,7 @@ class SceneModel:
 
         self.image_ids_per_pixel = torch.cat(self.image_ids_per_pixel, dim=0).cpu()
         self.confidence_per_pixel = torch.cat(self.confidence_per_pixel, dim=0)
-        neighbor_distance_per_pixel = torch.cat(neighbor_distance_per_pixel, dim=0)
-        #is_interpolated_per_pixel = torch.cat(is_interpolated_per_pixel, dim=0)
-        
+        neighbor_distance_per_pixel = torch.cat(neighbor_distance_per_pixel, dim=0)        
 
         print('\n=== Average sensor depth of non-weighted samples: === {}\n'.format(torch.mean(self.rgbd[:, 3] )))                
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))        
@@ -575,16 +566,7 @@ class SceneModel:
         steepness = 20.0
         neighbor_rgb_distance_sampling_weights = torch.log2( (steepness * neighbor_distance_per_pixel / max_rgb_distance + 1.0))        
         self.depth_based_pixel_sampling_weights = self.depth_based_pixel_sampling_weights * neighbor_rgb_distance_sampling_weights        
-    
-        # if we're still training using sensor depth, set the sampling weight of pixels produced by interpolation to zero
-        #if self.epoch < self.args.entropy_loss_tuning_start_epoch:            
-        #    self.depth_based_pixel_sampling_weights[torch.where(is_interpolated_per_pixel)[0]] = 0.0
-        #    print("total pixel indices in resized image space: ", self.depth_based_pixel_sampling_weights.size()[0])
-        #    print("total pixel indices in sensor depth space: ", len(self.image_ids[::self.args.skip_every_n_images_for_training]) * depth_img_H * depth_img_W )
-        #    print('number of interpolatee pixel indices: ', torch.sum(is_interpolated_per_pixel))
-        #    print('number of kept indices:', self.depth_based_pixel_sampling_weights.size()[0] - torch.sum(is_interpolated_per_pixel))
-
-                
+                    
         print("Loaded {} images with {:,} pixels selected".format(i+1, self.image_ids_per_pixel.shape[0] ))
 
 
@@ -1605,7 +1587,7 @@ class SceneModel:
         ###########################self.args.number_of_samples_outward_per_raycast = 360
         self.args.number_of_samples_outward_per_raycast = 360
         self.args.skip_every_n_images_for_training = 60
-        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256        
+        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256 * 100
         
 
         # testing
