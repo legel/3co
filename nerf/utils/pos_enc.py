@@ -31,10 +31,6 @@ def encode_position(input, levels, inc_input=True):
     return result_list  # (..., C*(2L+1))
 
 
-def swath_width_for_pixel(x, y, focal_length_x, focal_length_y, principal_point_x, principal_point_y):
-    return
-
-
 def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, pixel_world_widths):
     
     N_pixels = sampling_depths.size(0)            
@@ -122,5 +118,5 @@ def expected_sin(x, x_var):
     # When the variance is wide, shrink sin towards zero.
     y = torch.exp(-0.5 * x_var) * torch.sin(x) # safe_sin?
     #y_var = torch.max(torch.tensor([0.0]).to(torch.device('cuda:0')), 0.5 * (1 - torch.exp(-2 * x_var) * torch.cos(2 * x)) - y**2) # safe_cos?
-    y_var = 0.5 * (1 - torch.exp(-2 * x_var) * torch.cos(2 * x)) - y**2 # safe_cos?
+    y_var = torch.clamp(0.5 * (1 - torch.exp(-2 * x_var) * torch.cos(2 * x)) - y**2, min=0) # safe_cos?
     return y, y_var

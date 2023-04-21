@@ -425,7 +425,6 @@ class SceneModel:
         neighbor_distance_per_pixel = []
         #is_interpolated_per_pixel = []
         self.sample_image = torch.zeros(self.H, self.W)
-        self.pixel_history_indices = []
     
         n_pixels_in_training_dataset = self.args.number_of_pixels_in_training_dataset
         n_images = len(self.image_ids[::self.args.skip_every_n_images_for_training])
@@ -467,9 +466,6 @@ class SceneModel:
             all_indices = torch.tensor(range(xyz_coordinates.size()[0] * xyz_coordinates.size()[1]))     
             
             pixel_indices_selected = all_indices[ torch.randperm(xyz_coordinates.size()[0] * xyz_coordinates.size()[1])[:n_pixels_per_image] ]
-            pixel_history_indices_selected = torch.where(torch.logical_or(torch.tensor(1).expand( pixel_indices_selected.size()[0] ), all_indices[pixel_indices_selected]))[0] * n_images
-            self.pixel_history_indices.append(pixel_history_indices_selected)
-
             selected = torch.zeros(xyz_coordinates.size()[0]*xyz_coordinates.size()[1])
             selected[pixel_indices_selected] = 1
             selected = selected.reshape(xyz_coordinates.size()[0], xyz_coordinates.size(1))            
@@ -565,7 +561,7 @@ class SceneModel:
         self.confidence_per_pixel = torch.cat(self.confidence_per_pixel, dim=0)
         neighbor_distance_per_pixel = torch.cat(neighbor_distance_per_pixel, dim=0)
         #is_interpolated_per_pixel = torch.cat(is_interpolated_per_pixel, dim=0)
-        self.pixel_history_indices = torch.cat(self.pixel_history_indices, dim=0)
+        
 
         print('\n=== Average sensor depth of non-weighted samples: === {}\n'.format(torch.mean(self.rgbd[:, 3] )))                
         print("The near bound is {:.3f} meters and the far bound is {:.3f} meters".format(self.near, self.far))        
@@ -573,10 +569,10 @@ class SceneModel:
         # compute sampling weights
         self.depth_based_pixel_sampling_weights = torch.ones(self.rgbd.size()[0]).cpu()    
         self.depth_based_pixel_sampling_weights = (1 / ((self.rgbd[:,3]+self.near) ** (0.66))).cpu() # bias sampling of closer pixels probabilistically                        
-        max_depth_weight = torch.max(self.depth_based_pixel_sampling_weights)
+        
 
         max_rgb_distance = np.sqrt(3)
-        steepness = 2.0
+        steepness = 20.0
         neighbor_rgb_distance_sampling_weights = torch.log2( (steepness * neighbor_distance_per_pixel / max_rgb_distance + 1.0))        
         self.depth_based_pixel_sampling_weights = self.depth_based_pixel_sampling_weights * neighbor_rgb_distance_sampling_weights        
     
@@ -719,7 +715,7 @@ class SceneModel:
     ############################# Sampling ##################################
     #########################################################################
 
-    # note: currently a minor bug that allows far samples to be zero if the region is small
+    # note: currently a minor bug that allows far samples to be zero if the region is too small
     def sample_depths_near_linearly_far_nonlinearly(self, number_of_pixels, add_noise=True, test_render=False):    
         n_samples = self.args.number_of_samples_outward_per_raycast + 1
         if test_render:
@@ -1010,9 +1006,6 @@ class SceneModel:
     # focal_lengths: (N, 1)
     def render_prediction(self, poses, focal_lengths, principal_point_x=None, principal_point_y=None):
         
-        # n_samples: the number of queries to NeRF model        
-        n_samples = self.args.number_of_samples_outward_per_raycast_for_test_renders
-
         pixel_directions = compute_pixel_directions(
             focal_lengths, 
             self.pixel_rows_for_test_renders, 
@@ -1163,6 +1156,9 @@ class SceneModel:
         
         focal_length = self.models['focal']()([0])                        
         poses = self.models['pose']()([0])
+        
+        print(poses[0])
+        print(focal_length[0])
 
         # get a tensor with the poses per pixel
         image_ids = self.image_ids_per_pixel[indices_of_random_pixels] # (N_pixels)                
@@ -1549,12 +1545,12 @@ class SceneModel:
         #self.args.start_training_extrinsics_epoch = 500        
         #self.args.start_training_intrinsics_epoch = 5000
         self.args.start_training_extrinsics_epoch = 500
-        self.args.start_training_intrinsics_epoch = 5000
+        self.args.start_training_intrinsics_epoch = 1000
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 5000
+        self.args.entropy_loss_tuning_start_epoch = 10000
         self.args.entropy_loss_tuning_end_epoch = 1000000
-        self.args.max_entropy_weight = 0.02
+        self.args.max_entropy_weight = 0.002
 
         self.args.nerf_density_lr_start = 0.0005
         self.args.nerf_density_lr_end = 0.0001
@@ -1568,7 +1564,7 @@ class SceneModel:
 
         self.args.focal_lr_start = 0.0001        
         self.args.focal_lr_end = 0.0000025
-        self.args.focal_lr_exponential_index = 9
+        self.args.focal_lr_exponential_index = 1
         self.args.focal_lr_exponential_index = 1
 
         self.args.pose_lr_start = 0.0003
@@ -1604,11 +1600,13 @@ class SceneModel:
         self.args.save_models_frequency = 5000
         
         # training
+        self.args.resample_pixels_frequency = 5000
         self.args.pixel_samples_per_epoch = 1024
+        ###########################self.args.number_of_samples_outward_per_raycast = 360
         self.args.number_of_samples_outward_per_raycast = 360
         self.args.skip_every_n_images_for_training = 60
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256        
-        self.args.resample_pixels_frequency = 5000
+        
 
         # testing
         self.args.number_of_pixels_per_batch_in_test_renders = 5000
