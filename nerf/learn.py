@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 from functorch.compile import make_boxed_func
 
-from torchviz import make_dot, make_dot_from_trace
+#from torchviz import make_dot, make_dot_from_trace
 from torch.autograd import Variable
 
 import gc
@@ -1186,8 +1186,7 @@ class SceneModel:
 
             n_samples = depth_samples.size()[1]
 
-            # render an image using selected rays, pose, sample intervals, and the network
-            
+            # render an image using selected rays, pose, sample intervals, and the network            
             render_result = self.render(poses=selected_poses, pixel_directions=pixel_directions_selected, sampling_depths=depth_samples, pixel_focal_lengths=selected_focal_lengths, pp_x=self.principal_point_x, pp_y=self.principal_point_y, perturb_depths=False)  # (N_pixels, 3)    
             
             rgb_rendered = render_result['rgb_rendered']         # (N_pixels, 3)                                                
@@ -1196,7 +1195,6 @@ class SceneModel:
             
             nerf_sample_bin_lengths = depth_samples[:, 1:] - depth_samples[:, :-1]
             nerf_depth_weights = nerf_depth_weights + self.args.epsilon           
-
 
             #####################| KL Loss |################################
             sensor_variance = self.args.depth_sensor_error
@@ -1210,9 +1208,9 @@ class SceneModel:
             mean_entropy = torch.mean(-1 * torch.sum(nerf_depth_weights * torch.log2(nerf_depth_weights), dim=1))
             if (self.epoch >= self.args.entropy_loss_tuning_start_epoch and self.epoch <= self.args.entropy_loss_tuning_end_epoch):                                                
                 epoch = torch.tensor([self.epoch]).float().to(self.device).float()
-                entropy_loss_weight = torch.tanh(0.01 * epoch / 1000.0) / (1.0 / self.args.max_entropy_weight)                
+                entropy_loss_weight = (torch.tanh(0.01 * epoch / 1000.0) / (1.0 / self.args.max_entropy_weight)).item()
                 entropy_depth_loss = entropy_loss_weight * mean_entropy                
-                depth_to_rgb_importance = 0.0                                            
+                depth_to_rgb_importance = 0.0                                        
             ################################################################
 
             with torch.no_grad():
@@ -1228,8 +1226,6 @@ class SceneModel:
             rgb_loss = (rgb_rendered - rgb)**2
             rgb_loss = torch.mean(rgb_loss)            
 
-            # to-do: implement perceptual color difference minimizer
-            # torch.norm(ciede2000_diff(rgb2lab_diff(inputs,self.device),rgb2lab_diff(adv_input,self.device),self.device).view(batch_size, -1),dim=1)
             fine_rgb_loss = 0
             fine_depth_loss = 0
             fine_interpretable_rgb_loss_per_pixel = 0
@@ -1286,8 +1282,9 @@ class SceneModel:
             minutes_into_experiment = (int(time.time())-int(self.start_time)) / 60
 
         self.log_learning_rates()
-
-        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: C: {:.6f} ({:.3f}/255) | F: {:.6f} ({:.3f}/255), DEPTH: C: {:.6f} ({:.2f}mm) | F: {:.6f} ({:.2f}mm) w/ imp. {:.5f}, Entropy: {:.6f} (loss: {:.6f})".format(self.epoch, 
+              
+        print("({} at {:.2f} min) - LOSS = {:.5f} -> RGB: C: {:.6f} ({:.3f}/255) | F: {:.6f} ({:.3f}/255), DEPTH: C: {:.6f} ({:.2f}mm) | F: {:.6f} ({:.2f}mm) w/ imp. {:.5f}, Entropy: {:.6f} (loss: {:.6f})".format(
+            self.epoch, 
             minutes_into_experiment, 
             total_weighted_loss,
             (1 - depth_to_rgb_importance) * coarse_rgb_loss, 
@@ -1551,11 +1548,11 @@ class SceneModel:
         
         #self.args.start_training_extrinsics_epoch = 500        
         #self.args.start_training_intrinsics_epoch = 5000
-        self.args.start_training_extrinsics_epoch = 100
+        self.args.start_training_extrinsics_epoch = 500
         self.args.start_training_intrinsics_epoch = 5000
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 10000
+        self.args.entropy_loss_tuning_start_epoch = 50
         self.args.entropy_loss_tuning_end_epoch = 1000000
         self.args.max_entropy_weight = 0.02
 
@@ -1612,7 +1609,7 @@ class SceneModel:
         self.args.number_of_samples_outward_per_raycast = 360
         self.args.skip_every_n_images_for_training = 60
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256        
-        self.args.resample_pixels_frequency = 1000
+        self.args.resample_pixels_frequency = 5000
 
         # testing
         self.args.number_of_pixels_per_batch_in_test_renders = 5000
@@ -1624,10 +1621,10 @@ class SceneModel:
         self.args.far_maximum_depth = 3.00  
         self.args.percentile_of_samples_in_near_region = 0.80 
 
-        #self.args.H_for_test_renders = 1440
-        #self.args.W_for_test_renders = 1920        
-        self.args.H_for_test_renders = 480
-        self.args.W_for_test_renders = 640
+        self.args.H_for_test_renders = 1440
+        self.args.W_for_test_renders = 1920        
+        #self.args.H_for_test_renders = 480
+        #self.args.W_for_test_renders = 640
 
 
     ##################################################################
