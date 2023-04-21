@@ -1552,7 +1552,7 @@ class SceneModel:
         self.args.start_training_intrinsics_epoch = 5000
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 50
+        self.args.entropy_loss_tuning_start_epoch = 5000
         self.args.entropy_loss_tuning_end_epoch = 1000000
         self.args.max_entropy_weight = 0.02
 
