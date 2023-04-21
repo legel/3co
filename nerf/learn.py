@@ -461,7 +461,8 @@ class SceneModel:
             # select a uniformly random subset of those pixels
             all_indices = torch.tensor(range(xyz_coordinates.size()[0] * xyz_coordinates.size()[1]))     
             
-            pixel_indices_selected = all_indices[ torch.randperm(xyz_coordinates.size()[0] * xyz_coordinates.size()[1])[:n_pixels_per_image] ]
+            #pixel_indices_selected = all_indices[ torch.randperm(xyz_coordinates.size()[0] * xyz_coordinates.size()[1])[:n_pixels_per_image] ]
+            pixel_indices_selected = all_indices[ torch.randint(high = xyz_coordinates.size()[0] * xyz_coordinates.size()[1], size=(n_pixels_per_image,))]
             selected = torch.zeros(xyz_coordinates.size()[0]*xyz_coordinates.size()[1])
             selected[pixel_indices_selected] = 1
             selected = selected.reshape(xyz_coordinates.size()[0], xyz_coordinates.size(1))            
