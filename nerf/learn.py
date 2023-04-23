@@ -253,7 +253,6 @@ class SceneModel:
         image_path = os.path.join(path_to_images, image_name)
 
         # load image data, and collect indices of pixels that may be masked using alpha channel if image is a .png 
-        #image_data = imageio.imread(image_path)
         image_data = np.array(Image.open(image_path))
         image_data = cv2.resize(image_data, (self.args.W_for_training, self.args.H_for_training))
 
@@ -263,13 +262,9 @@ class SceneModel:
         # clip out alpha channel, if it exists
         image_data = image_data[:, :, :3]  # (H, W, 3)
 
-
-
         # convert to torch format and normalize between 0-1.0
         image = torch.from_numpy(image_data).float() / 255 # (H, W, 3) torch.float32
         
-
-
         #return image.to(device=self.device), image_name
         return image.cpu(), image_name
 
@@ -598,16 +593,17 @@ class SceneModel:
 
         model = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images))
         self.models["focal"] = model        
-        model.to(device)
+        print(self.device)
+        model.to(self.device)
         model = torch.compile(CameraPoseModel(self.all_initial_poses[::self.skip_every_n_images_for_training]))
         self.models["pose"] = model
-        model.to(device)
+        model.to(self.device)
         model =  torch.compile(NeRFDensity(self.args))
         self.models["geometry"] = model
-        model.to(device)                               
+        model.to(self.device)                               
         model = torch.compile(NeRFColor(self.args))
         self.models["color"] = model                
-        model.to(device)
+        model.to(self.device)
 
         n_total_pixels = self.all_initial_poses[::self.skip_every_n_images_for_training].size()[0] * self.H * self.W
                 
@@ -1342,11 +1338,13 @@ class SceneModel:
 
     def create_experiment_directory(self):
         data_out_dir = "{}/hyperparam_experiments".format(self.args.base_directory)            
-        
+                
         experiment_label = "{}".format( int(str(self.start_time)[:9]) )            
         experiment_dir = Path(os.path.join(data_out_dir, experiment_label))
         experiment_dir.mkdir(parents=True, exist_ok=True)
         self.experiment_dir = experiment_dir
+
+        print("Experiment directory: {}".format(self.experiment_dir))
 
         self.color_out_dir = Path("{}/color_renders/".format(self.experiment_dir))
         self.color_out_dir.mkdir(parents=True, exist_ok=True)
@@ -1397,9 +1395,10 @@ class SceneModel:
         all_focal_lengths = self.models["focal"]()([0])
 
         test_image_indices = self.test_image_indices
-        sub_test_image_indices = test_image_indices
-        # sub_test_image_indices = [0,159,222]        
-        for image_index in [self.test_image_indices[i] for i in sub_test_image_indices]:        
+        #explicit_test_image_indices = [0, 159, 222]
+        #test_image_indices = explicit_test_image_indices
+        #for image_index in [self.test_image_indices[i] for i in test_image_indices]:
+        for image_index in test_image_indices:
                                           
             pp_x = self.principal_point_x * (float(W) / float(self.W))
             pp_y = self.principal_point_y * (float(H) / float(self.H))
@@ -1518,14 +1517,15 @@ class SceneModel:
 
     def load_saved_args_train(self):
         
-        self.args.base_directory = './data/elastica_burgundy'
+        self.args.base_directory = './data/red_berry_bonsai'
         #self.args.base_directory = './data/cactus'
         #self.args.base_directory = './data/red_berry_bonsai'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
         self.args.load_pretrained_models = False
         self.args.reset_learning_rates = False
-        self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
+        #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
+        self.args.pretrained_models_directory = './data/red_berry_bonsai_run202/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
         self.args.start_epoch = 1
         self.args.number_of_epochs = 500000
         
@@ -1575,11 +1575,11 @@ class SceneModel:
         self.args.min_confidence = 2.0
 
         ### test images
-        self.args.skip_every_n_images_for_testing = 1
-        self.args.number_of_test_images = 1
+        self.args.skip_every_n_images_for_testing = 5
+        self.args.number_of_test_images = 3
 
         ### test frequency parameters
-        self.args.test_frequency = 1000
+        self.args.test_frequency = 5000
         self.args.export_test_data_for_testing = False    
         self.args.save_point_cloud_frequency = 1000000
         self.args.save_depth_weights_frequency = 5000000000
@@ -1587,12 +1587,12 @@ class SceneModel:
         self.args.save_models_frequency = 5000
         
         # training
-        self.args.resample_pixels_frequency = 1000
+        self.args.resample_pixels_frequency = 5000
         self.args.pixel_samples_per_epoch = 1024
         ###########################self.args.number_of_samples_outward_per_raycast = 360
-        self.args.number_of_samples_outward_per_raycast = 120
-        self.args.number_of_images_in_training_dataset = 120
-        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256 * 100
+        self.args.number_of_samples_outward_per_raycast = 360
+        self.args.number_of_images_in_training_dataset = 242
+        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256 * 20
         self.args.H_for_training = 480
         self.args.W_for_training = 640
         

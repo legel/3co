@@ -1,16 +1,17 @@
 import torch
 import torch.nn as nn
 import struct
+from learn import *
 from PIL import Image
-import imageio
+import imageio.v2 as imageio
 import numpy as np
 import random, math
 import open3d as o3d
+import trimesh
 import sys, os, shutil, copy, glob, json
-from learn import *
 from utils.camera import *
 from pbr_rendering import *
-from torch.autograd import Variable
+import math
 
 sys.path.append(os.path.join(sys.path[0], '../..'))
 
@@ -27,19 +28,41 @@ from pytorch3d.renderer import (
 
 from pytorch3d.vis.plotly_vis import plot_batch_individually
 from functorch.compile import make_boxed_func
+import gc
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.enabled = True
-
-import gc
+torch._dynamo.config.verbose = True
+torch.set_float32_matmul_precision('high')
 
 set_randomness()
-torch.set_float32_matmul_precision('high')
-torch._dynamo.config.suppress_errors = True
-torch._dynamo.config.verbose=False      
 
 device = torch.device('cuda:0')
-#device = torch.device('cpu')
+
+texture_size = 2048
+dataset = 'dragon_scale'
+start_time = int(time.time())
+experiment_label = "{}".format( int(str(start_time)[:9]) )
+experiment_dir = './data/{}/inverse_rendering/{}'.format(dataset, experiment_label)
+os.makedirs(experiment_dir, exist_ok=True)
+
+mesh_render_dir = '{}/mesh_renders'.format(experiment_dir)
+os.makedirs(mesh_render_dir, exist_ok=True)
+
+gradient_dir = '{}/gradients'.format(experiment_dir)
+os.makedirs(gradient_dir, exist_ok=True)
+
+input_data_dir = './data/{}/inverse_rendering'.format(dataset)
+os.makedirs(input_data_dir, exist_ok=True)
+
+texture_visualization_dir = '{}/texture_visualizations'
+os.makedirs(texture_visualization_dir, exist_ok=True)
+
+gltf_dir = '{}/gltfs'.format(experiment_dir)
+os.makedirs(gltf_dir, exist_ok=True)
+
+models_dir = '{}/models'.format(experiment_dir)
+os.makedirs(models_dir, exist_ok=True)
 
 
 #################################################################################################
@@ -74,8 +97,8 @@ def load_mesh(mesh_file_path):
     vertices_tensor = torch.from_numpy(vertices).float().to(device=device)
     triangles_tensor = torch.from_numpy(triangles).long().to(device=device)
 
-    rgb_texture = TexturesVertex(verts_features=[vertex_colors_tensor]).to(device)
-    mesh = Meshes(verts=[vertices_tensor], faces=[triangles_tensor], textures=rgb_texture).to(device)
+    rgb_texture = TexturesVertex(verts_features=[vertex_colors_tensor]).to(torch.device('cuda:0'))
+    mesh = Meshes(verts=[vertices_tensor], faces=[triangles_tensor], textures=rgb_texture).to(torch.device('cuda:0'))
 
     return mesh
 
@@ -97,6 +120,13 @@ def correct_camera_extrinsics_for_pytorch3d(extrinsics):
 
 def render_mesh(extrinsics, intrinsics, mesh, image_size, show_interactive_3D_figure=False, save_renders=True):
 
+    intrinsics[0,0] = intrinsics[0,0] * (float(image_size[0]) / 1440.0)
+    intrinsics[1,1] = intrinsics[1,1] * (float(image_size[1]) / 1920.0)
+
+    intrinsics[0,2] = intrinsics[0,2] * (float(image_size[0]) / 1440.0)
+    intrinsics[1,2] = intrinsics[1,2] * (float(image_size[1]) / 1920.0)
+
+
     # Create the camera object with the given intrinsics and pose
     cameras = PerspectiveCameras(
                 R=extrinsics[:3, :3].unsqueeze(0).to(device=device),
@@ -115,8 +145,14 @@ def render_mesh(extrinsics, intrinsics, mesh, image_size, show_interactive_3D_fi
     if show_interactive_3D_figure:
         fig = plot_batch_individually([cameras, mesh])
         fig.show()
-
-    pixels_to_mesh_face_indices = mesh_rasterizer.forward(mesh).pix_to_face
+    
+    fragments = mesh_rasterizer.forward(mesh)        
+    pixels_to_mesh_face_indices = fragments.pix_to_face
+    bary_coords = fragments.bary_coords
+    # unused parameters that may be useful at some point:
+    # zbuf = fragments.zbuf
+    # pix_dists = fragments.dists
+    
     pixels_to_mesh_face_indices = pixels_to_mesh_face_indices[0,:,:,0] # for the 0th mesh, for all H,W pixels, get the first face index
     
     pixels_that_hit_face = len(torch.where(pixels_to_mesh_face_indices != -1)[0])
@@ -130,45 +166,33 @@ def render_mesh(extrinsics, intrinsics, mesh, image_size, show_interactive_3D_fi
         image = renderer(mesh.to(device=device))  # Boom! Render that mesh :)
         image = (image.detach().cpu().numpy()[0, ..., :3] * 255).astype(np.uint8)
 
-        return image, pixels_to_mesh_face_indices
+        return image, pixels_to_mesh_face_indices, bary_coords
 
     else:
-        return None, pixels_to_mesh_face_indices
+        return None, pixels_to_mesh_face_indices, bary_coords
     
 
-def rasterize(mesh, camera_extrinsics, camera_intrinsics, H, W, save_result=False):
+def rasterize(mesh, camera_extrinsics, camera_intrinsics, H, W, save_result=False, save_renders=True):
     
     number_of_poses = camera_extrinsics.shape[0]
-    number_of_faces = mesh.num_faces_per_mesh()
     
-    number_of_vertices = mesh.num_verts_per_mesh()
     number_of_rows = H
     number_of_cols = W
-
-    nerf_camera_extrinsics = np.copy(camera_extrinsics)
-
-    # now, we define a data structure that maps for every face, for all poses, at most 1 pixel row & pixel col index that may hit it
-    # by default, we set these indices = -1, indicating that the face is not hit for a given pose     
-    faces = mesh.faces_list()[0] 
-    vertices = mesh.verts_list()[0]
-    face_vertices = vertices[faces]
-    faces_to_pixels = torch.full(size=(number_of_faces, number_of_poses, 2), fill_value=-1, dtype=torch.int32, device=device)
-    face_normals = torch.zeros(number_of_faces, 3, dtype=torch.float32, device=device)    
-    vertex_normals = torch.zeros(number_of_vertices, 3, dtype=torch.float32, device=device)
-    posepix2face = torch.empty( (number_of_poses, H*W), dtype=torch.int32, device=device)
-
-    #for pose_index in range(0,number_of_poses):
+        
+    posepix2face = torch.full( (number_of_poses, H*W), fill_value=-1, dtype=torch.int32, device=device)
+    pose_bary_coords = torch.full( (number_of_poses, H*W, 3), fill_value=-1, dtype=torch.float32, device=device)
+    
     for pose_index in range(0,number_of_poses):
+
         extrinsics = correct_camera_extrinsics_for_pytorch3d(camera_extrinsics[pose_index,:,:])
         intrinsics = camera_intrinsics[pose_index,:,:]
 
         intrinsics = torch.from_numpy(intrinsics) 
         extrinsics = torch.from_numpy(extrinsics)
-
-        save_renders = True
+        
         print("{}.png ({}.jpg)".format(pose_index, pose_index*60))
 
-        image, pix2face = render_mesh( 
+        image, pix2face, bary_coords = render_mesh( 
             extrinsics=extrinsics, 
             intrinsics=intrinsics, 
             mesh=mesh,
@@ -177,148 +201,54 @@ def rasterize(mesh, camera_extrinsics, camera_intrinsics, H, W, save_result=Fals
             save_renders=save_renders
         )
 
-        # (n_poses, H*W)        
-        
-        posepix2face[pose_index, :] = pix2face.clone().reshape(H*W)
-
+        # (n_poses, H*W)                
+        posepix2face[pose_index] = pix2face.reshape(H*W)
+        pose_bary_coords[pose_index] = bary_coords[0, :, :, :].reshape(H*W,3)
 
         if save_renders:
             im = Image.fromarray(image)
-            im.save('rast_imgs/{}.png'.format(pose_index))                                
-
-        # get the pixel (row, col) for all raycast hits
-        rows_hit, cols_hit = torch.where(pix2face != -1)
-        rows_hit = rows_hit.to(dtype=torch.int32)
-        cols_hit = cols_hit.to(dtype=torch.int32)
-
-        # get the face indices
-        faces_hit = pix2face[rows_hit, cols_hit]        
-
-        # assign for all face indices that were hit, for this pose index, values for the elements of row,col (0,1)
-        faces_to_pixels[faces_hit, pose_index, 0] = rows_hit
-        faces_to_pixels[faces_hit, pose_index, 1] = cols_hit
-
-        total_hits = torch.where(faces_to_pixels[:,:,0] != -1)[0]
-        print("  Total surface hits = {:,}".format(total_hits.shape[0]))
-
-        # approximate face normal by face->camera direction vector
-        camera_xyz = torch.from_numpy(nerf_camera_extrinsics[pose_index, :3, 3]).to(torch.device(device))    
-        
-        faces_xyz = torch.mean(face_vertices[faces_hit], dim=1)
-
-        face_normals[faces_hit] = camera_xyz.unsqueeze(0).expand(faces_xyz.size()[0], 3) - faces_xyz
-
-        face_normals[faces_hit] = torch.nn.functional.normalize(face_normals[faces_hit], p=2, dim=1)
-
-        vertex_normals[(faces[faces_hit])[:,0]] = face_normals[faces_hit]
-        vertex_normals[(faces[faces_hit])[:,1]] = face_normals[faces_hit]
-        vertex_normals[(faces[faces_hit])[:,2]] = face_normals[faces_hit]
-
+            im.save('{}/{}.png'.format(input_data_dir, pose_index))                                
 
     if save_result:
         save_rasterizer_result(
-            'rast_imgs/faces_to_pixels.npy', faces_to_pixels, 
-            'rast_imgs/posepix2face.npy', posepix2face
+            '{}/posepix2face_dragon_scale_test.pt'.format(input_data_dir), posepix2face,
+            '{}/bary_coords_dragon_scale_test.pt'.format(input_data_dir), pose_bary_coords
         )
 
-
-    return (faces_to_pixels, posepix2face)
+    return posepix2face, pose_bary_coords
         
 
-def save_rasterizer_result(f2p_f_name, faces_to_pixels, posepix2face_f_name, posepix2face):
-    
-    with open(f2p_f_name, 'wb') as f:
-        np.save(f, faces_to_pixels.detach().cpu().numpy())            
-    with open(posepix2face_f_name, 'wb') as f:
-        np.save(f, posepix2face.detach().cpu().numpy())                        
+def save_rasterizer_result(posepix2face_f_name, posepix2face, bary_coords_f_name, bary_coords):
+        
+    torch.save(posepix2face, posepix2face_f_name)    
+    torch.save(bary_coords, bary_coords_f_name)
+
 
 
 ###########################################################################################
 ################## Inverse Rendering ######################################################
-###########################################################################################
-class LightModel(nn.Module):
+###########################################################################################                   
 
-    def __init__(self, initial_intensity_scale):
-        super(LightModel, self).__init__()
-        intensity_scale = initial_intensity_scale.clone().detach() #, device=torch.device('cuda:0'))
-        self.intensity_scale = nn.Parameter(intensity_scale, requires_grad=False)
+class DisneyBRDFModel(nn.Module):
 
-    def forward(self, i=None):        
-        intensity_scale = self.intensity_scale * 1.0
-        intensity_scale = torch.clamp(intensity_scale, min=0.0, max=2.0)
-        return intensity_scale
-   
+    def __init__(self, n_texels, initial_textures=None):
 
-class GeometryModel(nn.Module):
-
-    def __init__(self, initial_normals):
-        super(GeometryModel, self).__init__()
-        self.n_faces = initial_normals.size()[0]
-        self.normals = nn.Parameter(initial_normals.to(torch.device('cuda:0')), requires_grad=False)
-        self.r = nn.Parameter(torch.zeros(size=(self.n_faces, 3), dtype=torch.float32, device=torch.device('cuda:0')), requires_grad=True)  # (N, 3)        
-
-    def forward(self, i=None):
-        r = self.r
-        delta_n = self.make_pose(r)        
-        normals = delta_n @ self.normals.unsqueeze(2)
-        return normals.squeeze(2)
-                    
-    def make_pose(self, r):
-        """
-        :param r:  (N, 3, ) axis-angle
-        :return:   (N, 4, 4)
-        """        
-        R = self.Exp_batch(r)  # (N, 3, 3)
-        return R            
-
-    def Exp_batch(self, r):
-        """so(3) vector to SO(3) matrix
-        :param r: (N, 3, ) axis-angle
-        :return:  (N, 3, 3)
-        """
-        batch_size = r.shape[0]
-        skew_r = self.vec2skew_batch(r)  # (N, 3, 3)
-        norm_r = r.norm() + torch.tensor([1e-15]).to(torch.device('cuda:0'))
-        eye = torch.eye(3, dtype=torch.float32, device=r.device)    
-        batch_eye = eye.repeat(batch_size, 1, 1)
-        a = skew_r @ skew_r
-        R = batch_eye + (torch.sin(norm_r) / norm_r) * skew_r + ((1 - torch.cos(norm_r)) / norm_r**2) * (skew_r @ skew_r)        
-        return R    
-
-    def vec2skew_batch(self, v):
-        """
-        :param v:  (N, 3, ) torch tensor
-        :return:   (N, 3, 3)
-        """
-        number_of_samples = v.shape[0]
-        zero = torch.zeros((number_of_samples,1), dtype=torch.float32, device=v.device)
-        skew_v0 = torch.cat([ zero,    -v[:,2:3],   v[:,1:2]], dim=1)  # (N, 3, 1)
-        skew_v1 = torch.cat([ v[:,2:3],   zero,    -v[:,0:1]], dim=1)  # (N, 3, 1)
-        skew_v2 = torch.cat([-v[:,1:2],   v[:,0:1],   zero], dim=1)    # (N, 3, 1)
-        skew_v = torch.stack([skew_v0, skew_v1, skew_v2], dim=1)       # (N, 3, 3)
-        #skew_v = torch.stack([skew_v0, skew_v1, skew_v2], dim=2)       # (N, 3, 3)                        
-        return skew_v  # (N, 3, 3)
-    
-
-class IRModel(nn.Module):
-
-    def __init__(self, n_faces, initial_face_colors=None):
-
-        super(IRModel, self).__init__()
+        super(DisneyBRDFModel, self).__init__()
+        # roughness, red, green, blue are overwritten below in the case where initial_textures=True
         brdf_params = {}
         brdf_params['metallic'] = 0.0
         brdf_params['subsurface'] = 0.0  
-        brdf_params['specular'] = 0.0
-        brdf_params['roughness'] = 0.0
+        brdf_params['specular'] = 0.5
+        brdf_params['roughness'] = 1.0
         brdf_params['specularTint'] = 0.0
         brdf_params['anisotropic'] = 0.0
         brdf_params['sheen'] = 0.0
         brdf_params['sheenTint'] = 0.0
         brdf_params['clearcoat'] = 0.0
         brdf_params['clearcoatGloss'] = 0.0
-        brdf_params['red'] = torch.rand(1)
-        brdf_params['green'] = torch.rand(1)
-        brdf_params['blue'] = torch.rand(1)
+        brdf_params['red'] = 0.3
+        brdf_params['green'] = 0.5
+        brdf_params['blue'] = 0.35
 
         brdf_params_tensor = torch.tensor([
             brdf_params['metallic'], brdf_params['subsurface'], brdf_params['specular'],
@@ -327,79 +257,101 @@ class IRModel(nn.Module):
             brdf_params['clearcoatGloss'], brdf_params['red'], brdf_params['green'], brdf_params['blue'],
         ])
             
-        brdf_params_tensor_expand = brdf_params_tensor.repeat( (n_faces, 1) )
+        brdf_params_tensor_expand = brdf_params_tensor.repeat( (n_texels, 1) )
 
-        if initial_face_colors is not None:            
-            brdf_params_tensor_expand[:, -3:] = initial_face_colors
+        if initial_textures is not None:            
+            brdf_params_tensor_expand[:, -3:] = initial_textures[0].flatten(start_dim=0, end_dim=1)
+            brdf_params_tensor_expand[:, 3] = initial_textures[1].flatten(start_dim=0, end_dim=1)[:, 1]
 
-        self.brdf_params = nn.Parameter(brdf_params_tensor_expand, requires_grad=True)
+            brdf_params_tensor_expand[:] = torch.asin(brdf_params_tensor_expand * 2.0 - 1)
+            self.initial_brdf_params = brdf_params_tensor_expand.to(torch.device('cuda:0'))            
+            self.initial_brdf_params.requires_grad = False                                                    
+
+        initial_delta = torch.zeros( (brdf_params_tensor_expand.shape[0], 13))        
+        self.brdf_params = nn.Parameter(initial_delta, requires_grad=True)        
+        self.frozen_indices = torch.zeros((13,), requires_grad=False, dtype=torch.uint8, device=device)
+        self.frozen_param_values = torch.zeros((n_texels, 13,), dtype=torch.float32, requires_grad=False, device=device)
+        self.active_indices = torch.ones((13,), requires_grad=False, dtype=torch.uint8, device=device)
+
+
+    def set_mode(self, optimization='all'):
         
+        with torch.no_grad():        
 
-    def forward(self, i=None):
+            # swap frozen and active indices; retrieve their values by calling forward() 
+            #   to keep both in computational graph
+            self.frozen_param_values[:, torch.where(self.active_indices)[0]] = self.forward()([0])[:, torch.where(self.active_indices)[0]].detach().clone()
 
-        brdf = 1.0 * self.brdf_params
-                                
-        with torch.no_grad():            
-            brdf[:] = torch.clamp(brdf, min=0.0, max=1.0)
-            #brdf[:, 0] = 0
-            #brdf[:, 1] = 0
-            #brdf[:, 2] = 0
+            if optimization == 'diffuse':
+                print('DisneyBRDFModel: setting mode to diffuse')                                                
+                self.active_indices[:10] = 0
+                self.active_indices[-3:] = 1                
+                self.frozen_indices[:10] = 1
+                self.frozen_indices[-3:] = 0
+            elif optimization == 'reflectance':
+                print('DisneyBRDFModel: setting mode to reflectance')
+                self.active_indices[:10] = 1
+                self.active_indices[-3:] = 0                
+                self.frozen_indices[:10] = 0
+                self.frozen_indices[-3:] = 1 
+            else:                
+                self.active_indices[:] = 1
+                self.frozen_indices[:] = 0                                    
 
-            #brdf[:, 4] = 0
-            #brdf[:, 5] = 0
-            #brdf[:, 6] = 0
-            #brdf[:, 7] = 0
-            #brdf[:, 8] = 0
-            #brdf[:, 9] = 0
 
-        return brdf
-    
-    # save images representing brdf gradient for all poses and faces at a particular epoch
-    def visualize_gradient(self, posepix2face, epoch, batch_n, H=1440, W=1920):
-        brdf_params = self.brdf_params.to(torch.device('cpu'))
+    def forward(self):        
+
+        # because pytorch 2.0 just needed some boilerplate
+        def f(i=None):
+        
+            brdf = (torch.sin(self.brdf_params + self.initial_brdf_params) + 1) / 2.0        
+            with torch.no_grad():                        
+                brdf[:, 0] = 0
+                brdf[:, 1] = 0
+                brdf[:, 2] = 0.5
+                brdf[:, 3] = torch.clamp(brdf[:, 3], min=0, max=1.0)
+                brdf[:, 4] = 0
+                brdf[:, 5] = 0
+                brdf[:, 6] = 0
+                brdf[:, 7] = 0
+                brdf[:, 8] = 0
+                brdf[:, 9] = 0
+                brdf[:, -3:] = torch.clamp(brdf[:, -3:], min=0, max=1)
+                brdf[:, torch.where(self.frozen_indices)[0]] = self.frozen_param_values[:, torch.where(self.frozen_indices)[0]]
+            return brdf
+        
+        return make_boxed_func(f)
+            
+
+    def visualize_texture_gradient(self, epoch, batch_n):
+     
+        pose_i = 0
+        brdf_params = self.brdf_params
         grad = brdf_params.grad
         if grad == None:
             print("grad is none")
             return        
-
-        posepix2face = posepix2face.to(torch.device('cpu'))
-        print('visualizing gradient')
-        
-        
+            
+        print("Visualizing gradients")
         vis_grad = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         brdf_param_names = self.get_brdf_param_names()
-
         
-        os.makedirs('/home/rob/research_code/3co/research/nerf/rast_imgs/renders/gradients/', exist_ok=True)
-        with open('./rast_imgs/renders/gradients/stats_{}.txt'.format(epoch), 'w') as f:        
-            for pose_i in range(posepix2face.size()[0]):
+        for p in vis_grad:
 
-                # posepix2face: (n_poses, H*W)
-                
-                hit_pixels = torch.where(posepix2face[pose_i] != -1)[0].to(torch.device('cpu'))                                
-                hit_face_indices = posepix2face[pose_i, hit_pixels] 
-                n_hit_indices = hit_face_indices.size()[0]
+            grad_p = grad[:, p]
+            rendered_grad = torch.zeros((texture_size*texture_size), dtype=torch.float32, device=device)
+            rendered_grad[:] = grad_p
                         
-                f.write("----- pose {} -----\n".format(pose_i))
-                for p in vis_grad:
-
-                    grad_p = grad[hit_face_indices, p]
-                    rendered_grad = torch.zeros((H*W), dtype=torch.float32, device=torch.device('cpu'))
-                    rendered_grad[hit_pixels] = grad_p
-                    rendered_grad = rendered_grad.reshape(H, W)                                
-                    min_grad = grad_p.min()                
-                    max_grad = grad_p.max()
-                    f.write('min grad for {}: {}\n'.format(brdf_param_names[p], min_grad.item()))
-                    f.write('max grad for {}: {}\n'.format(brdf_param_names[p], max_grad.item()))
-                    
-                    rendered_grad = rendered_grad - min_grad
-                    max_grad = rendered_grad.max()
-                    rendered_grad = rendered_grad / max_grad
-                    rendered_grad = (rendered_grad.cpu().numpy() * 255).astype(np.uint8)
-                    f_name = './rast_imgs/renders/gradients/{}/grad_pose{}_epoch{}_batch{}.png'.format(brdf_param_names[p], pose_i, epoch, batch_n)
-                    os.makedirs('/home/rob/research_code/3co/research/nerf/rast_imgs/renders/gradients/{}'.format(brdf_param_names[p]), exist_ok=True)
-                    imageio.imwrite(f_name, rendered_grad)
-
+            min_grad = grad_p.min()                
+            max_grad = grad_p.max()
+            
+            rendered_grad = rendered_grad - min_grad            
+            rendered_grad[torch.where(rendered_grad !=0)[0]] = rendered_grad[torch.where(rendered_grad !=0)[0]] / max_grad
+            rendered_grad = rendered_grad.reshape(texture_size, texture_size)
+            rendered_grad = (rendered_grad.cpu().numpy() * 255).astype(np.uint8)
+            f_name = '{}/{}/grad_pose{}_epoch{}_batch{}.png'.format(gradient_dir, brdf_param_names[p], pose_i, epoch, batch_n)
+            os.makedirs('{}/{}'.format(gradient_dir,brdf_param_names[p]), exist_ok=True)
+            imageio.imwrite(f_name, rendered_grad)
 
 
     def get_brdf_param_names(self):
@@ -410,83 +362,181 @@ class IRModel(nn.Module):
 
 
 class TexelSamples:
-
-    def __init__(self, face_index, rgb_samples, cam_xyzs, texel_xyz):
-        self.face_index = face_index
+    
+    def __init__(self, texel_index, rgb_samples, cam_xyzs, surface_xyz):
+        self.texel_index = texel_index # index in texture coordinates
         self.rgb_samples = rgb_samples
-        self.cam_xyzs = cam_xyzs
-        self.texel_xyz = texel_xyz
-        #self.normal = normal
-        
+        self.cam_xyzs = cam_xyzs                     
+        self.surface_xyzs = surface_xyz
 
-    def add_sample(self, rgb_sample, cam_xyz):
+    def add_sample(self, rgb_sample, cam_xyz, surface_xyz):
         self.rgb_samples.append(rgb_sample)
         self.cam_xyzs.append(cam_xyz)
+        self.surface_xyzs.append(surface_xyz)                
+
+def uv_to_texel_index(input_uv):
+
+    uv_indices_2d = torch.floor(input_uv[..., :] * texture_size).int()
+    uv_indices_1d = uv_indices_2d[..., 0] * texture_size + uv_indices_2d[..., 1]
+    return uv_indices_1d 
+
+def texel_index_to_uv(texel_i):
+
+    texel_width = torch.tensor(1.0 / texture_size, device=device)
+    u = texel_width * torch.floor(texel_i[..., :]/texture_size) + texel_width/2.0
+    v = texel_width * torch.fmod(texel_i[..., :], texture_size) + texel_width/2.0
+
+    uv_coords = torch.stack([u,v], dim=-1)    
+    return uv_coords
 
 
-def render_brdf_on_training_views(brdf_params, cam_xyzs, surface_xyzs, lights, light_intensity_scale, face_normals, posepix2face, H, W, epoch):
+def render_training_views_with_uvmap_and_textures(cam_xyzs, vertex_xyzs, bary_coords, uv, textures, posepix2face, faces, lights, epoch):
     
-    n_poses = cam_xyzs.size()[0]
-    n_pixels = posepix2face.size()[1]    
+    triangles_with_uv_coordinates = uv[faces].to(torch.device('cuda:0'))
+    triangles_with_xyz_coordinates = vertex_xyzs[faces].to(torch.device('cuda:0'))     
+    cam_xyzs = cam_xyzs.to(torch.device('cuda:0'))
+    bary_coords = bary_coords.cpu()
 
-    surface_xyzs = surface_xyzs.to(device)
-    cam_xyzs = cam_xyzs.to(device)
-    face_normals = face_normals.to(device)
-    brdf_params = brdf_params.to(device)
-    os.makedirs('/home/rob/research_code/3co/research/nerf/rast_imgs/renders/color/', exist_ok=True)
-    os.makedirs('/home/rob/research_code/3co/research/nerf/rast_imgs/renders/roughness/', exist_ok=True)
-    os.makedirs('/home/rob/research_code/3co/research/nerf/rast_imgs/renders/normals/', exist_ok=True)
-    
+    render_h = 1440
+    render_w = 1920                
+    n_poses = cam_xyzs.shape[0]
+
     for i in range(n_poses):
-        pix2face = posepix2face[i].to(device)
-
-        hit_indices = torch.where(pix2face != -1)[0].to(device)
-        n_hit_indices = hit_indices.size()[0]        
-    
-        rendered_img = torch.zeros((n_pixels, 3), dtype=torch.float32, device=device)
-        rendered_roughness = torch.zeros((n_pixels,), dtype=torch.float32, device=device)
-        rendered_normals = torch.zeros((n_pixels,3), dtype=torch.float32, device=device)
-        view_cam_xyzs = cam_xyzs[i].unsqueeze(0).expand(n_hit_indices, 3).to(device)
-        view_normals = face_normals[pix2face[hit_indices]].to(device)        
-        view_surface_xyzs = surface_xyzs[pix2face[hit_indices]].to(device)
-
-        view_brdf_params = brdf_params[pix2face[hit_indices]].to(device)
-                  
-        #render_result, good_idx = render_brdf(view_light_xyzs, view_normals, view_cam_xyzs, view_surface_xyzs, view_brdf_params)
-        render_result, good_idx = render_brdf(view_normals, view_cam_xyzs, view_surface_xyzs, view_brdf_params, lights, light_intensity_scale)
-        good_idx = torch.tensor(range(render_result.size()[0]), device=device)
-        rendered_img[hit_indices] = render_result
-        rendered_img = rendered_img.reshape(H,W,3)
-        rendered_img = (rendered_img.cpu().numpy() * 255).astype(np.uint8)
-        label = str(i).zfill(4)
-        f_name = './rast_imgs/renders/color/view_{}_{}.png'.format(label, str(epoch).zfill(6))
-        imageio.imwrite(f_name, rendered_img)
+        pix2face = posepix2face[i].to(torch.device('cuda:0'))
+        hit_indices = torch.where(pix2face != -1)[0].cpu()
+        rendered_rgb = torch.zeros((render_h * render_w, 3), dtype=torch.float32, device=device)
         
-        rendered_roughness[hit_indices] = view_brdf_params[:,3]
-        rendered_roughness[hit_indices] = torch.minimum(torch.tensor(1.0), rendered_roughness[hit_indices] * 5.0)
-        rendered_roughness = rendered_roughness.reshape(H,W).unsqueeze(2).expand(H,W,3)
-        rendered_roughness = (rendered_roughness.cpu().numpy() * 255).astype(np.uint8)
+        # we need to batch here to deal with matmul's memory wasteage
+        # TODO: precompute this
+        batch_size = 5000
+        view_bary_coords = bary_coords[i, hit_indices].split(batch_size)
+        hit_indices_batches = hit_indices.split(batch_size)
+        n_batches = len(hit_indices_batches)
+                
+        for batch in range(n_batches):
+            
+            hit_indices_batch = hit_indices_batches[batch].to(torch.device('cuda:0'))
+            view_triangles_with_uv_coordinates = triangles_with_uv_coordinates[pix2face[hit_indices_batch]]
+            view_triangles_with_xyz_coordinates = triangles_with_xyz_coordinates[pix2face[hit_indices_batch]]
+            view_bary_coords_batch = view_bary_coords[batch].to(torch.device('cuda:0'))
+            
+            view_cam_xyz = cam_xyzs[i].unsqueeze(0).expand(view_triangles_with_uv_coordinates.shape[0], 3)
+            
+            view_uv = torch.matmul(view_bary_coords_batch, view_triangles_with_uv_coordinates)
+            view_xyz = torch.matmul(view_bary_coords_batch, view_triangles_with_xyz_coordinates)
+
+            view_uv = torch.mean(view_uv, dim=1)
+            view_xyz = torch.mean(view_xyz, dim=1)
+
+            render_result = render_brdf_with_uvmap_and_textures(view_cam_xyz, view_xyz, view_uv, textures, lights)
+            rendered_rgb[hit_indices_batch] = render_result
+
+        rendered_rgb = rendered_rgb.reshape(render_h,render_w,3)
+        rendered_rgb = (rendered_rgb.cpu().numpy() * 255).astype(np.uint8)
         label = str(i).zfill(4)
-        f_name = './rast_imgs/renders/roughness/view_{}_{}.png'.format(label, str(epoch).zfill(6))
-        imageio.imwrite(f_name, rendered_roughness)
+        
+        f_name = './{}/view_{}_epoch_{}.png'.format(mesh_render_dir, label, str(epoch).zfill(6))
+        imageio.imwrite(f_name, rendered_rgb)
 
-        rendered_normals[hit_indices] = view_normals
 
-        #torch.set_printoptions(precision=5)      
-        #torch.set_printoptions(threshold=10_000)      
-        #probed_pixels = torch.tensor(range(int(W*H*0.5) + 100*W, int(W*H*0.5) + 101*W)).to(device)
-        #hit_probed_pixels = torch.where(pix2face[probed_pixels]!=-1)[0]
-        #probed_normals = face_normals[pix2face[probed_pixels[hit_probed_pixels]]]
-        #print (probed_normals)
-        #torch.set_printoptions(precision='default')     
-        #rendered_normals[probed_pixels[hit_probed_pixels]] = torch.tensor([-1.0, -1.0, -1.0]).to(device)#face_normals[pix2face[hit_probed_pixels]]
+def render_brdf_with_uvmap_and_textures(cam_xyzs, surface_xyzs, uv_coords, textures, lights):
+    
+    n_samples = uv_coords.shape[0]                    
+    
+    colors = textures[0].to(torch.device('cuda:0'))
+    roughness = textures[1].to(torch.device('cuda:0'))
+    normals = textures[2].to(torch.device('cuda:0'))
+    cam_xyzs = cam_xyzs.to(torch.device('cuda:0'))
+    surface_xyzs = surface_xyzs.to(torch.device('cuda:0'))
+    
+    # sample each texture using grid_sample()        
+    interp_colors = sample_texture(colors, uv_coords).to(torch.device('cuda:0'))
+    interp_normals = sample_texture(normals, uv_coords).to(torch.device('cuda:0'))
+    interp_roughness = sample_texture(roughness, uv_coords).to(torch.device('cuda:0'))
 
-        rendered_normals = rendered_normals.reshape(H,W,3)
-        rendered_normals= ( (1 + rendered_normals).cpu().numpy() * 128).astype(np.uint8)
-        label = str(i).zfill(4)
-        f_name = './rast_imgs/renders/normals/view_{}_{}.png'.format(label, str(epoch).zfill(6))
-        imageio.imwrite(f_name, rendered_normals)
-                   
+    # ensure interpololated colors in [0, 255] and normalize for brdf rendering
+    interp_colors = torch.clamp(interp_colors, min=0, max=255)
+    interp_colors = interp_colors/255.0
+
+    # ensure interpolated normals in [-1,1] and that they are normalized
+    interp_normals = torch.clamp(interp_normals, min=-1, max=1)        
+    interp_normals = torch.nn.functional.normalize(interp_normals, dim=1, p=2.0)
+        
+    # ensure roughness in [0, 255] and normalize for brdf computation
+    interp_roughness = torch.clamp(interp_roughness, min=0, max=255)
+    interp_roughness = interp_roughness/255.0        
+
+    # TODO: surface_xyz should be interpolated as well!
+
+    # construct final (brdf parameters, hit surface xyz, camera xyz) batch for rendering
+    brdf_params = torch.zeros((n_samples, 13), dtype=torch.float32, device=device)
+
+    brdf_params[:, 2] = 0.0   # specular
+    brdf_params[:, 3] = interp_roughness[:, 1]
+    brdf_params[:, 8] = 0.0 # clearcoat
+    brdf_params[:, 9] = 0.0 # clearcoatgloss
+    brdf_params[:, -3:] = interp_colors        
+        
+    render_result = render_brdf(interp_normals, cam_xyzs, surface_xyzs, brdf_params, lights)
+
+    return render_result
+
+
+def sample_texture(texture, coords):
+    texture = texture.permute((2,1,0)).unsqueeze(0).float()    
+    uv_coordinates_normalized = 2.0 * coords - 1.0    
+    grid = uv_coordinates_normalized.unsqueeze(0).unsqueeze(0).view(1, 1, coords.shape[0], 2)    
+    sampled_texture = torch.nn.functional.grid_sample(texture, grid, mode='bicubic', padding_mode='border', align_corners=True)    
+    sampled_texture = sampled_texture.squeeze(0).squeeze(1).permute((1,0))
+    
+    return sampled_texture
+
+def create_textures_from_brdf(brdf_params, normals_img):
+    
+    textures = [
+        brdf_params[:, -3:].reshape(texture_size, texture_size, 3).to(torch.device('cuda:0')) * 255, 
+        brdf_params[:, [0, 3, 0]].reshape(texture_size, texture_size, 3).to(torch.device('cuda:0')) * 255,
+        normals_img.to(torch.device('cuda:0'))
+    ]
+
+    return textures
+    
+
+def prepare_image_based_texture(texture_data):
+    # convert Torch data to a PIL image
+    image_data = Image.fromarray(texture_data.cpu().numpy(), mode='RGB')
+    
+    # convert the image back to a NumPy array
+    image_array = np.array(image_data)
+
+    # rotate the array 90 degrees to the right
+    rotated_array = np.rot90(image_array, k=1)
+
+    # reload the rotated image array back to a PIL image
+    image_data = Image.fromarray(rotated_array)
+
+    return image_data
+
+
+def save_gltf(textures, uv, output_gltf_filename):
+    
+    
+    color_texture = (textures[0]).to(dtype=torch.uint8)    
+    metallic_roughness_texture = (textures[1]).to(dtype=torch.uint8)
+    metallic_roughness_texture[:, :, 0] = 0
+    metallic_roughness_texture[:, :, 2] = 0
+    color_image_data = prepare_image_based_texture(color_texture)
+    metallic_roughness_image_data = prepare_image_based_texture(metallic_roughness_texture)    
+
+    pbr_material = trimesh.visual.material.PBRMaterial(baseColorTexture=color_image_data, metallicRoughnessTexture=metallic_roughness_image_data) #, alphaMode='MASK', alphaCutoff=1.0) # ignoring normal maps for now
+
+    # gather UV data, assign materials to mesh
+    uv = mesh.visual.uv
+    color_visuals = trimesh.visual.TextureVisuals(uv=uv, image=color_image_data, material=pbr_material)
+    mesh.visual = color_visuals
+
+    # export mesh as glTF    
+    mesh.export(output_gltf_filename, file_type='glb')    
 
 
 def print_brdf(brdf_params, index):
@@ -502,22 +552,7 @@ def print_brdf(brdf_params, index):
         print('{}: {}'.format(name, brdf_params[index,i]))
     #torch.set_printoptions(precision='default')
 
-
-
-def render_brdf_on_mesh(mesh, f_name, brdf_params, face_vertex_indices, vertices):
-    colors = brdf_params[:,-3:].cpu()
-    vertex_colors = torch.zeros((vertices.size()[0], 3))
-    member_of_n_faces = torch.zeros((vertices.size()[0],))
-    for i, face in enumerate(face_vertex_indices):
-        vertex_colors[face,:] = vertex_colors[face,:] + colors[i,:]        
-        member_of_n_faces[face] = member_of_n_faces[face] + 1
-    
-    vertex_colors = vertex_colors / member_of_n_faces.unsqueeze(1).expand(vertices.size()[0],3)
-    mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors.detach().cpu().numpy())    
-    o3d.io.write_triangle_mesh(f_name, mesh, write_ascii = True)    
-
-    
-
+     
 def load_image(image_path):
     image_data = imageio.imread(image_path)
 
@@ -530,285 +565,401 @@ def load_image(image_path):
     return image
 
 
-def load_image_data(image_directory = "./data/dragon_scale/color", n_poses=5, H=1440, W=1920, skip_every_n_images_for_training=60):
+def load_image_data(image_directory = "./data/dragon_scale/color", pose_indices=None, H=1440, W=1920, skip_every_n_images_for_training=60):
+    
+    rgb_from_photos = torch.zeros(size=(pose_indices.shape[0], H, W, 3), dtype=torch.uint8, device=torch.device('cpu'))
 
-    #rgb_from_photos = torch.zeros(size=(n_poses, H, W, 3), dtype=torch.uint8, device=torch.device('cpu'))
-    rgb_from_photos = torch.zeros(size=(n_poses, H, W, 3), dtype=torch.uint8, device=torch.device('cpu'))
-
-    for pose_index in range (0, n_poses):        
+    for i, pose_index in enumerate(pose_indices):
         image_name = str(int(pose_index * skip_every_n_images_for_training)).zfill(6)
         image_path = "{}/{}.jpg".format(image_directory, image_name)
         rgb_from_photo = load_image(image_path)
         print("Loaded (R,G,B) data from photo {}.jpg of shape {}".format(image_name, rgb_from_photo.shape))
-
-        rgb_from_photos[pose_index,:,:,:] = rgb_from_photo    
+        rgb_from_photos[i,:,:,:] = rgb_from_photo    
     return rgb_from_photos
 
 
+def get_initial_colors(texels):    
+    texel_colors = torch.zeros( (texture_size*texture_size, 3), dtype=torch.uint8, device=torch.device('cpu'))
+    hit_faces = torch.zeros ((texture_size*texture_size,), dtype=torch.uint8, device=torch.device('cpu'))
+    for i, texel_i in enumerate(texels):
+        texel = texels[texel_i] 
+        rgb = torch.stack(texel.rgb_samples, dim=0).float()        
+        mean_rgb = torch.mean(rgb, dim=0)
+        diff_from_mean_rgb = torch.sum((rgb-mean_rgb.unsqueeze(0))**2, dim=1)
+        closest_rgb_index = torch.argmin(diff_from_mean_rgb) 
 
-# for this version it might be best to skip the texel representation and go straight to tensors, 
-# but this allows for more flexible data storage and should make changes to training easier to implement
-def unpack_texels(texels, max_samples_per_face):
+        texel_colors[int(texel_i)] = rgb[closest_rgb_index].to(torch.uint8)
+        hit_faces[int(texel_i)] = 1
+            
+    texel_colors[ torch.where(hit_faces==0)[0], : ] = 70
+    return texel_colors
+        
+
+def compute_luminosity(rgb):    
+    return (rgb * torch.tensor([0.2126, 0.7152, 0.0722]).unsqueeze(0))        
+
+
+# sample_type: 'diffuse', 'reflectance', or 'all'
+def sample_training_data(texels, max_samples_per_texel, sample_type='all'):
 
     dev = torch.device('cpu')
-    rgb_tensor = torch.zeros((len(texels), max_samples_per_face, 3), dtype=torch.uint8, device=dev)
-    cam_xyz_tensor = torch.zeros((len(texels), max_samples_per_face, 3), dtype=torch.float32, device=dev)
-    surface_xyz_tensor = torch.zeros((len(texels), 3), dtype=torch.float32, device=dev)
-    texel_indices = torch.zeros((len(texels),), dtype=torch.int32, device=dev)
-    distinct_sample_ns = torch.zeros((len(texels),), dtype=torch.int32, device=dev)
-
+    rgb_tensor = torch.zeros((len(texels), max_samples_per_texel, 3), dtype=torch.uint8, device=dev)    
+    cam_xyz_tensor = torch.zeros((len(texels), max_samples_per_texel, 3), dtype=torch.float32, device=dev)        
+    surface_xyz_tensor = torch.zeros((len(texels), max_samples_per_texel, 3), dtype=torch.float32, device=dev)        
+    texel_indices_tensor = torch.zeros((len(texels),), dtype=torch.int32, device=dev)
+    
     for i, texel_i in enumerate(texels):
-        texel = texels[texel_i]  
+
+        texel = texels[texel_i]          
+        rgb = torch.stack(texel.rgb_samples, dim=0)                
+        cam_xyz = torch.stack(texel.cam_xyzs, dim=0)    
+        surface_xyz = torch.stack(texel.surface_xyzs, dim=0)    
+        texel_index = texel.texel_index        
+
+        lum = compute_luminosity(rgb.to(torch.float32)/255.0)
+        lum = lum.sum(dim=1)
+        _, indices = torch.sort(lum, dim=0)
         
+        # diffuse: take only the bottom quartile of samples in terms of luminosity
+        if sample_type == 'diffuse':       
+            low = 0
+            high = int(rgb.shape[0] / 4) + 1
+        # take reflectance: only the top three quartiles of samples in terms of luminosity    
+        elif sample_type == 'reflectance':
+            if rgb.shape[0] == 1:
+                low = 0
+                high = 1
+            else:
+                low = int(rgb.shape[0] / 4) + 1
+                high = rgb.shape[0]
+        else:
+            low = 0
+            high = rgb.shape[0]
 
-        rgb = torch.stack(texel.rgb_samples, dim=0)
-                
-        cam_xyz = torch.stack(texel.cam_xyzs, dim=0)
-        surface_xyz = texel.texel_xyz
+        rgb = rgb[indices[low:high]]
+        cam_xyz = cam_xyz[indices[low:high]]
+        surface_xyz = surface_xyz[indices[low:high]]        
+        lum = lum[indices[low:high]]
+
+        # remove outliers, but only if enough remaining samples for the concept of outlier to make sense
+        if rgb.shape[0] < 5:
+            selected_samples = torch.arange(rgb.shape[0])
+        else:
+            Ctint = torch.zeros(rgb.shape[0], 3)
+            Ctint[torch.where(lum > 0.0001)[0]] = ((rgb.to(torch.float32)/255.0)**2.2)[torch.where(lum > 0.0001)[0]] / lum[torch.where(lum > 0.0001)[0]].unsqueeze(1)
+            Ctint_dev = torch.sqrt(torch.sum( ((Ctint - torch.mean(Ctint,dim=0))**2)  , dim=1))
+
+            q1 = torch.quantile(Ctint_dev, 0.25)
+            q3 = torch.quantile(Ctint_dev, 0.75)
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+
+            selected_samples = torch.where( torch.logical_and(Ctint_dev >= lower_bound, Ctint_dev <= upper_bound) )[0]
+
+
+        rgb = rgb[selected_samples]
+        cam_xyz = cam_xyz[selected_samples]    
+        surface_xyz = surface_xyz[selected_samples]                        
         
-        sample_indices = torch.randint(low=0, high=rgb.size()[0], size=(max_samples_per_face,))
-        rgb_tensor[i] = rgb[sample_indices]
-        cam_xyz_tensor[i] = cam_xyz[sample_indices]
-
-        surface_xyz_tensor[i] = surface_xyz
-        texel_indices[i] = int(texel_i)
-        distinct_sample_ns[i] = min(rgb.size()[0], max_samples_per_face)
-
-
-        """
-        # resample to generate additional samples for this texel for n_samples total   
-        n_samples = min(max_samples_per_face, rgb.size()[0])
-        n_empty_indices = max_samples_per_face - n_samples
-
-        rgb_tensor[i, : n_samples, :] = rgb[ : n_samples]
-        
-        cam_xyz_tensor[i, : n_samples, :] = cam_xyz[ : n_samples : ]
-
-        if n_empty_indices > 0:
-            resample_indices = torch.randint(low=0, high=rgb.size()[0], size=(n_empty_indices,))
-            rgb_tensor[i, n_samples : ] = rgb[resample_indices]
-            cam_xyz_tensor[i, n_samples :] = cam_xyz[resample_indices]
-
-        surface_xyz_tensor[i] = surface_xyz 
-        texel_indices[i] = int(texel_i)     
-        distinct_sample_ns[i] = rgb.size()[0]
-
-        distinct_sample_ns[i] = max(rgb.size()[0], max_samples_per_face)
-        """        
-
+        # finally, uniformly randomly select max_samples_per_texel samples from the non-filtered indices
+        #   --> lots of potential improvement possible here, e.g. using data augmentation instead of
+        #       uniformly random sampling
+        sample_indices = torch.randint(low=0, high=rgb.shape[0], size=(max_samples_per_texel,))
+        rgb_tensor[i] = rgb[sample_indices]                        
+        cam_xyz_tensor[i] = cam_xyz[sample_indices]        
+        surface_xyz_tensor[i] = surface_xyz[sample_indices]
+        texel_indices_tensor[i] = texel_index
         
         
+    return rgb_tensor, cam_xyz_tensor, surface_xyz_tensor, texel_indices_tensor
 
-    return (rgb_tensor, cam_xyz_tensor, surface_xyz_tensor, texel_indices, distinct_sample_ns)
 
-
-def rgb_loss(x1, x2, distinct_sample_ns, max_samples_per_face, light_intensity_scale):
-
-    loss = torch.mean( ((x1 - x2)*(distinct_sample_ns / max_samples_per_face).unsqueeze(1).expand(x1.size()[0], 3) ) ** 2)    
-    loss = loss + (torch.abs(1.0 - light_intensity_scale)/10.0)**2
+def rgb_loss(x1, x2):
+    
+    loss = torch.mean( (x1 - x2) ** 2)    
     return loss
 
 
 def make_lights_cube(center, l_distance):
     
-    lights = []
-
     l_distance = torch.tensor(0.5, device=device)      
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1,  1,  1], device=device)-center, dim=0, p=2))
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1,  1, -1], device=device)-center, dim=0, p=2))
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1, -1,  1], device=device)-center, dim=0, p=2))
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1, -1, -1], device=device)-center, dim=0, p=2))
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([-1,  1,  1], device=device)-center, dim=0, p=2))
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([-1,  1, -1], device=device)-center, dim=0, p=2))
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([-1, -1,  1], device=device)-center, dim=0, p=2))
-    lights.append(center + l_distance * torch.nn.functional.normalize(torch.tensor([-1, -1, -1], device=device)-center, dim=0, p=2))      
-    #lights.append(camera_pos + torch.tensor([0.0, 0.05, 0.0], device=device))    
-
+    center = center.to(torch.device('cuda:0'))
+    n_lights = 8
+    lights = torch.zeros((n_lights,3), dtype=torch.float32, device=device)
+    lights[0] = center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1,  1,  1], device=device)-center, dim=0, p=2.0)
+    lights[1] = center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1,  1, -1], device=device)-center, dim=0, p=2.0)
+    lights[2] = center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1, -1,  1], device=device)-center, dim=0, p=2.0)
+    lights[3] = center + l_distance * torch.nn.functional.normalize(torch.tensor([ 1, -1, -1], device=device)-center, dim=0, p=2.0)
+    lights[4] = center + l_distance * torch.nn.functional.normalize(torch.tensor([-1,  1,  1], device=device)-center, dim=0, p=2.0)
+    lights[5] = center + l_distance * torch.nn.functional.normalize(torch.tensor([-1,  1, -1], device=device)-center, dim=0, p=2.0)
+    lights[6] = center + l_distance * torch.nn.functional.normalize(torch.tensor([-1, -1,  1], device=device)-center, dim=0, p=2.0)
+    lights[7] = center + l_distance * torch.nn.functional.normalize(torch.tensor([-1, -1, -1], device=device)-center, dim=0, p=2.0)
+            
     return lights
 
-def train(models, optimizers, texels, max_samples_per_face, lights, visualize_gradient=False, posepix2face=None, faces_xyz=None, extrinsics=None, o3d_mesh=None, faces=None, verts=None):
 
-    models['ir'].train()
-    models['geometry'].train()
-    models['light'].eval()
-    number_of_epochs = 50000
+def train(models, optimizers, texels, max_samples_per_texel, lights, visualize_gradient, extrinsics, verts, uv, normals_img):
 
-    print('Unpacking data...')
-    rgbs, cam_xyzs, surface_xyzs, texel_indices, distinct_sample_ns = unpack_texels(texels, max_samples_per_face)
-    n_texels = rgbs.size()[0]
-    n_batches = 2 # 70 for 122 views, 120 samples    
+    # set total number of 'diffuse' and 'reflectance' optimization steps
+    number_of_steps = 1000
 
-    # massage everything into (n_faces * max_samples_per_face, 3) tensors
-    rgbs_data = rgbs.float().flatten(start_dim=0, end_dim=1)
-    cam_xyzs_data = cam_xyzs.flatten(start_dim=0, end_dim=1)    
+    # set epoch interval for switching optimization mode from 'diffuse' to 'reflectance' or vice-versa
+    number_of_inner_epochs = 40
+    test_frequency = 20
+    device = torch.device('cuda:0')
+    uv = uv.to(torch.device('cuda:0'))
+    verts = verts.to(torch.device('cuda:0'))    
+    extrinsics = extrinsics.to(torch.device('cuda:0'))
+    lights = lights.to(torch.device('cuda:0'))
 
-    surface_xyzs_data = surface_xyzs.unsqueeze(1).expand(n_texels, max_samples_per_face, 3).flatten(start_dim=0, end_dim=1)    
-    distinct_sample_ns_data = distinct_sample_ns.unsqueeze(1).expand(n_texels, max_samples_per_face).flatten(start_dim=0, end_dim=1)
+    for step in range(number_of_steps):
 
-    # now data is shape [n_texels * n_samples_per_face, 3], batch it up
-    batch_size = int ((np.ceil(n_texels) / n_batches) * max_samples_per_face)
-    rgbs_data = torch.split(rgbs_data, batch_size)
+        print("Step {}".format(step))
+        if step % 2 == 0: 
+            optimization = 'diffuse'
+        else:
+            optimization = 'reflectance'
 
-    cam_xyzs_data = torch.split(cam_xyzs_data, batch_size)
-    surface_xyzs_data = torch.split(surface_xyzs_data, batch_size)
-
-    distinct_sample_ns_data = torch.split(distinct_sample_ns_data, batch_size)
-    
-    n_batches = len(rgbs_data)
-        
-    for epoch in range (number_of_epochs):
-
-        for optimizer in optimizers.values():
-            optimizer.zero_grad()
-
-        total_avg_loss = 0.0
-        
-        for batch_n in range(n_batches):
-
-            # possible improvement: select batch-specific indices of brdf_params so that only relevant gradients are saved
-            # however, moving to expanded loss function that's not independent for each texel would no longer allow this            
-
-            brdf_params = models['ir'](0)[texel_indices].unsqueeze(1).expand(n_texels, max_samples_per_face, 13).flatten(start_dim=0, end_dim=1)
-            light_intensity_scale = models['light'](0)
-            normals = models['geometry'](0)[texel_indices].unsqueeze(1).expand(n_texels, max_samples_per_face, 3).flatten(start_dim=0, end_dim=1)
-            
-            brdf_params_batch = brdf_params[batch_size * batch_n : batch_size * batch_n + batch_size].to(device)
-            normals_batch = normals[batch_size * batch_n : batch_size * batch_n + batch_size].to(device)
-            
-            rgbs_batch = rgbs_data[batch_n].to(device)
-                            
-            cam_xyzs_batch = cam_xyzs_data[batch_n].to(device)            
-            surface_xyzs_batch = surface_xyzs_data[batch_n].to(device)        
-
-            distinct_sample_ns_batch = distinct_sample_ns_data[batch_n].to(device)            
-
-            # append light source above camera?  lights.append(camera_pos + torch.tensor([0.0, 0.05, 0.0], device=device))
-            render_result, good_idx = render_brdf(normals_batch, cam_xyzs_batch, surface_xyzs_batch, brdf_params_batch, lights, light_intensity_scale=light_intensity_scale)
-            good_idx = torch.tensor(range(render_result.size()[0]), device=device)
-
-            if good_idx.size()[0] > 0:  # no training where batch has zero good indices
-
-                loss = rgb_loss(render_result[good_idx], rgbs_batch[good_idx] / 255.0, distinct_sample_ns_batch[good_idx], max_samples_per_face, light_intensity_scale)
-                total_avg_loss = total_avg_loss + loss.item()            
-                                                    
-                loss.backward(create_graph=False, retain_graph=False)
-
-                with torch.no_grad():
-                    print("normal:")
-                    print(normals[0])
-            
-                """
-                if visualize_gradient and posepix2face != None:            
-                    with torch.no_grad():                
-                        print("--> Visualizing gradients for batch {}".format(batch_n))
-                        models['ir'].visualize_gradient(posepix2face[:10], epoch, batch_n, H, W)  
-
-                """
-                
-
-        for optimizer in optimizers.values():
-            optimizer.step()        
-
+        print('Sampling training data...')
         with torch.no_grad():
-            print('Epoch {}:  LOSS: {}'.format(epoch, total_avg_loss / n_batches))
-            #print("light intensity scale: ")
-            #print(light_intensity_scale)
-            #print("_______________________________________________________")
+            rgbs, cam_xyzs, surface_xyzs, texel_indices = sample_training_data(texels, max_samples_per_texel, sample_type=optimization)
+        n_texels = rgbs.shape[0]
+            
+        # start in diffuse optimization mode        
+        models['brdf'].set_mode(optimization)
 
-        if epoch % 100 == 0:                
+        # massage everything into (n_faces * max_samples_per_texel, 3) tensors
+        rgbs_data = rgbs.float().flatten(start_dim=0, end_dim=1)
+        cam_xyzs_data = cam_xyzs.flatten(start_dim=0, end_dim=1)    
+        surface_xyzs_data = surface_xyzs.flatten(start_dim=0, end_dim=1)
+        texel_indices_data = texel_indices.unsqueeze(1).expand(n_texels, max_samples_per_texel).flatten(start_dim=0, end_dim=1)# texel_indices.unsqueeze(1).expand(n_texels, max_samples_per_texel).flatten(start_dim=0, end_dim=1)        
+                
+        # now all data is shape [n_texels * n_samples_per_texel, 3], batch it up
+        n_batches = 100
+        batch_size = int ((np.ceil(n_texels) / n_batches) * max_samples_per_texel)
+        rgbs_data = torch.split(rgbs_data, batch_size)
+        cam_xyzs_data = torch.split(cam_xyzs_data, batch_size)
+        surface_xyzs_data = torch.split(surface_xyzs_data, batch_size)
+        texel_indices_data = torch.split(texel_indices_data, batch_size)        
+    
+        n_batches = len(rgbs_data)        
+                
+        for epoch in range (number_of_inner_epochs):
+        
+            for optimizer in optimizers.values():
+                optimizer.zero_grad()
+
+            avg_loss_for_epoch = 0.0
+
+            # test on the first epoch to see intitial conditions
+            if epoch==0 and step==0:
+                with torch.no_grad():            
+                    brdf_params_test = models['brdf']()([0]).detach()            
+                    textures_test = create_textures_from_brdf(brdf_params_test, normals_img)
+                    test(textures_test, epoch + step*number_of_inner_epochs)                                        
+
+            # create textures from newest pbr parameters to be used throughout the following batches
+            brdf = models['brdf']()([0])
+            textures = create_textures_from_brdf(brdf, normals_img)
+
+            for batch_n in range(n_batches):
+                            
+                # load batch to GPU for each parameter required for rendering
+                rgbs_batch = rgbs_data[batch_n].to(torch.device('cuda:0'))
+                cam_xyzs_batch = cam_xyzs_data[batch_n].to(torch.device('cuda:0'))
+                surface_xyzs_batch = surface_xyzs_data[batch_n].to(torch.device('cuda:0'))
+                texel_indices_batch = texel_indices_data[batch_n].to(torch.device('cuda:0'))
+                uv_coords_batch = texel_index_to_uv(texel_indices_batch)
+                
+                # render
+                render_result = render_brdf_with_uvmap_and_textures(cam_xyzs_batch, surface_xyzs_batch, uv_coords_batch, textures, lights)
+
+                # compute the loss for this batch
+                loss = rgb_loss(render_result, rgbs_batch / 255.0)
+                avg_loss_for_epoch = avg_loss_for_epoch + loss.item()
+                
+                # accrue gradients for batch
+                # note that retain_graph is enabled here to avoid needlessly invoking the model at each batch
+                loss.backward(create_graph=False, retain_graph=True)
+                
+            # update the model by performing one step of gradient descent
+            for optimizer in optimizers.values():
+                optimizer.step()
+                        
             with torch.no_grad():
-                print("--> Saving brdf")
-                brdf_params_save = models['ir'](0).detach()
-                torch.save(brdf_params_save, 'rast_imgs/brdf_{}.pt'.format(epoch))
-                #print("--> Saving normals")
-                normals_save = models['geometry'](0).detach()
-                #torch.save(normals_save, 'rast_imgs/normals_{}.pt'.format(epoch))      
-                print("--> Saving light intensity scale")
-                light_intensity_scale_save = models['light'](0).detach()
-                torch.save(light_intensity_scale_save, 'rast_imgs/light_intensity_{}.pt'.format(epoch))                      
+                # print data to track training epoch-by-epoch
+                print('Epoch {}:  LOSS: {}'.format(epoch+step*number_of_inner_epochs, avg_loss_for_epoch / n_batches))
+                brdf_params_test = models['brdf']()([0]).detach()
+                mean_brdf = torch.mean(brdf_params_test, dim=0)
+                print("Average brdf parameters:")
+                print(mean_brdf)
+                                                            
+                # extract and test current result
+                if (epoch+1) % test_frequency == 0:                
+                    print("Saving brdf")
+                    torch.save(brdf_params_test, '{}/brdf_{}.pt'.format(models_dir, epoch + step*number_of_inner_epochs))
 
-                if visualize_gradient and posepix2face != None:            
-                    with torch.no_grad():                
-                        print("--> Visualizing gradients")
-                        models['ir'].visualize_gradient(posepix2face[:10], epoch, batch_n, H, W)  
+                    if visualize_gradient:
+                        with torch.no_grad():
+                            models['brdf'].visualize_texture_gradient(epoch + step*number_of_inner_epochs, batch_n)
+                    
+                    textures_test = create_textures_from_brdf(brdf_params_test, normals_img)
+                    test(textures_test, epoch + step*number_of_inner_epochs)
+                    
 
-                print("--> Rendering brdf on mesh")
-                f_name = 'brdf_on_mesh_{}.ply'.format(epoch)
-                render_brdf_on_mesh(o3d_mesh, f_name, brdf_params_save, faces, verts)
-                print("--> Rendering for training views")
-                render_brdf_on_training_views(brdf_params_save, extrinsics[:10, :3, 3], faces_xyz, lights, light_intensity_scale_save, normals_save, posepix2face, 1440, 1920, epoch)
+def test(textures, epoch):
+
+    print("Rendering for training views")                                                  
+    render_training_views_with_uvmap_and_textures(extrinsics[:, :3, 3][:10].to(torch.device('cuda:0')), verts, bary_coords, uv, textures, posepix2face, faces, lights, epoch)
+    f_name = '{}/{}_{}_{}x{}.glb'.format(gltf_dir, dataset, epoch, texture_size, texture_size)
+    save_gltf(textures, uv, f_name)
+    imageio.imwrite('./{}/color_{}.png'.format(texture_visualization_dir, epoch),  (textures[0].cpu().numpy()).astype(np.uint8))
+    imageio.imwrite('./{}/roughness_{}.png'.format(texture_visualization_dir, epoch), (textures[1].cpu().numpy()).astype(np.uint8))
 
 
+# precompute bary_coords-interpoloated parameters needed in training
+def compute_interpolated_properties(posepix2face, bary_coords, uv, extrinsics, faces, verts):
 
-def print_memory_usage():
+    faces = faces.cpu()
+    uv = uv.cpu()                        
+    faces = faces.to(torch.device('cuda:0'))
+    uv = uv.to(torch.device('cuda:0'))     
+    verts = verts.to(torch.device('cuda:0'))   
 
-    t = torch.cuda.get_device_properties(0).total_memory
-    r = torch.cuda.memory_reserved(0)
-    a = torch.cuda.memory_allocated(0)
-    f = r-a
+    n_poses = extrinsics.shape[0]
+
+    interpolated_face_uvs = []
+    interpolated_face_xyzs = []
+    for pose_i in range(n_poses):        
+        print("Computing interpolated face properties for view {}... ".format(pose_i))        
+
+        # get the bary_coords and face indices associated with pixels hit during rasterization in pose_i
+        bary_coords_pose_i = bary_coords[pose_i].to(torch.device('cuda:0'))        
+        pixels_hit = torch.where(posepix2face[pose_i] != -1)[0]        
+        faces_hit = posepix2face[pose_i, pixels_hit]
+        n_hit_faces = pixels_hit.shape[0]        
+        
+        bary_coords_for_pose = bary_coords_pose_i[pixels_hit].squeeze(0)
+        face_verts_indices = faces[faces_hit]
+        face_verts_uv = uv[face_verts_indices]
+
+        face_verts_indices = faces[faces_hit]                
+        face_verts_uv = uv[face_verts_indices]
+        face_verts_xyz = verts[face_verts_indices]    
+        
+        # matmul needs to be batched due to inefficient memory uage
+        # bmm could also be used, but requires 3D tensors, which would require some tricky indexing
+        batch_size = 5000
+        n_batches = math.ceil(n_hit_faces / batch_size)
+        face_uv_out_pose_i = torch.zeros((n_hit_faces,2), dtype=torch.float32, device=device)
+        face_xyz_out_pose_i = torch.zeros((n_hit_faces,3), dtype=torch.float32, device=device)                
+        
+        for batch in range(n_batches):
+            start_index = batch * batch_size
+            end_index = min(batch * batch_size + batch_size, n_hit_faces * (n_batches-1))        
+
+            bary_coords_for_pose_batch = bary_coords_for_pose[start_index:end_index]
+            face_verts_uv_batch = face_verts_uv[start_index:end_index]
+            face_verts_xyz_batch = face_verts_xyz[start_index:end_index]
+            
+            # interpolate, for each face triangle in batch, their vertex uvs and xyzs to get 
+            #   their uvs and xyzs at the location of the triangle barycenter
+            face_uv = torch.matmul(bary_coords_for_pose_batch.unsqueeze(1), face_verts_uv_batch)
+            face_xyz = torch.matmul(bary_coords_for_pose_batch.unsqueeze(1), face_verts_xyz_batch)
+
+            face_uv_out_pose_i[start_index:end_index] = face_uv.squeeze(1)
+            face_xyz_out_pose_i[start_index:end_index] = face_xyz.squeeze(1)
+
+        interpolated_face_uvs.append(face_uv_out_pose_i)
+        interpolated_face_xyzs.append(face_xyz_out_pose_i)
+
+        face_uv_out_pose_i = face_uv_out_pose_i.cpu()
+        face_xyz_out_pose_i = face_xyz_out_pose_i.cpu()
+        bary_coords_pose_i = bary_coords_pose_i.cpu()
+
+
+    return interpolated_face_uvs, interpolated_face_xyzs
     
-    print('total memory: {}'.format(t/1000000))
-    print("reserved memory: {}".format(r/1000000))
-    print("allocated memory: {}".format(a/1000000))
-    print("reserved free memory: {}".format(f/1000000))
 
-    mem_report()
-    print("__________________________________")
-    
-# https://gist.github.com/Stonesjtu/368ddf5d9eb56669269ecdf9b0d21cbe
-# https://gist.github.com/Stonesjtu
-def mem_report():
-    '''Report the memory usage of the tensor.storage in pytorch
-    Both on CPUs and GPUs are reported'''
+def prepare_training_data(posepix2face, bary_coords, uv, extrinsics, faces, verts):
+        
+        face_uvs, face_xyzs = compute_interpolated_properties(posepix2face, bary_coords, uv, extrinsics, faces, verts)
 
-    def _mem_report(tensors, mem_type):
-        '''Print the selected tensors of type
-        There are two major storage types in our major concern:
-            - GPU: tensors transferred to CUDA devices
-            - CPU: tensors remaining on the system memory (usually unimportant)
-        Args:
-            - tensors: the tensors of specified type
-            - mem_type: 'CPU' or 'GPU' in current implementation '''
-        print('Storage on %s' %(mem_type))
-        print('-'*LEN)
-        total_numel = 0
-        total_mem = 0
-        visited_data = []
-        for tensor in tensors:
-            if tensor.is_sparse:
-                continue
-            # a data_ptr indicates a memory block allocated
-            data_ptr = tensor.storage().data_ptr()            
-            if data_ptr in visited_data:
-                continue
-            visited_data.append(data_ptr)
+        texels = {}
+        
+        faces = faces.cpu()
+        uv = uv.cpu()                        
 
-            numel = tensor.storage().size()            
-            total_numel += numel
-            element_size = tensor.storage().element_size()            
-            mem = numel*element_size /1024/1024 # 32bit=4Byte, MByte
-            total_mem += mem
-            element_type = type(tensor).__name__
-            size = tuple(tensor.size())
+        n_invalid_texels = 0
+        faces = faces.to(torch.device('cuda:0'))
+        uv = uv.to(torch.device('cuda:0'))     
+        verts = verts.to(torch.device('cuda:0'))   
 
-            print('%s\t\t%s\t\t%.2f' % (
-                element_type,
-                size,
-                mem) )
-        print('-'*LEN)
-        print('Total Tensors: %d \tUsed Memory Space: %.2f MBytes' % (total_numel, total_mem) )
-        print('-'*LEN)
+        n_poses = extrinsics.shape[0]
+        for pose_i in range(n_poses):
 
-    LEN = 65
-    print('='*LEN)
-    objects = gc.get_objects()
-    print('%s\t%s\t\t\t%s' %('Element type', 'Size', 'Used MEM(MBytes)') )
-    tensors = [obj for obj in objects if torch.is_tensor(obj)]
-    cuda_tensors = [t for t in tensors if t.is_cuda]
-    host_tensors = [t for t in tensors if not t.is_cuda]
-    _mem_report(cuda_tensors, 'GPU')
-    _mem_report(host_tensors, 'CPU')
-    print('='*LEN)
+            rgb_from_photos_pose_i = rgb_from_photos[pose_i].to(torch.device('cuda:0'))
+            face_uv_pose_i = face_uvs[pose_i].to(torch.device('cuda:0'))
+            face_xyz_pose_i = face_xyzs[pose_i].to(torch.device('cuda:0'))
+            pix2face_i = posepix2face[pose_i].to(torch.device('cuda:0'))
+
+            print("Packing up data for view {}... ".format(pose_i))
+            pose_xyz = extrinsics[pose_i, :3, 3].to(torch.device('cuda:0'))
+            
+            # get the barycentric coordinates for all hits
+            pixels_hit = torch.where(pix2face_i != -1)[0]
+            faces_hit = pix2face_i[pixels_hit]
+        
+            rgb_samples_for_pose = rgb_from_photos_pose_i.reshape(W*H, 3)[pixels_hit]
+
+            # update rgb samples, camera pose samples, and texel xyz (if not initialized already) for texels seen by this pose
+            for i, face_index in enumerate(faces_hit):
+              
+                face_uv = face_uv_pose_i[i]
+                surface_xyz = face_xyz_pose_i[i]                                                
+                texel_i = uv_to_texel_index(face_uv)
+
+                if (texel_i < 0):
+                    n_invalid_texels = n_invalid_texels + 1
+                    print("texel invalid")
+                    continue
+                
+                face_surface_xyz = surface_xyz
+                face_pose_xyz = pose_xyz
+                face_rgb_sample = rgb_samples_for_pose[i]                                
+                                
+                if str(texel_i.item()) not in texels.keys():                    
+                    texels[str(texel_i.item())] = TexelSamples(texel_i.item(), [face_rgb_sample.cpu()], [face_pose_xyz.cpu()], [face_surface_xyz.cpu()])
+
+                else:                    
+                    texels[str(texel_i.item())].add_sample(face_rgb_sample.cpu(), face_pose_xyz.cpu(), face_surface_xyz.cpu())
+
+            face_uv_pose_i = face_uv_pose_i.cpu()
+            face_xyz_pose_i = face_xyz_pose_i.cpu()
+            pix2face_i = pix2face_i.cpu()
+            rgb_from_photos[pose_i] = rgb_from_photos[pose_i].cpu()
+            extrinsics[pose_i, :3, 3] = extrinsics[pose_i, :3, 3].cpu()
+            pose_xyz = pose_xyz.cpu()
+
+        n_texels_hit = 0
+        hits = 0
+        max_texels_hit = -float('inf')
+        for i, (k,v) in enumerate(texels.items()):            
+            n_hits_for_texel = len(v.rgb_samples)
+            if n_hits_for_texel > 0:
+                hits = hits + len(v.rgb_samples)
+                if n_hits_for_texel > max_texels_hit:
+                    max_texels_hit = n_hits_for_texel
+                                
+            n_texels_hit = n_texels_hit + 1
+            
+        print("Number of texels hit: {}".format(n_texels_hit))
+        print("Max number of texels hit: {}".format(max_texels_hit))
+        print("Avg hits per texel: {}".format( (hits / n_texels_hit)))
+        print("Percentage of texels with >= 1 hits: {}".format((n_texels_hit / (texture_size**2))))  
+        print("Number of invalid texels: {}".format(n_invalid_texels))
+        return texels
 
 
 if __name__ == '__main__':
@@ -818,151 +969,91 @@ if __name__ == '__main__':
     with torch.no_grad():
 
 
-        # flags for saving/loading rasterizer results    
+        # flags for saving/loading rasterizer results
         load_precomputed_rasterizer_data = True
-        save_rast_result = False                
-        render_brdf_on_train_views = False
-            
-        """
-            dynamic_args = {
-                "base_directory" : '\'./data/dragon_scale_large\'',
-                "number_of_samples_outward_per_raycast" : 360,
-                "number_of_samples_outward_per_raycast_for_test_renders" : 360,
-                "density_neural_network_parameters" : 256,               
-                "color_neural_network_parameters" : 256,
-                "skip_every_n_images_for_training" : 60,
-                "pretrained_models_directory" : '\'./data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models\'',            
-                "start_epoch" : 500001,
-                "load_pretrained_models" : True,            
-            }        
-
-            scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)    
-            extrinsics, intrinsics = scene.export_camera_extrinsics_and_intrinsics_from_trained_model(save=True)
-        """
+        save_rast_result = False
 
         H = 1440
-        W = 1920
-        extrinsics = torch.from_numpy(np.load('./camera_extrinsics.npy'))
-        intrinsics = torch.from_numpy(np.load('./camera_intrinsics.npy'))
-        image_directory = '{}/{}'.format('./data/dragon_scale_large', 'color')
-        face_normals = torch.load('./face_normals_lance.pt')
-        mesh_f_name = './test/dragon_scale/3/dragon_winding_fixed_unseen_faces_removed.ply'
+        W = 1920        
+        extrinsics = torch.from_numpy(np.load('./{}/camera_extrinsics.npy'.format(input_data_dir)))
+        n_total_poses = extrinsics.shape[0]
+        intrinsics = torch.from_numpy(np.load('./{}/camera_intrinsics.npy'.format(input_data_dir)))
+        image_directory = '{}/{}'.format('./data/dragon_scale_large', 'color')        
+        mesh_f_name = './{}/dragon_triangulated_beautified_remeshed_smooth_10_ratio_0.70_instant_meshed_uv_mapped_angle_0.80_island_margin_0.003_face_weight_0.0.ply'.format(input_data_dir)
         mesh = load_mesh(mesh_f_name)
-        o3d_mesh = o3d.io.read_triangle_mesh(mesh_f_name)
-        f_name = './test/dragon_scale/3/rgb_per_face_without_unseen_faces.pt'
-        initial_face_colors = torch.load(f_name).to(device) / 255.0
-
-        light_intensity_scale = torch.tensor([1.0], device=device)
-        center = torch.tensor([0.029568, -0.275911, -0.2385711]).to(device)
-        lights = make_lights_cube(center, 0.5)        
         
-        #n_poses = extrinsics.size()[0]
-        n_poses = 2
-        max_samples_per_face = 10
+        # hard coded currently
+        # TODO: follow same input convension as other input data
+        center = torch.tensor([0.029568, -0.275911, -0.2385711]).to(torch.device('cpu'))
 
-        #scene = None
+        # placeholder that does the job currently smiley face
+        lights = make_lights_cube(center, 0.5)        
+                
+        skip_every_n_pose_indices = 4
+        n_considered_poses = extrinsics[::skip_every_n_pose_indices].shape[0]    
+                
+        max_samples_per_texel = 20
                         
         verts = mesh.verts_list()[0].cpu()
         faces = mesh.faces_list()[0].cpu()
         face_vertices = verts[faces]
-        faces_xyz = torch.mean(face_vertices, dim=1)
-        n_faces = faces.size()[0]
+        n_faces = faces.shape[0]
     
-
-        # load face normals generated from blender script
-        #face_normals = torch.zeros((n_faces, 3), dtype=torch.float32)
-        #face_normals_f_name = 'blender_normals_im.csv'
-        #with open(face_normals_f_name, 'r') as f:
-        #    for i, line in enumerate(f):
-        #        normals_i = line.split(',')
-        #        face_normals[i] = torch.tensor([float(normals_i[0]), float(normals_i[1]), float(normals_i[2])])
-        #face_normals = torch.nn.functional.normalize(face_normals, dim=1, p=2)
-        
-        
         # rasterize
         if load_precomputed_rasterizer_data:
-            f_name = './rast_imgs/faces_to_pixels.npy'
-            faces_to_pixels = torch.from_numpy(np.load(f_name))[:, :n_poses]
-            f_name = './rast_imgs/posepix2face.npy'
-            posepix2face = torch.from_numpy(np.load(f_name))[:]
-
+            f_name = './{}/posepix2face_dragon_scale_test.pt'.format(input_data_dir)
+            posepix2face = torch.load(f_name)
+            f_name = './{}/bary_coords_dragon_scale_test.pt'.format(input_data_dir)
+            bary_coords = torch.load(f_name)
         else:
-            (faces_to_pixels, posepix2face) = rasterize(mesh, extrinsics[:n_poses].cpu().numpy(), intrinsics[:n_poses].cpu().numpy(), H, W, save_result=save_rast_result)
-            faces_to_pixels = faces_to_pixels.cpu()
-
+            posepix2face, bary_coords = rasterize(mesh, extrinsics.cpu().numpy(), intrinsics.cpu().numpy(), H, W, save_result=save_rast_result, save_renders=True)
         
-        if render_brdf_on_train_views:
-            # render brdf for train images
-            epoch = 300
-            print('loading brdf: ')            
-            brdf_params = torch.load('rast_imgs/brdf_{}.pt'.format(epoch)).to(device)            
-            face_normals = torch.load('rast_imgs/normals_{}.pt'.format(epoch)).to(device)
-            light_intensity_scale = torch.load('rast_imgs/light_intensity_{}.pt'.format(epoch)).to(device)
-            render_brdf_on_mesh(o3d_mesh, brdf_params, faces, verts)            
-            render_brdf_on_training_views(brdf_params, extrinsics[:, :3, 3], faces_xyz, lights, light_intensity_scale, face_normals, posepix2face, H, W, epoch)        
-            quit()
+        rgb_from_photos = load_image_data(image_directory=image_directory, pose_indices=np.arange(start=0, step=skip_every_n_pose_indices, stop=n_total_poses), H=H, W=W)
 
+        posepix2face = posepix2face[::skip_every_n_pose_indices][:n_considered_poses]
+        bary_coords =  bary_coords[::skip_every_n_pose_indices][:n_considered_poses]
+        extrinsics = extrinsics[::skip_every_n_pose_indices][:n_considered_poses]        
+        rgb_from_photos = rgb_from_photos[:n_considered_poses]
+        
+        mesh = trimesh.load(mesh_f_name, process=False)
+        vertices = torch.from_numpy(mesh.vertices).to(torch.float32).to(torch.device('cuda:0'))        
+        
+        faces = torch.from_numpy(np.asarray(mesh.faces)).cpu()
+        uv = torch.from_numpy(np.asarray(mesh.visual.uv)).to(torch.float32).cpu()                
 
-        # prepare training data
-        texels = {}
+        texels = prepare_training_data(posepix2face, bary_coords, uv, extrinsics, faces, verts)
+        n_texels_in_texture = texture_size**2
 
-        # TODO: either do this in a faster way or implement precomputing
-        faces_to_pixels = faces_to_pixels.cpu()
-        rgb_from_photos = load_image_data(image_directory=image_directory, n_poses=n_poses, H=H, W=W)
+        # estimate initial diffuse colors
+        initial_colors = get_initial_colors(texels).reshape((texture_size,texture_size,3)).cpu()
+        initial_colors = initial_colors / 255.0
 
-        for pose_i in range(n_poses):
+        # pick something reasonable for initial roughness
+        initial_roughness = torch.zeros((texture_size, texture_size, 3), dtype=torch.float32).cpu()
+        initial_roughness[:, :, 1] = 255.0
+        initial_roughness[:, :, 1] = initial_roughness[:, :, 1] * 0.9
+        initial_roughness = initial_roughness / 255.0
 
-            print("Packing up data for view {}... ".format(pose_i))
-            pose_xyz = extrinsics[pose_i, :3, 3]
-
-            # get the rgb samples for pose_i for each face reported to be hit in pose_i                    
-            hit_face_indices_for_pose = torch.where(faces_to_pixels[:, pose_i, 0] != -1)[0]
-                                  
-            rgb_samples_for_pose = rgb_from_photos[
-                pose_i,
-                faces_to_pixels[hit_face_indices_for_pose, pose_i, 0],
-                faces_to_pixels[hit_face_indices_for_pose, pose_i, 1]
-            ]
-            
-            # update rgb samples, camera pose samples, and texel xyz (if not initialized already) for texels seen by this pose
-            for i in range(hit_face_indices_for_pose.size()[0]):
-                texel_i = hit_face_indices_for_pose[i]
-                
-                if str(texel_i.item()) not in texels.keys():                
-                    texels[str(texel_i.item())] = TexelSamples(texel_i.item(), [rgb_samples_for_pose[i]], [pose_xyz], faces_xyz[texel_i])
-                else:
-                    texels[str(texel_i.item())].add_sample(rgb_samples_for_pose[i], pose_xyz)                                    
-
-        n_faces_hit = 0
-        hits = 0
-        max_faces_hit = -float('inf')
-        for i, (k,v) in enumerate(texels.items()):
-            n_hits_for_face = len(v.rgb_samples)
-            if n_hits_for_face > 1:
-                hits = hits + len(v.rgb_samples)
-                if n_hits_for_face > max_faces_hit:
-                    max_faces_hit = n_hits_for_face
-                                
-            n_faces_hit = n_faces_hit + 1
-            
-        print("Number of faces hit: {}".format(n_faces_hit))
-        print("Max number of faces hit: {}".format(max_faces_hit))
-        print("Avg hits per face: {}".format( (hits / n_faces_hit)))
-        print("Percentage of faces with >= 1 hits: {}".format((n_faces_hit / n_faces)))
-
-
+        # fow now, loading precomputed normals texture estimate computed in repair_textures.py
+        # TODO: initialize with a similar method that diffuse colors are estimated  
+        initial_normals = torch.load('{}/normals_texture_2048x2048.pt'.format(input_data_dir)).cpu()
+      
+        initial_textures = [
+            initial_colors,
+            initial_roughness,
+            initial_normals,
+        ]                                                
+          
     # initialize models
     models = {}
-    optimizers = {}
-    models['ir'] = IRModel(n_faces, initial_face_colors)
-    optimizers['ir'] = torch.optim.Adam(models['ir'].parameters(), lr=0.001)
-    models['geometry'] = GeometryModel(face_normals)
-    optimizers['geometry'] = torch.optim.Adam(models['geometry'].parameters(), lr=0.001)
-    models['light'] = LightModel(light_intensity_scale)
-    optimizers['light'] = torch.optim.Adam(models['light'].parameters(), lr=0.0001)    
-    
+    optimizers = {}            
+        
+    models['brdf'] = torch.compile(DisneyBRDFModel(n_texels_in_texture, initial_textures=initial_textures).to(torch.device('cuda:0')), mode='max-autotune')
+    models['brdf'].to(torch.device('cuda:0'))    
+    optimizers['brdf'] = torch.optim.AdamW(models['brdf'].parameters(), lr=0.001)
+        
     # fit brdf parameters
-    brdf_params = train(models, optimizers, texels, max_samples_per_face, lights, visualize_gradient=True, posepix2face=posepix2face, faces_xyz=faces_xyz, extrinsics = extrinsics, o3d_mesh=o3d_mesh, faces=faces, verts=verts)
+    brdf_params = train(models, optimizers, texels, max_samples_per_texel, lights, visualize_gradient=True, extrinsics = extrinsics, verts=verts, uv=uv, normals_img=initial_textures[2])
 
 
 
