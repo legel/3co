@@ -1021,6 +1021,7 @@ class SceneModel:
         rendered_image_unsparse_fine_batches = []
         depth_image_unsparse_fine_batches = []        
 
+        depth_weights_coarse_batches = []
         
         # for each batch, compute the render and extract RGB and depth map
         for poses_batch, pixel_directions_batch, focal_lengths_batch in zip(poses_batches, pixel_directions_batches, focal_lengths_batches):
@@ -1053,6 +1054,8 @@ class SceneModel:
             if self.args.use_sparse_fine_rendering:
                 rendered_image_unsparse_fine_batches.append(unsparse_rendered_data_fine['rgb_rendered'].cpu())
                 depth_image_unsparse_fine_batches.append(unsparse_rendered_data_fine['depth_map'].cpu())
+
+            depth_weights_coarse_batches.append(rendered_data_coarse['depth_weights'].cpu())  
         
 
         # combine batch results to compose full images                
@@ -1063,9 +1066,12 @@ class SceneModel:
             rendered_image_data_unsparse_fine = torch.cat(rendered_image_unsparse_fine_batches, dim=0).cpu()
             depth_image_data_unsparse_fine = torch.cat(depth_image_unsparse_fine_batches, dim=0).cpu()
                     
+        depth_weights_data_coarse = torch.cat(depth_weights_coarse_batches, dim=0).cpu()  # (N_pixels, N_samples)
+
         render_result = {
              'rendered_image_fine': rendered_image_data_fine,
-             'rendered_depth_fine': rendered_depth_data_fine
+             'rendered_depth_fine': rendered_depth_data_fine,
+             'depth_weights_coarse': depth_weights_data_coarse,
         }
     
         if self.args.use_sparse_fine_rendering:
@@ -1397,8 +1403,8 @@ class SceneModel:
         test_image_indices = self.test_image_indices
         #explicit_test_image_indices = [0, 159, 222]
         #test_image_indices = explicit_test_image_indices
-        #for image_index in [self.test_image_indices[i] for i in test_image_indices]:
-        for image_index in test_image_indices:
+        for image_index in [self.test_image_indices[i] for i in test_image_indices]:
+        #for image_index in test_image_indices:
                                           
             pp_x = self.principal_point_x * (float(W) / float(self.W))
             pp_y = self.principal_point_y * (float(H) / float(self.H))
@@ -1517,16 +1523,16 @@ class SceneModel:
 
     def load_saved_args_train(self):
         
-        self.args.base_directory = './data/red_berry_bonsai'
+        self.args.base_directory = './data/orchid'
         #self.args.base_directory = './data/cactus'
         #self.args.base_directory = './data/red_berry_bonsai'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
-        self.args.load_pretrained_models = False
+        self.args.load_pretrained_models = True
         self.args.reset_learning_rates = False
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
-        self.args.pretrained_models_directory = './data/red_berry_bonsai_run202/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
-        self.args.start_epoch = 1
+        self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/from_cloud/orchid_run204/models'
+        self.args.start_epoch = 445001
         self.args.number_of_epochs = 500000
         
         #self.args.start_training_extrinsics_epoch = 500        
@@ -1575,8 +1581,8 @@ class SceneModel:
         self.args.min_confidence = 2.0
 
         ### test images
-        self.args.skip_every_n_images_for_testing = 5
-        self.args.number_of_test_images = 3
+        self.args.skip_every_n_images_for_testing = 1
+        self.args.number_of_test_images = 1
 
         ### test frequency parameters
         self.args.test_frequency = 5000
@@ -1591,7 +1597,7 @@ class SceneModel:
         self.args.pixel_samples_per_epoch = 1024
         ###########################self.args.number_of_samples_outward_per_raycast = 360
         self.args.number_of_samples_outward_per_raycast = 360
-        self.args.number_of_images_in_training_dataset = 242
+        self.args.number_of_images_in_training_dataset = 120
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256 * 20
         self.args.H_for_training = 480
         self.args.W_for_training = 640
@@ -1625,9 +1631,9 @@ if __name__ == '__main__':
         
         if scene.epoch == scene.args.start_epoch:
             with torch.no_grad():                                            
-                #scene.test()
-                #quit()
-                print("")                
+                scene.test()
+                quit()
+                #print("")                
                 
         #scene.print_memory_usage()
         
