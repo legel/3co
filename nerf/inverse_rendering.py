@@ -834,8 +834,8 @@ def test(textures, epoch):
     render_training_views_with_uvmap_and_textures(extrinsics[:, :3, 3][:10].to(torch.device('cuda:0')), verts, bary_coords, uv, textures, posepix2face, faces, lights, epoch)
     f_name = '{}/{}_{}_{}x{}.glb'.format(gltf_dir, dataset, epoch, texture_size, texture_size)
     save_gltf(textures, uv, f_name)
-    imageio.imwrite('./{}/color_{}.png'.format(texture_visualization_dir, epoch),  (textures[0].cpu().numpy()).astype(np.uint8))
-    imageio.imwrite('./{}/roughness_{}.png'.format(texture_visualization_dir, epoch), (textures[1].cpu().numpy()).astype(np.uint8))
+    imageio.imwrite('{}/color_{}.png'.format(texture_visualization_dir, epoch),  (textures[0].cpu().numpy()).astype(np.uint8))
+    imageio.imwrite('{}/roughness_{}.png'.format(texture_visualization_dir, epoch), (textures[1].cpu().numpy()).astype(np.uint8))
 
 
 # precompute bary_coords-interpoloated parameters needed in training
