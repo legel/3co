@@ -363,16 +363,19 @@ class DisneyBRDFModel(nn.Module):
 
 class TexelSamples:
     
-    def __init__(self, texel_index, rgb_samples, cam_xyzs, surface_xyz):
+    def __init__(self, texel_index, rgb_samples, cam_xyzs, surface_xyz, face_indices):
         self.texel_index = texel_index # index in texture coordinates
         self.rgb_samples = rgb_samples
         self.cam_xyzs = cam_xyzs                     
         self.surface_xyzs = surface_xyz
+        self.face_indices = face_indices
 
-    def add_sample(self, rgb_sample, cam_xyz, surface_xyz):
+    def add_sample(self, rgb_sample, cam_xyz, surface_xyz, face_index):
         self.rgb_samples.append(rgb_sample)
         self.cam_xyzs.append(cam_xyz)
-        self.surface_xyzs.append(surface_xyz)                
+        self.surface_xyzs.append(surface_xyz)
+        self.face_indices.append(face_index)
+
 
 def uv_to_texel_index(input_uv):
 
@@ -577,22 +580,39 @@ def load_image_data(image_directory = "./data/dragon_scale/color", pose_indices=
         rgb_from_photos[i,:,:,:] = rgb_from_photo    
     return rgb_from_photos
 
+def get_face_normals(faces, blender_normals_csv_f_name):
 
-def get_initial_colors(texels):    
+    # load face normals (float32 in [-1,1]) generated from blender script
+    face_normals = torch.zeros((faces.shape[0], 3), dtype=torch.float32)    
+    
+    with open(blender_normals_csv_f_name, 'r') as f:
+        for i, line in enumerate(f):
+            normals_i = line.split(',')
+            face_normals[i] = torch.tensor([float(normals_i[0]), float(normals_i[1]), float(normals_i[2])])
+        face_normals = torch.nn.functional.normalize(face_normals, dim=1, p=2).cpu()
+    
+    return face_normals
+
+
+def get_initial_colors_and_normals(texels, face_normals):    
     texel_colors = torch.zeros( (texture_size*texture_size, 3), dtype=torch.uint8, device=torch.device('cpu'))
-    hit_faces = torch.zeros ((texture_size*texture_size,), dtype=torch.uint8, device=torch.device('cpu'))
+    texel_normals = torch.zeros( (texture_size*texture_size, 3), dtype=torch.float32, device=torch.device('cpu'))
+    hit_texels = torch.zeros ((texture_size*texture_size,), dtype=torch.uint8, device=torch.device('cpu'))
     for i, texel_i in enumerate(texels):
         texel = texels[texel_i] 
-        rgb = torch.stack(texel.rgb_samples, dim=0).float()        
+        rgb = torch.stack(texel.rgb_samples, dim=0).float()
+        face_indices = torch.stack(texel.face_indices, dim=0)
+        normals = face_normals[face_indices]
         mean_rgb = torch.mean(rgb, dim=0)
         diff_from_mean_rgb = torch.sum((rgb-mean_rgb.unsqueeze(0))**2, dim=1)
         closest_rgb_index = torch.argmin(diff_from_mean_rgb) 
 
         texel_colors[int(texel_i)] = rgb[closest_rgb_index].to(torch.uint8)
-        hit_faces[int(texel_i)] = 1
+        texel_normals[int(texel_i)] = normals[closest_rgb_index]
+        hit_texels[int(texel_i)] = 1
             
-    texel_colors[ torch.where(hit_faces==0)[0], : ] = 70
-    return texel_colors
+    texel_colors[ torch.where(hit_texels==0)[0], : ] = 70
+    return texel_colors, texel_normals
         
 
 def compute_luminosity(rgb):    
@@ -929,11 +949,11 @@ def prepare_training_data(posepix2face, bary_coords, uv, extrinsics, faces, vert
                 face_pose_xyz = pose_xyz
                 face_rgb_sample = rgb_samples_for_pose[i]                                
                                 
-                if str(texel_i.item()) not in texels.keys():                    
-                    texels[str(texel_i.item())] = TexelSamples(texel_i.item(), [face_rgb_sample.cpu()], [face_pose_xyz.cpu()], [face_surface_xyz.cpu()])
+                if str(texel_i.item()) not in texels.keys():
+                    texels[str(texel_i.item())] = TexelSamples(texel_i.item(), [face_rgb_sample.cpu()], [face_pose_xyz.cpu()], [face_surface_xyz.cpu()], [face_index.cpu()])
 
                 else:                    
-                    texels[str(texel_i.item())].add_sample(face_rgb_sample.cpu(), face_pose_xyz.cpu(), face_surface_xyz.cpu())
+                    texels[str(texel_i.item())].add_sample(face_rgb_sample.cpu(), face_pose_xyz.cpu(), face_surface_xyz.cpu(), face_index.int().cpu())
 
             face_uv_pose_i = face_uv_pose_i.cpu()
             face_xyz_pose_i = face_xyz_pose_i.cpu()
@@ -1024,19 +1044,21 @@ if __name__ == '__main__':
         texels = prepare_training_data(posepix2face, bary_coords, uv, extrinsics, faces, verts)
         n_texels_in_texture = texture_size**2
 
-        # estimate initial diffuse colors
-        initial_colors = get_initial_colors(texels).reshape((texture_size,texture_size,3)).cpu()
-        initial_colors = initial_colors / 255.0
+        # estimate initial diffuse colors and normals
+        blender_normals_csv_f_name = 'dragon_triangulated_beautified_remeshed_smooth_10_ratio_0.70_instant_meshed_uv_mapped_angle_0.80_island_margin_0.003_face_weight_0.0.csv'
+        face_normals = get_face_normals(faces, blender_normals_csv_f_name).cpu()
+
+        initial_colors, initial_normals = get_initial_colors_and_normals(texels, face_normals)
+        initial_colors = initial_colors.reshape((texture_size,texture_size,3)).cpu()
+        initial_colors = initial_colors.to(torch.float32) / 255.0
+
+        initial_normals = initial_normals.reshape((texture_size,texture_size,3)).cpu()
 
         # pick something reasonable for initial roughness
         initial_roughness = torch.zeros((texture_size, texture_size, 3), dtype=torch.float32).cpu()
         initial_roughness[:, :, 1] = 255.0
         initial_roughness[:, :, 1] = initial_roughness[:, :, 1] * 0.9
         initial_roughness = initial_roughness / 255.0
-
-        # fow now, loading precomputed normals texture estimate computed in repair_textures.py
-        # TODO: initialize with a similar method that diffuse colors are estimated  
-        initial_normals = torch.load('{}/normals_texture_2048x2048.pt'.format(input_data_dir)).cpu()
       
         initial_textures = [
             initial_colors,
