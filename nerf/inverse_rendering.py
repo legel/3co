@@ -1045,8 +1045,9 @@ if __name__ == '__main__':
         n_texels_in_texture = texture_size**2
 
         # estimate initial diffuse colors and normals
-        blender_normals_csv_f_name = 'dragon_triangulated_beautified_remeshed_smooth_10_ratio_0.70_instant_meshed_uv_mapped_angle_0.80_island_margin_0.003_face_weight_0.0.csv'
+        blender_normals_csv_f_name = '{}/dragon_triangulated_beautified_remeshed_smooth_10_ratio_0.70_instant_meshed_uv_mapped_angle_0.80_island_margin_0.003_face_weight_0.0.csv'.format(input_data_dir)
         face_normals = get_face_normals(faces, blender_normals_csv_f_name).cpu()
+        print(face_normals)
 
         initial_colors, initial_normals = get_initial_colors_and_normals(texels, face_normals)
         initial_colors = initial_colors.reshape((texture_size,texture_size,3)).cpu()
