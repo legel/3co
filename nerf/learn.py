@@ -182,9 +182,8 @@ class SceneModel:
 
         if self.args.load_pretrained_models:
             print("Loading pretrained models")
-            self.load_pretrained_models()            
-            focal_length = self.models["focal"]()([0])
-            #self.export_camera_extrinsics_and_intrinsics_from_trained_model()    
+            self.load_pretrained_models()                        
+            #self.export_camera_extrinsics_and_intrinsics_from_trained_model()            
         else:            
             print("Training from scratch")
             
@@ -232,9 +231,14 @@ class SceneModel:
         # extract out numbers of their IDs, and sort images by numerical ID
         self.image_ids = np.asarray(sorted([int(image.split("/")[-1].replace(".{}".format(self.args.images_data_type),"")) for image in unsorted_image_names]))
         n_images = len(self.image_ids)        
-        self.skip_every_n_images_for_training = int(n_images / self.args.number_of_images_in_training_dataset)
-        self.n_training_images = len(self.image_ids[::self.skip_every_n_images_for_training])   
+        self.skip_every_n_images_for_training = int(n_images / self.args.number_of_images_in_training_dataset)                
 
+        print('n images: ', n_images)
+        print('skip every: ', self.skip_every_n_images_for_training)
+        #print('n selected images', len(self.image_ids[::self.skip_every_n_images_for_training][]) )
+
+        
+        
         # load the first image to establish initial height and width of image data because it gets downsampled
         self.load_image_data(0)
     
@@ -332,7 +336,9 @@ class SceneModel:
 
         self.camera_intrinsics = torch.Tensor(camera_intrinsics_matrix).to(device=self.device)
 
-        self.initial_focal_length = self.camera_intrinsics[0,0].repeat(self.n_training_images)                
+        # save_point
+        self.initial_focal_length = self.camera_intrinsics[0,0].repeat(self.args.number_of_images_in_training_dataset)                
+        #self.initial_focal_length = self.camera_intrinsics[0,0].repeat(len(self.image_ids[::self.skip_every_n_images_for_training]))                
 
         self.principal_point_x = self.camera_intrinsics[0,2]
         self.principal_point_y = self.camera_intrinsics[1,2]
@@ -387,20 +393,20 @@ class SceneModel:
 
         # get the number of cameras represented
         n_cameras = camera_extrinsics.shape[0]
-
+        
         # format camera intrinsics for export
         camera_intrinsics = torch.zeros(size=(n_cameras,3,3), dtype=torch.float32)
         camera_intrinsics[:,0,0] = focal_length
         camera_intrinsics[:,1,1] = focal_length
         camera_intrinsics[:,0,2] = self.principal_point_x
         camera_intrinsics[:,1,2] = self.principal_point_y
-        camera_intrinsics[:,2,2] = 1.0
+        
+        # use index [2,2] in intrinsics to store the image index that the extrinsics/intrinsics correspond to
+        image_indices = torch.arange(start=0, end=self.args.number_of_images_in_training_dataset) * self.skip_every_n_images_for_training
+        camera_intrinsics[:, 2, 2] = image_indices.to(torch.float32)
 
-        if save:
-            with open('camera_extrinsics.npy', 'wb') as f:
-                np.save(f, camera_extrinsics.detach().numpy())
-            with open('camera_intrinsics.npy', 'wb') as f:
-                np.save(f, camera_intrinsics.detach().numpy())
+        torch.save(camera_intrinsics, '{}_camera_intrinsics.pt'.format(self.args.base_directory.split('/')[-1]))
+        torch.save(camera_extrinsics, '{}_camera_extrinsics.pt'.format(self.args.base_directory.split('/')[-1]))
 
         return (camera_extrinsics, camera_intrinsics)
 
@@ -443,7 +449,7 @@ class SceneModel:
         self.sample_image = torch.zeros(self.H, self.W)
     
         n_pixels_in_training_dataset = self.args.number_of_pixels_in_training_dataset
-        n_images = len(self.image_ids[::self.skip_every_n_images_for_training])
+        n_images = self.args.number_of_images_in_training_dataset
         n_pixels_per_image = min(n_pixels_in_training_dataset // n_images, self.H*self.W)
 
         # create meshgrid representing rows and cols, which will be used for rendering full images
@@ -454,22 +460,18 @@ class SceneModel:
         )  # (H, W)
      
         self.pixel_rows_for_test_renders = pixel_rows_and_cols_for_test_renders[0].flatten()
-        self.pixel_cols_for_test_renders = pixel_rows_and_cols_for_test_renders[1].flatten()        
-
-
-        print('n pixels in training dataset: ', n_pixels_in_training_dataset)
-        print('n_images: ', n_images)
-        print('n_pixels_per_image: ', n_pixels_per_image)        
+        self.pixel_cols_for_test_renders = pixel_rows_and_cols_for_test_renders[1].flatten()            
 
         # now loop through all of the data, and filter out (only load and save as necessary) based on whether the points land within our focus area
-        for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training]):
-        #for i, image_id in enumerate(self.image_ids):                        
+        # save_point
+        for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training][:self.args.number_of_images_in_training_dataset]):
+        #for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training]):
+        
 
             # get depth data for this image
             depth, near_bound, far_bound, confidence = self.load_depth_data(image_id=image_id) # (H, W)
 
-            # get (x,y,z) coordinates for this image                        
-            n_images = self.all_initial_poses[i*self.skip_every_n_images_for_training].size()[0]
+            # get (x,y,z) coordinates for this image                                    
             xyz_coordinates = get_sensor_xyz_coordinates(self.all_initial_poses[i*self.skip_every_n_images_for_training], depth, self.H, self.W, self.principal_point_x, self.principal_point_y, self.initial_focal_length[0].expand(self.H*self.W).cpu()) # (H, W, 3)
 
             # select a uniformly random subset of those pixels
@@ -590,12 +592,20 @@ class SceneModel:
     def initialize_models(self):
                 
         self.models = {}                
-
-        model = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.n_training_images))
-        self.models["focal"] = model        
-        print(self.device)
+        # save_point        
+        
+        model = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.args.number_of_images_in_training_dataset))
+        #model = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, len(self.image_ids[::self.skip_every_n_images_for_training])))
+        self.models["focal"] = model                
         model.to(self.device)
-        model = torch.compile(CameraPoseModel(self.all_initial_poses[::self.skip_every_n_images_for_training]))
+
+        # save_point
+        
+        model = torch.compile(CameraPoseModel(self.all_initial_poses[::self.skip_every_n_images_for_training][:self.args.number_of_images_in_training_dataset]))
+        #model = torch.compile(CameraPoseModel(self.all_initial_poses[::self.skip_every_n_images_for_training]))
+        
+        
+        
         self.models["pose"] = model
         model.to(self.device)
         model =  torch.compile(NeRFDensity(self.args))
@@ -604,11 +614,6 @@ class SceneModel:
         model = torch.compile(NeRFColor(self.args))
         self.models["color"] = model                
         model.to(self.device)
-
-        n_total_pixels = self.all_initial_poses[::self.skip_every_n_images_for_training].size()[0] * self.H * self.W
-                
-        # [times_sampled, entropy, loss]
-        self.pixel_histories = torch.zeros((n_total_pixels, 3), device=torch.device('cpu'), dtype=torch.float32)
 
         # Set up Weights & Biases logging on top of the network in order to record its structure
         wandb.watch(self.models["focal"])
@@ -662,17 +667,26 @@ class SceneModel:
 
 
     def load_pretrained_models(self):        
-        print('Loading pretrained model at {}/[model]_{}.pth'.format(self.args.pretrained_models_directory, self.args.start_epoch))
+        print('Loading pretrained model at {}/[model]_{}.pth'.format(self.args.pretrained_models_directory, self.args.start_epoch-1))
         for model_name in self.models.keys():
+            # save_point            
             model_path = "{}/{}_{}.pth".format(self.args.pretrained_models_directory, model_name, self.args.start_epoch-1)            
                         
             # load checkpoint data
             ckpt = torch.load(model_path, map_location=self.device)
+            
+            if model_name == 'focal':
+                ckpt['model_state_dict']['_orig_mod.fx'] = ckpt['model_state_dict']['_orig_mod.fx'][:self.args.number_of_images_in_training_dataset]
+            elif model_name == 'pose':
+                ckpt['model_state_dict']['_orig_mod.t'] = ckpt['model_state_dict']['_orig_mod.t'][:self.args.number_of_images_in_training_dataset]
+                ckpt['model_state_dict']['_orig_mod.r'] = ckpt['model_state_dict']['_orig_mod.r'][:self.args.number_of_images_in_training_dataset]
+                ckpt['model_state_dict']['_orig_mod.poses'] = ckpt['model_state_dict']['_orig_mod.poses'][:self.args.number_of_images_in_training_dataset]
+
 
             # load model from saved state
-            model = self.models[model_name]                                   
+            model = self.models[model_name]                                
             weights = ckpt['model_state_dict']
-            model.load_state_dict(weights, strict=False)            
+            model.load_state_dict(weights, strict=True)            
             
             if self.args.reset_learning_rates == False:
                 # load optimizer parameters
@@ -690,12 +704,12 @@ class SceneModel:
             model = self.models[topic]
             optimizer = self.optimizers[topic]
             print("Saving {} model...".format(topic))            
-            save_path = Path("{}/models".format(self.experiment_dir))
-            save_checkpoint(epoch=self.epoch-1, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}'.format(topic, self.epoch-1))
+            save_checkpoint(epoch=self.epoch-1, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}_fix'.format(topic, self.epoch-1))
+            #save_checkpoint(epoch=self.epoch-1, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}'.format(topic, self.epoch-1))
 
 
     def save_point_clouds_with_sensor_depths(self):
-        for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training]):
+        for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training][:self.args.number_of_images_in_training_dataset]):
             print("Saving with learned poses and intrinsics the raw sensor colors and sensor depth for view {}".format(i))
             image, _ = self.load_image_data(image_id=image_id)
             depth, _, _, _ = self.load_depth_data(image_id=image_id)
@@ -1398,13 +1412,11 @@ class SceneModel:
         H = self.args.H_for_test_renders
         W = self.args.W_for_test_renders        
         
-        all_focal_lengths = self.models["focal"]()([0])
+        all_trained_focal_lengths = self.models["focal"]()([0])
 
-        test_image_indices = self.test_image_indices
-        #explicit_test_image_indices = [0, 159, 222]
-        #test_image_indices = explicit_test_image_indices
-        for image_index in [self.test_image_indices[i] for i in test_image_indices]:
-        #for image_index in test_image_indices:
+        test_image_indices = self.test_image_indices        
+
+        for image_index in test_image_indices:
                                           
             pp_x = self.principal_point_x * (float(W) / float(self.W))
             pp_y = self.principal_point_y * (float(H) / float(self.H))
@@ -1412,7 +1424,7 @@ class SceneModel:
             # always render              
             print("Rendering for image {}".format(image_index))            
                      
-            focal_lengths_for_this_img = all_focal_lengths[image_index].expand(int(H*W)) * (float(H) / float(self.H))
+            focal_lengths_for_this_img = all_trained_focal_lengths[image_index].expand(int(H*W)) * (float(H) / float(self.H))
 
             poses_for_this_img = self.models['pose']()([0])[image_index].unsqueeze(0).expand(W*H, -1, -1)
                             
@@ -1522,17 +1534,15 @@ class SceneModel:
     ##################################################################        
 
     def load_saved_args_train(self):
-        
+            
         self.args.base_directory = './data/orchid'
-        #self.args.base_directory = './data/cactus'
-        #self.args.base_directory = './data/red_berry_bonsai'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
-        self.args.load_pretrained_models = True
+        self.args.load_pretrained_models = False
         self.args.reset_learning_rates = False
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
         self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/from_cloud/orchid_run204/models'
-        self.args.start_epoch = 445001
+        self.args.start_epoch = 1
         self.args.number_of_epochs = 500000
         
         #self.args.start_training_extrinsics_epoch = 500        
@@ -1576,13 +1586,12 @@ class SceneModel:
         self.args.directional_encoding_fourier_frequencies = 8
         
         self.args.epsilon = 0.0000001
-        #self.args.depth_sensor_error = 0.5
         self.args.depth_sensor_error = 0.5
         self.args.min_confidence = 2.0
 
         ### test images
-        self.args.skip_every_n_images_for_testing = 1
-        self.args.number_of_test_images = 1
+        self.args.skip_every_n_images_for_testing = 5
+        self.args.number_of_test_images = 5
 
         ### test frequency parameters
         self.args.test_frequency = 5000
@@ -1596,11 +1605,13 @@ class SceneModel:
         self.args.resample_pixels_frequency = 5000
         self.args.pixel_samples_per_epoch = 1024
         ###########################self.args.number_of_samples_outward_per_raycast = 360
-        self.args.number_of_samples_outward_per_raycast = 360
-        self.args.number_of_images_in_training_dataset = 120
-        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256 * 20
-        self.args.H_for_training = 480
-        self.args.W_for_training = 640
+        self.args.number_of_samples_outward_per_raycast = 360        
+        self.args.number_of_images_in_training_dataset = 120 
+        self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256
+        #self.args.H_for_training = 480
+        #self.args.W_for_training = 640
+        self.args.H_for_training = 1440 # principal points and focal lengths will be rescaled to account for this
+        self.args.W_for_training = 1920
         
 
         # testing
@@ -1615,7 +1626,7 @@ class SceneModel:
 
         #self.args.H_for_test_renders = 1440
         #self.args.W_for_test_renders = 1920        
-        self.args.H_for_test_renders = 480
+        self.args.H_for_test_renders = 480 # principal points and focal lengths created for training will be rescaled for test renders
         self.args.W_for_test_renders = 640
 
 
@@ -1631,9 +1642,9 @@ if __name__ == '__main__':
         
         if scene.epoch == scene.args.start_epoch:
             with torch.no_grad():                                            
-                scene.test()
-                quit()
-                #print("")                
+                #scene.test()
+                #quit()
+                print("")
                 
         #scene.print_memory_usage()
         

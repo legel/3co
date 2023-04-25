@@ -31,19 +31,21 @@ def generate_point_clouds():
 
     dynamic_args = {
         "base_directory" : '\'./data/orchid\'',
-        "number_of_samples_outward_per_raycast" : 720,
-        "number_of_samples_outward_per_raycast_for_test_renders" : 720,
+        "number_of_samples_outward_per_raycast" : 360,
+        "number_of_samples_outward_per_raycast_for_test_renders" : 360,
         "density_neural_network_parameters" : 256,
         "percentile_of_samples_in_near_region" : 0.8,
-        "number_of_pixels_per_batch_for_test_renders" : 1000,   
+        "number_of_pixels_per_batch_in_test_renders" : 1000,   
+        "H_for_test_renders" : 480,
+        "W_for_test_renders" : 640,
+        "H_for_training" : 480,
+        "W_for_training" : 640,
         #"H_for_test_renders" : 1440,
-        #"W_for_test_renders" : 1920,
-        "H_for_test_renders" : 1440,
-        "W_for_test_renders" : 1920,            
+        #"W_for_test_renders" : 1920,            
         "near_maximum_depth" : 0.5,
         "number_of_images_in_training_dataset" : 120,
         "number_of_test_images" : 120,
-        "number_of_pixels_in_training_dataset" : 640 * 480 * 256,
+        "number_of_pixels_in_training_dataset" : 640 * 480 * 10,
         "skip_every_n_images_for_testing" : 1,
         "use_sparse_fine_rendering" : True,
         "pretrained_models_directory" : '\'./data/orchid/hyperparam_experiments/from_cloud/orchid_run204/models\'',        
@@ -202,31 +204,30 @@ def generate_point_cloud(
     n_filtered_points = H * W - torch.sum(max_depth_condition.flatten())
     print("filtering {}/{} points with max depth condition".format(n_filtered_points, W*H))
 
-    depth_condition = (depth != 0).cpu()
+    depth_condition = (depth < 0.5).cpu()
     n_filtered_points = H * W - torch.sum(depth_condition.flatten())
     print("filtering {}/{} points with depth=0 condition".format(n_filtered_points, W*H))
 
-    #angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[H//2, W//2, :])**2, dim=2 ) ) < r)
-    angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[H//2, W//2, :])**2, dim=2 ) ) < r*100.0)
-    n_filtered_points = H * W - torch.sum(angle_condition.flatten())
-    print("filtering {}/{} points with angle condition".format(n_filtered_points, W*H))
+    #angle_condition = (torch.sqrt( torch.sum( (pixel_directions - pixel_directions[H//2, W//2, :])**2, dim=2 ) ) < r*100.0)
+    #n_filtered_points = H * W - torch.sum(angle_condition.flatten())
+    #print("filtering {}/{} points with angle condition".format(n_filtered_points, W*H))
     
     #entropy_condition = (entropy_image < 2.0).cpu()
-    entropy_condition = (entropy_image < 2.0).cpu()
-    n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
-    print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
+    #entropy_condition = (entropy_image < 2.0).cpu()
+    #n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
+    #print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
 
     joint_condition = torch.logical_and(max_depth_condition, depth_condition).cpu()
-    joint_condition = torch.logical_and(joint_condition, angle_condition).cpu()
-    joint_condition = torch.logical_and(joint_condition, entropy_condition).cpu()
+    #joint_condition = torch.logical_and(joint_condition, angle_condition).cpu()
+    #joint_condition = torch.logical_and(joint_condition, entropy_condition).cpu()
 
-    if use_sparse_fine_rendering:            
-        sparse_depth = depth
-        #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005
-        sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 50.0
-        joint_condition = torch.logical_and(joint_condition, sticker_condition)
-        n_filtered_points = H * W - torch.sum(sticker_condition.flatten())
-        print("filtering {}/{} points with sticker condition".format(n_filtered_points, W*H))            
+    #if use_sparse_fine_rendering:            
+    #    sparse_depth = depth
+         #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005
+    #    sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 50.0
+    #    joint_condition = torch.logical_and(joint_condition, sticker_condition)
+    #    n_filtered_points = H * W - torch.sum(sticker_condition.flatten())
+    #    print("filtering {}/{} points with sticker condition".format(n_filtered_points, W*H))            
 
     n_filtered_points = H * W - torch.sum(joint_condition.flatten())
     print("{}/{} total points filtered with intersection of conditions".format(n_filtered_points, W*H))        
@@ -273,16 +274,18 @@ def pc_to_plane_distances(pc, plane):
 
 def merge_and_filter_by_center_radius(directory):
 
-    filter_radius = 0.5
+    #filter_radius = 0.5
+    filter_radius = 5.0
     pointclouds = []
     centers = []
     file_names = os.listdir(directory)
     for file_name in file_names:        
         if file_name.split('.')[-1] == 'ply':
             pc = o3d.io.read_point_cloud(directory + "/{}".format(file_name.split('/')[-1]))
-            centers.append(pc.get_center())
+            centers.append(torch.from_numpy(pc.get_center()))            
     
-    centers = torch.tensor(centers)
+    centers = torch.stack(centers, dim=0)        
+    
     avg_xyz = torch.sum(centers,dim=0) / len(centers)
     print('avg_xyz: ', avg_xyz)
 
@@ -292,8 +295,8 @@ def merge_and_filter_by_center_radius(directory):
     for file_name in file_names:        
         if file_name.split('.')[-1] == 'ply':
             pc = o3d.io.read_point_cloud(directory + "/{}".format(file_name.split('/')[-1]))
-            points = torch.tensor(np.asarray(pc.points))
-            colors = torch.tensor(np.asarray(pc.colors))
+            points = torch.from_numpy(np.asarray(pc.points))
+            colors = torch.from_numpy(np.asarray(pc.colors))
             filter = torch.argwhere(torch.sqrt(torch.sum((points - avg_xyz)**2, dim=1)) < filter_radius).squeeze(1)
                                     
             filtered_points = points[filter]
@@ -363,19 +366,20 @@ if __name__ == '__main__':
 
     #generate_point_clouds()
 
-    path = '/home/rob/research_code/3co/research/nerf/data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/pointclouds/pointclouds_nofilter_highres'
+    path = '/home/rob/research_code/dirmon/pc_test/orchid_3_1440x1920'
 
     print('merging and filtering by center radius...')
     pc = merge_and_filter_by_center_radius(path)
     f_out_name = 'test/merged_and_filtered.ply'    
     o3d.io.write_point_cloud(f_out_name, pc)  
 
-    print('removing plane...')
-    pc = remove_plane(pc)
-    f_out_name = 'test/plane_removed.ply'    
-    o3d.io.write_point_cloud(f_out_name, pc)      
+    #print('removing plane...')
+    #pc = remove_plane(pc)
+    #f_out_name = 'test/plane_removed.ply'    
+    #o3d.io.write_point_cloud(f_out_name, pc)      
 
-    print('performing poisson disk resampling...')    
+    print('performing poisson disk resampling...')   
+
     pc = poisson_disk_resampling(pc, int(len(pc.points)*0.1))
     f_out_name = 'test/downsampled.ply'    
     o3d.io.write_point_cloud(f_out_name, pc)      
