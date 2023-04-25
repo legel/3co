@@ -183,7 +183,8 @@ class SceneModel:
         if self.args.load_pretrained_models:
             print("Loading pretrained models")
             self.load_pretrained_models()                        
-            #self.export_camera_extrinsics_and_intrinsics_from_trained_model()            
+            #self.export_camera_extrinsics_and_intrinsics_from_trained_model('./', '500000')
+            #quit()
         else:            
             print("Training from scratch")
             
@@ -384,7 +385,7 @@ class SceneModel:
         self.all_initial_poses = torch.Tensor(convert3x4_4x4(rotations_translations)).cpu() # (N, 4, 4)        
 
 
-    def export_camera_extrinsics_and_intrinsics_from_trained_model(self, save=True):
+    def export_camera_extrinsics_and_intrinsics_from_trained_model(self, dir, epoch, save=True):
         # gather the latest poses ("camera extrinsics")
         camera_extrinsics = self.models['pose']()([0]).cpu()    
        
@@ -403,14 +404,16 @@ class SceneModel:
         
         # use index [2,2] in intrinsics to store the image index that the extrinsics/intrinsics correspond to
         image_indices = torch.arange(start=0, end=self.args.number_of_images_in_training_dataset) * self.skip_every_n_images_for_training
+        
         camera_intrinsics[:, 2, 2] = image_indices.to(torch.float32)
 
-        torch.save(camera_intrinsics, '{}_camera_intrinsics.pt'.format(self.args.base_directory.split('/')[-1]))
-        torch.save(camera_extrinsics, '{}_camera_extrinsics.pt'.format(self.args.base_directory.split('/')[-1]))
+        torch.save(camera_intrinsics, '{}/camera_intrinsics_{}.pt'.format(dir, epoch))
+        torch.save(camera_extrinsics, '{}/camera_extrinsics_{}.pt'.format(dir, epoch))
 
         return (camera_extrinsics, camera_intrinsics)
 
 
+    # create a point cloud using open3d
     def create_point_cloud(self, xyz_coordinates, colors, normals=None, flatten_xyz=True, flatten_image=True):
         pcd = o3d.geometry.PointCloud()
         if flatten_xyz:
@@ -463,9 +466,7 @@ class SceneModel:
         self.pixel_cols_for_test_renders = pixel_rows_and_cols_for_test_renders[1].flatten()            
 
         # now loop through all of the data, and filter out (only load and save as necessary) based on whether the points land within our focus area
-        # save_point
         for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training][:self.args.number_of_images_in_training_dataset]):
-        #for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training]):
         
 
             # get depth data for this image
@@ -477,6 +478,7 @@ class SceneModel:
             # select a uniformly random subset of those pixels
             all_indices = torch.tensor(range(xyz_coordinates.size()[0] * xyz_coordinates.size()[1]))     
             
+            # randperm is more accurate but extremely slow
             #pixel_indices_selected = all_indices[ torch.randperm(xyz_coordinates.size()[0] * xyz_coordinates.size()[1])[:n_pixels_per_image] ]
             pixel_indices_selected = all_indices[ torch.randint(high = xyz_coordinates.size()[0] * xyz_coordinates.size()[1], size=(n_pixels_per_image,))]
             selected = torch.zeros(xyz_coordinates.size()[0]*xyz_coordinates.size()[1])
@@ -576,7 +578,6 @@ class SceneModel:
         self.depth_based_pixel_sampling_weights = torch.ones(self.rgbd.size()[0]).cpu()    
         self.depth_based_pixel_sampling_weights = (1 / ((self.rgbd[:,3]+self.near) ** (0.66))).cpu() # bias sampling of closer pixels probabilistically                        
         
-
         max_rgb_distance = np.sqrt(3)
         steepness = 20.0
         neighbor_rgb_distance_sampling_weights = torch.log2( (steepness * neighbor_distance_per_pixel / max_rgb_distance + 1.0))        
@@ -592,34 +593,28 @@ class SceneModel:
     def initialize_models(self):
                 
         self.models = {}                
-        # save_point        
         
         model = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, self.args.number_of_images_in_training_dataset))
-        #model = torch.compile(CameraIntrinsicsModel(self.H, self.W, self.initial_focal_length, len(self.image_ids[::self.skip_every_n_images_for_training])))
-        self.models["focal"] = model                
+        self.models["focal"] = model
         model.to(self.device)
-
-        # save_point
         
-        model = torch.compile(CameraPoseModel(self.all_initial_poses[::self.skip_every_n_images_for_training][:self.args.number_of_images_in_training_dataset]))
-        #model = torch.compile(CameraPoseModel(self.all_initial_poses[::self.skip_every_n_images_for_training]))
-        
-        
-        
+        model = torch.compile(CameraPoseModel(self.all_initial_poses[::self.skip_every_n_images_for_training][:self.args.number_of_images_in_training_dataset]))                                
         self.models["pose"] = model
         model.to(self.device)
+
         model =  torch.compile(NeRFDensity(self.args))
         self.models["geometry"] = model
-        model.to(self.device)                               
+        model.to(self.device)
+
         model = torch.compile(NeRFColor(self.args))
-        self.models["color"] = model                
+        self.models["color"] = model
         model.to(self.device)
 
         # Set up Weights & Biases logging on top of the network in order to record its structure
         wandb.watch(self.models["focal"])
         wandb.watch(self.models["pose"])
         wandb.watch(self.models["geometry"])
-        wandb.watch(self.models["color"])        
+        wandb.watch(self.models["color"])
 
 
     def get_polynomial_decay(self, start_value, end_value, exponential_index=1, curvature_shape=1):
@@ -669,12 +664,13 @@ class SceneModel:
     def load_pretrained_models(self):        
         print('Loading pretrained model at {}/[model]_{}.pth'.format(self.args.pretrained_models_directory, self.args.start_epoch-1))
         for model_name in self.models.keys():
-            # save_point            
+
             model_path = "{}/{}_{}.pth".format(self.args.pretrained_models_directory, model_name, self.args.start_epoch-1)            
                         
             # load checkpoint data
             ckpt = torch.load(model_path, map_location=self.device)
             
+            # this fixes loading for a small set of runs (orchid-204, cactus-204, philodendron-204, cycad-204, red_berry_bonsai-204)
             if model_name == 'focal':
                 ckpt['model_state_dict']['_orig_mod.fx'] = ckpt['model_state_dict']['_orig_mod.fx'][:self.args.number_of_images_in_training_dataset]
             elif model_name == 'pose':
@@ -703,9 +699,8 @@ class SceneModel:
         for topic in ["color", "geometry", "pose", "focal"]:
             model = self.models[topic]
             optimizer = self.optimizers[topic]
-            print("Saving {} model...".format(topic))            
-            save_checkpoint(epoch=self.epoch-1, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}_fix'.format(topic, self.epoch-1))
-            #save_checkpoint(epoch=self.epoch-1, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}'.format(topic, self.epoch-1))
+            print("Saving {} model...".format(topic))                        
+            save_checkpoint(epoch=self.epoch-1, model=model, optimizer=optimizer, path=self.experiment_dir, ckpt_name='{}_{}'.format(topic, self.epoch-1))
 
 
     def save_point_clouds_with_sensor_depths(self):
@@ -714,9 +709,7 @@ class SceneModel:
             image, _ = self.load_image_data(image_id=image_id)
             depth, _, _, _ = self.load_depth_data(image_id=image_id)
             pose = self.models['pose']()([0])[i].to(device=self.device)
-            #pose = self.models['pose'](0)[i].to(device=self.device)
-            focal_lengths = self.models['focal']()(0)[image_id].expand(self.H*self.W)
-            #focal_lengths = self.models['focal'](0)[image_id].expand(self.H*self.W)
+            focal_lengths = self.models['focal']()(0)[image_id].expand(self.H*self.W)            
             pixel_directions = compute_pixel_directions(focal_lengths, self.pixel_rows_for_test_renders, self.pixel_cols_for_test_renders, self.H, self.W)
             self.generate_point_cloud(pose=pose, depth=depth, rgb=image, pixel_directions=pixel_directions, label="raw_sensor_with_learned_poses_intrinsics_{}".format(i), save=True, save_raw_xyz=True)               
 
@@ -1175,9 +1168,6 @@ class SceneModel:
         focal_length = self.models['focal']()([0])                        
         poses = self.models['pose']()([0])
         
-        print(poses[0])
-        print(focal_length[0])
-
         # get a tensor with the poses per pixel
         image_ids = self.image_ids_per_pixel[indices_of_random_pixels] # (N_pixels)                
         selected_poses = poses[image_ids] # (N_pixels, 4, 4)
@@ -1254,7 +1244,7 @@ class SceneModel:
                 coarse_interpretable_depth_loss_per_confident_pixel = interpretable_depth_loss_per_confident_pixel
 
             else:
-                # Note: KL divergence loss is not used for fine iteration even though it's computed above                
+                # note: KL divergence loss is not used for fine iteration even though it's computed above                
                 total_weighted_loss += (1.0 - self.args.coarse_weight)* ((1 - depth_to_rgb_importance) * rgb_loss)                
                 fine_rgb_loss = rgb_loss        
                 fine_depth_loss = 0
@@ -1333,8 +1323,7 @@ class SceneModel:
             # now we need to grab from our global pixel indices which ones we actually selected, after weighted sampling
             indices_of_random_pixels_for_this_epoch = randomly_sampled_pixel_indices[subsampled_indices_from_weights]            
                                     
-            print('Avg (sensor) depth in batch: ', torch.mean(self.rgbd[indices_of_random_pixels_for_this_epoch, 3] ))
-            
+            print('Avg (sensor) depth in batch: ', torch.mean(self.rgbd[indices_of_random_pixels_for_this_epoch, 3] ))            
 
             image_ids = self.image_ids_per_pixel[indices_of_random_pixels_for_this_epoch]
             pixel_indices_for_test_image = indices_of_random_pixels_for_this_epoch[torch.where(image_ids == 0)]
@@ -1451,6 +1440,10 @@ class SceneModel:
                     plt.savefig('{}/{}.png'.format(self.learning_rates_out_dir, topic))
                     plt.close()
 
+            # 
+            
+        self.export_camera_extrinsics_and_intrinsics_from_trained_model(self.experiment_dir, epoch)
+
         torch.cuda.empty_cache()
 
 
@@ -1535,14 +1528,14 @@ class SceneModel:
 
     def load_saved_args_train(self):
             
-        self.args.base_directory = './data/orchid'
+        self.args.base_directory = './data/philodendron'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
-        self.args.load_pretrained_models = False
+        self.args.load_pretrained_models = True
         self.args.reset_learning_rates = False
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
-        self.args.pretrained_models_directory = './data/orchid/hyperparam_experiments/from_cloud/orchid_run204/models'
-        self.args.start_epoch = 1
+        self.args.pretrained_models_directory = './data/philodendron/hyperparam_experiments/from_cloud/philodendron_run204/models'
+        self.args.start_epoch = 500001
         self.args.number_of_epochs = 500000
         
         #self.args.start_training_extrinsics_epoch = 500        
@@ -1608,10 +1601,10 @@ class SceneModel:
         self.args.number_of_samples_outward_per_raycast = 360        
         self.args.number_of_images_in_training_dataset = 120 
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256
-        #self.args.H_for_training = 480
-        #self.args.W_for_training = 640
-        self.args.H_for_training = 1440 # principal points and focal lengths will be rescaled to account for this
-        self.args.W_for_training = 1920
+        self.args.H_for_training = 480
+        self.args.W_for_training = 640
+        #self.args.H_for_training = 1440 # principal points and focal lengths will be rescaled to account for this
+        #self.args.W_for_training = 1920
         
 
         # testing

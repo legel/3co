@@ -30,7 +30,7 @@ os.environ['PYTORCH_KERNEL_CACHE_PATH'] = './'
 def generate_point_clouds():
 
     dynamic_args = {
-        "base_directory" : '\'./data/orchid\'',
+        "base_directory" : '\'./data/philodendron\'',
         "number_of_samples_outward_per_raycast" : 360,
         "number_of_samples_outward_per_raycast_for_test_renders" : 360,
         "density_neural_network_parameters" : 256,
@@ -48,7 +48,7 @@ def generate_point_clouds():
         "number_of_pixels_in_training_dataset" : 640 * 480 * 10,
         "skip_every_n_images_for_testing" : 1,
         "use_sparse_fine_rendering" : True,
-        "pretrained_models_directory" : '\'./data/orchid/hyperparam_experiments/from_cloud/orchid_run204/models\'',        
+        "pretrained_models_directory" : '\'./data/philodendron/hyperparam_experiments/from_cloud/philodendron_run204/models\'',        
         #"pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run43/models\'',        
         "start_epoch" : 500001,
         "load_pretrained_models" : True,            
@@ -57,10 +57,7 @@ def generate_point_clouds():
     with torch.no_grad():
         scene = SceneModel(args=parse_args(), experiment_args='dynamic', dynamic_args=dynamic_args)
     
-    H = scene.args.H_for_test_renders
-    W = scene.args.W_for_test_renders       
-
-
+    
     epoch = scene.epoch - 1        
     for model in scene.models.values():
         model.eval()
@@ -72,7 +69,10 @@ def generate_point_clouds():
     
     for image_index in scene.test_image_indices:
 
+        
+
         ground_truth_rgb_img, _ = scene.load_image_data(image_index * scene.skip_every_n_images_for_training)
+        #ground_truth_rgb_img, _ = scene.load_image_data(image_index * 60)
 
         pp_x = scene.principal_point_x * (W / scene.W)
         pp_y = scene.principal_point_y * (H / scene.H)           
@@ -212,22 +212,23 @@ def generate_point_cloud(
     #n_filtered_points = H * W - torch.sum(angle_condition.flatten())
     #print("filtering {}/{} points with angle condition".format(n_filtered_points, W*H))
     
+    entropy_condition = (entropy_image < 2.0).cpu()
     #entropy_condition = (entropy_image < 2.0).cpu()
-    #entropy_condition = (entropy_image < 2.0).cpu()
-    #n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
-    #print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
+    n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
+    print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
 
     joint_condition = torch.logical_and(max_depth_condition, depth_condition).cpu()
     #joint_condition = torch.logical_and(joint_condition, angle_condition).cpu()
-    #joint_condition = torch.logical_and(joint_condition, entropy_condition).cpu()
+    joint_condition = torch.logical_and(joint_condition, entropy_condition).cpu()
 
-    #if use_sparse_fine_rendering:            
-    #    sparse_depth = depth
-         #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005
-    #    sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 50.0
-    #    joint_condition = torch.logical_and(joint_condition, sticker_condition)
-    #    n_filtered_points = H * W - torch.sum(sticker_condition.flatten())
-    #    print("filtering {}/{} points with sticker condition".format(n_filtered_points, W*H))            
+    if use_sparse_fine_rendering:            
+        sparse_depth = depth
+        #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005
+        sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.01
+        #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 50.0
+        joint_condition = torch.logical_and(joint_condition, sticker_condition)
+        n_filtered_points = H * W - torch.sum(sticker_condition.flatten())
+        print("filtering {}/{} points with sticker condition".format(n_filtered_points, W*H))            
 
     n_filtered_points = H * W - torch.sum(joint_condition.flatten())
     print("{}/{} total points filtered with intersection of conditions".format(n_filtered_points, W*H))        
@@ -366,11 +367,11 @@ if __name__ == '__main__':
 
     #generate_point_clouds()
 
-    path = '/home/rob/research_code/dirmon/pc_test/orchid_3_1440x1920'
+    path = '/home/rob/research_code/dirmon/pc_test/red_berry_bonsai_480x640'
 
     print('merging and filtering by center radius...')
     pc = merge_and_filter_by_center_radius(path)
-    f_out_name = 'test/merged_and_filtered.ply'    
+    f_out_name = '/home/rob/research_code/dirmon/pc_test/red_berry_bonsai_merged_and_filtered.ply'    
     o3d.io.write_point_cloud(f_out_name, pc)  
 
     #print('removing plane...')
@@ -381,7 +382,7 @@ if __name__ == '__main__':
     print('performing poisson disk resampling...')   
 
     pc = poisson_disk_resampling(pc, int(len(pc.points)*0.1))
-    f_out_name = 'test/downsampled.ply'    
+    f_out_name = '/home/rob/research_code/dirmon/pc_test/red_berry_bonsai_downsampled.ply'    
     o3d.io.write_point_cloud(f_out_name, pc)      
 
 
