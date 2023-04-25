@@ -55,7 +55,7 @@ os.makedirs(gradient_dir, exist_ok=True)
 input_data_dir = './data/{}/inverse_rendering'.format(dataset)
 os.makedirs(input_data_dir, exist_ok=True)
 
-texture_visualization_dir = '{}/texture_visualizations'
+texture_visualization_dir = './data/{}/inverse_rendering/texture_visualizations'.format(dataset)
 os.makedirs(texture_visualization_dir, exist_ok=True)
 
 gltf_dir = '{}/gltfs'.format(experiment_dir)
@@ -118,15 +118,8 @@ def correct_camera_extrinsics_for_pytorch3d(extrinsics):
     return extrinsics # knockout
 
 
-def render_mesh(extrinsics, intrinsics, mesh, image_size, show_interactive_3D_figure=False, save_renders=True):
-
-    intrinsics[0,0] = intrinsics[0,0] * (float(image_size[0]) / 1440.0)
-    intrinsics[1,1] = intrinsics[1,1] * (float(image_size[1]) / 1920.0)
-
-    intrinsics[0,2] = intrinsics[0,2] * (float(image_size[0]) / 1440.0)
-    intrinsics[1,2] = intrinsics[1,2] * (float(image_size[1]) / 1920.0)
-
-
+def render_mesh(extrinsics, intrinsics, mesh, image_size, H, W, show_interactive_3D_figure=False, save_renders=True):
+    
     # Create the camera object with the given intrinsics and pose
     cameras = PerspectiveCameras(
                 R=extrinsics[:3, :3].unsqueeze(0).to(device=device),
@@ -197,6 +190,8 @@ def rasterize(mesh, camera_extrinsics, camera_intrinsics, H, W, save_result=Fals
             intrinsics=intrinsics, 
             mesh=mesh,
             image_size=(number_of_rows, number_of_cols),
+            H=H,
+            W=W,
             show_interactive_3D_figure=False,
             save_renders=save_renders
         )
@@ -393,21 +388,19 @@ def texel_index_to_uv(texel_i):
     return uv_coords
 
 
-def render_training_views_with_uvmap_and_textures(cam_xyzs, vertex_xyzs, bary_coords, uv, textures, posepix2face, faces, lights, epoch):
+def render_training_views_with_uvmap_and_textures(cam_xyzs, vertex_xyzs, bary_coords, uv, textures, posepix2face, faces, lights, epoch, H, W):
     
     triangles_with_uv_coordinates = uv[faces].to(torch.device('cuda:0'))
     triangles_with_xyz_coordinates = vertex_xyzs[faces].to(torch.device('cuda:0'))     
     cam_xyzs = cam_xyzs.to(torch.device('cuda:0'))
     bary_coords = bary_coords.cpu()
 
-    render_h = 1440
-    render_w = 1920                
     n_poses = cam_xyzs.shape[0]
 
     for i in range(n_poses):
         pix2face = posepix2face[i].to(torch.device('cuda:0'))
         hit_indices = torch.where(pix2face != -1)[0].cpu()
-        rendered_rgb = torch.zeros((render_h * render_w, 3), dtype=torch.float32, device=device)
+        rendered_rgb = torch.zeros((H * W, 3), dtype=torch.float32, device=device)
         
         # we need to batch here to deal with matmul's memory wasteage
         # TODO: precompute this
@@ -434,7 +427,7 @@ def render_training_views_with_uvmap_and_textures(cam_xyzs, vertex_xyzs, bary_co
             render_result = render_brdf_with_uvmap_and_textures(view_cam_xyz, view_xyz, view_uv, textures, lights)
             rendered_rgb[hit_indices_batch] = render_result
 
-        rendered_rgb = rendered_rgb.reshape(render_h,render_w,3)
+        rendered_rgb = rendered_rgb.reshape(H,W,3)
         rendered_rgb = (rendered_rgb.cpu().numpy() * 255).astype(np.uint8)
         label = str(i).zfill(4)
         
@@ -719,7 +712,7 @@ def make_lights_cube(center, l_distance):
     return lights
 
 
-def train(models, optimizers, texels, max_samples_per_texel, lights, visualize_gradient, extrinsics, verts, uv, normals_img):
+def train(models, optimizers, texels, max_samples_per_texel, lights, visualize_gradient, extrinsics, verts, uv, normals_img, H, W):
 
     # set total number of 'diffuse' and 'reflectance' optimization steps
     number_of_steps = 1000
@@ -831,7 +824,7 @@ def train(models, optimizers, texels, max_samples_per_texel, lights, visualize_g
 def test(textures, epoch):
 
     print("Rendering for training views")                                                  
-    render_training_views_with_uvmap_and_textures(extrinsics[:, :3, 3][:10].to(torch.device('cuda:0')), verts, bary_coords, uv, textures, posepix2face, faces, lights, epoch)
+    render_training_views_with_uvmap_and_textures(extrinsics[:, :3, 3][:10].to(torch.device('cuda:0')), verts, bary_coords, uv, textures, posepix2face, faces, lights, epoch, H, W)
     f_name = '{}/{}_{}_{}x{}.glb'.format(gltf_dir, dataset, epoch, texture_size, texture_size)
     save_gltf(textures, uv, f_name)
     imageio.imwrite('{}/color_{}.png'.format(texture_visualization_dir, epoch),  (textures[0].cpu().numpy()).astype(np.uint8))
@@ -990,15 +983,19 @@ if __name__ == '__main__':
 
 
         # flags for saving/loading rasterizer results
-        load_precomputed_rasterizer_data = True
-        save_rast_result = False
+        load_precomputed_rasterizer_data = False
+        save_rast_result = True
 
+        # H and W here apply to rasterization resolution, initial color/normals estimation, rgb data, and mesh renders
         H = 1440
-        W = 1920        
-        extrinsics = torch.from_numpy(np.load('./{}/camera_extrinsics.npy'.format(input_data_dir)))
+        W = 1920
+
+        # intrinsics must match resolution implied by H and W above
+        extrinsics = torch.from_numpy(np.load('./{}/camera_extrinsics.npy'.format(input_data_dir)))        
+        intrinsics = torch.from_numpy(np.load('./{}/camera_intrinsics.npy'.format(input_data_dir)))        
+        
         n_total_poses = extrinsics.shape[0]
-        intrinsics = torch.from_numpy(np.load('./{}/camera_intrinsics.npy'.format(input_data_dir)))
-        image_directory = '{}/{}'.format('./data/dragon_scale_large', 'color')        
+        image_directory = '{}/{}'.format('./data/dragon_scale', 'color')        
         mesh_f_name = './{}/dragon_triangulated_beautified_remeshed_smooth_10_ratio_0.70_instant_meshed_uv_mapped_angle_0.80_island_margin_0.003_face_weight_0.0.ply'.format(input_data_dir)
         mesh = load_mesh(mesh_f_name)
         
@@ -1047,7 +1044,6 @@ if __name__ == '__main__':
         # estimate initial diffuse colors and normals
         blender_normals_csv_f_name = '{}/dragon_triangulated_beautified_remeshed_smooth_10_ratio_0.70_instant_meshed_uv_mapped_angle_0.80_island_margin_0.003_face_weight_0.0.csv'.format(input_data_dir)
         face_normals = get_face_normals(faces, blender_normals_csv_f_name).cpu()
-        print(face_normals)
 
         initial_colors, initial_normals = get_initial_colors_and_normals(texels, face_normals)
         initial_colors = initial_colors.reshape((texture_size,texture_size,3)).cpu()
@@ -1076,7 +1072,7 @@ if __name__ == '__main__':
     optimizers['brdf'] = torch.optim.AdamW(models['brdf'].parameters(), lr=0.001)
         
     # fit brdf parameters
-    brdf_params = train(models, optimizers, texels, max_samples_per_texel, lights, visualize_gradient=True, extrinsics = extrinsics, verts=verts, uv=uv, normals_img=initial_textures[2])
+    brdf_params = train(models, optimizers, texels, max_samples_per_texel, lights, visualize_gradient=True, extrinsics = extrinsics, verts=verts, uv=uv, normals_img=initial_textures[2], H=H, W=W)
 
 
 
