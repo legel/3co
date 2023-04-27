@@ -31,8 +31,8 @@ def generate_point_clouds():
 
     dynamic_args = {
         "base_directory" : '\'./data/philodendron\'',
-        "number_of_samples_outward_per_raycast" : 360,
-        "number_of_samples_outward_per_raycast_for_test_renders" : 360,
+        "number_of_samples_outward_per_raycast" : 720,
+        "number_of_samples_outward_per_raycast_for_test_renders" : 720,
         "density_neural_network_parameters" : 256,
         "percentile_of_samples_in_near_region" : 0.8,
         "number_of_pixels_per_batch_in_test_renders" : 1000,   
@@ -67,8 +67,10 @@ def generate_point_clouds():
     
     all_focal_lengths = scene.models["focal"]()([0])
     
+    # 34, 
     for image_index in scene.test_image_indices:
 
+        image_index = image_index + 30
         
 
         ground_truth_rgb_img, _ = scene.load_image_data(image_index * scene.skip_every_n_images_for_training)
@@ -212,7 +214,7 @@ def generate_point_cloud(
     #n_filtered_points = H * W - torch.sum(angle_condition.flatten())
     #print("filtering {}/{} points with angle condition".format(n_filtered_points, W*H))
     
-    entropy_condition = (entropy_image < 2.0).cpu()
+    entropy_condition = (entropy_image < 3.0).cpu()
     #entropy_condition = (entropy_image < 2.0).cpu()
     n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
     print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
@@ -224,8 +226,8 @@ def generate_point_cloud(
     if use_sparse_fine_rendering:            
         sparse_depth = depth
         #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.005
-        sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.01
-        #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 50.0
+        #sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 0.01
+        sticker_condition = torch.abs(unsparse_depth - sparse_depth) < 50.0
         joint_condition = torch.logical_and(joint_condition, sticker_condition)
         n_filtered_points = H * W - torch.sum(sticker_condition.flatten())
         print("filtering {}/{} points with sticker condition".format(n_filtered_points, W*H))            

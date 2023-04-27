@@ -120,7 +120,7 @@ def parse_args():
 
     # Define depth sensor parameters
     parser.add_argument('--depth_sensor_error', type=float, default=0.5, help='A rough estimate of the 1D-Gaussian-modeled depth sensor, in millimeters')
-    parser.add_argument('--epsilon', type=float, default=0.0000001, help='Minimum value in log() for NeRF density weights going to 0')    
+    parser.add_argument('--epsilon', type=float, default=1e-10, help='Minimum value in log() for NeRF density weights going to 0')    
 
     # Additional parameters on pre-processing of depth data and coordinate systems    
     parser.add_argument('--min_confidence', type=float, default=2.0, help='A value in [0,1,2] where 0 allows all depth data to be used, 2 filters the most and ignores that')
@@ -950,7 +950,15 @@ class SceneModel:
         # sampling_depths := (N_samples)
 
         # (N_pixels, N_sample, 3), (N_pixels, 3), (N_pixels, N_samples)                            
-        #pixel_directions = torch.nn.functional.normalize(pixel_directions, p=2, dim=1)
+
+        #print('render')
+        #a = torch.sum(  (pixel_directions - torch.nn.functional.normalize(pixel_directions, p=2, dim=1))**2, dim = 1)
+        #a = torch.sqrt(a)
+        #print(a.max())             
+        #print(a.mean())
+        #print("______")
+        
+        pixel_directions = torch.nn.functional.normalize(pixel_directions, p=2, dim=1)
 
         pixel_xyz_positions, pixel_directions_world, resampled_depths = volume_sampling(poses=poses, pixel_directions=pixel_directions, sampling_depths=sampling_depths, perturb_depths=perturb_depths)
         pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)
@@ -1167,7 +1175,7 @@ class SceneModel:
         
         focal_length = self.models['focal']()([0])                        
         poses = self.models['pose']()([0])
-        
+                
         # get a tensor with the poses per pixel
         image_ids = self.image_ids_per_pixel[indices_of_random_pixels] # (N_pixels)                
         selected_poses = poses[image_ids] # (N_pixels, 4, 4)
@@ -1176,6 +1184,7 @@ class SceneModel:
         selected_focal_lengths = focal_length[image_ids]
         
         pixel_directions_selected = compute_pixel_directions(selected_focal_lengths, pixel_rows, pixel_cols, self.principal_point_x, self.principal_point_y)
+
         
         for depth_sampling_optimization in range(self.args.n_depth_sampling_optimizations):
             
@@ -1198,7 +1207,7 @@ class SceneModel:
             nerf_depth_weights = render_result['depth_weights']  # (N_pixels, N_samples)
             
             nerf_sample_bin_lengths = depth_samples[:, 1:] - depth_samples[:, :-1]
-            nerf_depth_weights = nerf_depth_weights + self.args.epsilon           
+            nerf_depth_weights = nerf_depth_weights + 1e-7
 
             #####################| KL Loss |################################
             sensor_variance = self.args.depth_sensor_error
@@ -1209,6 +1218,7 @@ class SceneModel:
             
             #####################| Entropy Loss |###########################
             entropy_depth_loss = 0.0
+            n_near_samples = int(self.args.percentile_of_samples_in_near_region * self.args.number_of_samples_outward_per_raycast)
             mean_entropy = torch.mean(-1 * torch.sum(nerf_depth_weights * torch.log2(nerf_depth_weights), dim=1))
             if (self.epoch >= self.args.entropy_loss_tuning_start_epoch and self.epoch <= self.args.entropy_loss_tuning_end_epoch):                                                
                 epoch = torch.tensor([self.epoch]).float().to(self.device).float()
@@ -1440,7 +1450,102 @@ class SceneModel:
                     plt.savefig('{}/{}.png'.format(self.learning_rates_out_dir, topic))
                     plt.close()
 
-            # 
+
+            # optional: save graphs of nerf density weights visualization
+            #if epoch % self.args.save_depth_weights_frequency == 0 and epoch != 0:               
+                #print("Creating depth weight graph for view {}".format(image_index))
+                #os.makesdirs('{}/depth_weights_visualization'.format(self.experiment_dir), exist_ok=True)
+                #Path("{}/depth_weights_visualization/{}/image_{}/".format(self.experiment_dir, epoch, image_index)).mkdir(parents=True, exist_ok=True)
+                #view_row = 240                
+                #pixel_indices = torch.argwhere(self.image_ids_per_pixel == image_index)
+                #pixel_rows = self.pixel_rows[pixel_indices]
+                #pixel_cols = self.pixel_cols[pixel_indices]                
+#
+                #start_pixel = torch.sum(torch.where(pixel_rows.squeeze(1) < view_row, 1, 0))
+                #end_pixel = torch.sum(torch.where(pixel_rows.squeeze(1) < view_row + 1, 1, 0))
+                #this_image_rgbd = self.rgbd[pixel_indices].cpu().squeeze(1)  
+                #ground_truth_image = self.load_image_data(image_index * self.skip_every_n_images_for_training)
+                #for pixel_index in range(start_pixel, end_pixel):                                                
+#
+                    #out_path = Path("{}/{}/".format(self.depth_weights_out_dir, epoch))
+                    #out_path.mkdir(parents=True, exist_ok=True)
+#
+                    #sensor_depth = this_image_rgbd[pixel_index, 3]                    
+#
+                    #nerf_weights_coarse = render_result['depth_weights_coarse']
+#                    
+                    ##weights_fine = nerf_weights_fine.squeeze(0)[pixel_index]                                                                           
+#
+                    #image = ground_truth_image
+                    #downsized_image = torch.nn.functional.interpolate(image.permute(2, 0, 1).unsqueeze(0), size=(int(image.shape[0]/4), int(image.shape[1]/4)), mode='bilinear').squeeze().permute(1, 2, 0)                    
+                    #pixel_row_to_highlight = pixel_rows[pixel_index][0]                                    
+                    #pixel_col_to_highlight = pixel_cols[pixel_index][0]                    
+                    #pixel_row_to_highlight = int(pixel_row_to_highlight / 4)
+                    #pixel_col_to_highlight = int(pixel_col_to_highlight / 4)
+                    #downsized_image[pixel_row_to_highlight, pixel_col_to_highlight, :] = torch.tensor([1.0,0.0,0.0], dtype=torch.float32)     
+                    #downsized_image = (downsized_image * 255).to(torch.long)
+                    #downsized_image = downsized_image.cpu().numpy().astype(np.uint8)
+                    #downsized_path = Path("{}/downsized_image_{}.png".format(self.experiment_dir, image_index))
+                    #imageio.imwrite(downsized_path, downsized_image)                    
+#
+                    ##densities_coarse = density_coarse.squeeze(0)[pixel_index]  
+                    #weights_coarse = nerf_weights_coarse.squeeze(0)[pixel_index]                   
+                    ##weights_fine = nerf_weights_fine.squeeze(0)[pixel_index]
+                    ##predicted_depth_coarse = depth_coarse[pixel_index]
+                    #coarse_weights_entropy = -1 * torch.sum( (weights_coarse+self.args.epsilon) * torch.log(weights_coarse + self.args.epsilon), dim=0)
+                    #fig, axs = plt.subplots(3,2)                    
+#
+                    #max_depth = 0.5
+                    #avg_fine_sample_depth = torch.mean(sampled_depths_fine[pixel_index, : sampled_depths_fine.size()[1]-1])
+                    #if self.args.n_depth_sampling_optimizations > 1:
+                        #predicted_depth_fine = depth_fine[pixel_index]                    
+                        #axs[1,0].scatter(sampled_depths_fine[pixel_index, : sampled_depths_fine.size()[1]-1], weights_fine, s=1, marker='o', c='green')                    
+                        #axs[1,0].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                        #axs[1,0].scatter([predicted_depth_fine.item()], [0], s=5, marker='o', c='blue')
+                        ##axs[1,0].set_xlim([avg_fine_sample_depth - offset, avg_fine_sample_depth + offset])
+                        #axs[1,0].set_xlim([0,max_depth])
+#                                        
+                    #axs[0,0].scatter(sampled_depths_coarse[pixel_index, : sampled_depths_coarse.size()[1]-1], weights_coarse, s=1, marker='o', c='green')                    
+                    #axs[0,0].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                    #axs[0,0].scatter([predicted_depth_coarse.item()], [0], s=5, marker='o', c='blue')                    
+                    ##axs[0,0].set_xlim([avg_fine_sample_depth - offset, avg_fine_sample_depth + offset])
+                    #axs[0,0].set_xlim([0,max_depth])
+                    #if self.args.n_depth_sampling_optimizations > 1:                                            
+                        #axs[1,1].scatter(sampled_depths_fine[pixel_index, : sampled_depths_fine.size()[1]-1], densities_fine, s=1, marker='o', c='green')                    
+                        #axs[1,1].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                        #axs[1,1].scatter([predicted_depth_fine.item()], [0], s=5, marker='o', c='blue')
+                        ##axs[1,1].set_xlim([avg_fine_sample_depth - offset, avg_fine_sample_depth + offset])
+                        #axs[1,1].set_xlim([0,max_depth])
+#                    
+                    #axs[0,1].scatter(sampled_depths_coarse[pixel_index, : sampled_depths_coarse.size()[1]-1], densities_coarse, s=1, marker='o', c='green')                    
+                    #axs[0,1].scatter([sensor_depth.item()], [0], s=30, marker='o', c='red')                    
+                    #axs[0,1].scatter([predicted_depth_coarse.item()], [0], s=5, marker='o', c='blue')                    
+                    ##axs[0,1].set_xlim([avg_fine_sample_depth - offset, avg_fine_sample_depth + offset])
+                    #axs[0,1].set_xlim([0,max_depth])
+#
+                    #coarse_weights_sum = torch.sum(weights_coarse, 0)
+                    #fine_weights_sum = torch.sum(weights_fine, 0)
+                    #text_kwargs = dict(ha='center', va='center', fontsize=8, color='black')   
+#
+                    #depth_diff = 1337.69420
+                    #if self.args.use_sparse_fine_rendering:
+                        #predicted_depth_unsparse_fine = (render_result['depth_image_unsparse_fine'])[pixel_index]
+                        #depth_diff = torch.abs(predicted_depth_unsparse_fine - predicted_depth_fine)
+#                    
+                    #axs[2,0].text(0.5,0.5, 'coarse weights entropy: {:.6f}\npixel coordinates: ({},{})\ncoarse weights sum: {:.6f}\nfine weights sum: {:.6f}\nsparse/unsparse depth diff: {:.6f}'.format(coarse_weights_entropy, self.pixel_rows[pixel_indices[pixel_index]][0], self.pixel_cols[pixel_indices[pixel_index]][0], coarse_weights_sum, fine_weights_sum, depth_diff) ,  **text_kwargs)
+                    #axs[2,0].axis('off')
+#
+                    #axs[2,1].imshow(downsized_image)
+                    #axs[2,1].axis('off')
+#                    
+                    #out_file_suffix = 'image_{}/{}'.format(image_index, image_index)
+                    #depth_weights_file_name = os.path.join(out_path, str(out_file_suffix).zfill(4) + '_depth_weights_e{}_p{}.png'.format(epoch, pixel_index))
+                    #plt.savefig(depth_weights_file_name)
+                    #plt.close()
+
+
+
+
             
         self.export_camera_extrinsics_and_intrinsics_from_trained_model(self.experiment_dir, epoch)
 
@@ -1528,14 +1633,14 @@ class SceneModel:
 
     def load_saved_args_train(self):
             
-        self.args.base_directory = './data/philodendron'
+        self.args.base_directory = './data/elastica_burgundy'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
-        self.args.load_pretrained_models = True
+        self.args.load_pretrained_models = False
         self.args.reset_learning_rates = False
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
         self.args.pretrained_models_directory = './data/philodendron/hyperparam_experiments/from_cloud/philodendron_run204/models'
-        self.args.start_epoch = 500001
+        self.args.start_epoch = 1
         self.args.number_of_epochs = 500000
         
         #self.args.start_training_extrinsics_epoch = 500        
@@ -1544,9 +1649,9 @@ class SceneModel:
         self.args.start_training_intrinsics_epoch = 1000
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 10000
+        self.args.entropy_loss_tuning_start_epoch = 5000
         self.args.entropy_loss_tuning_end_epoch = 1000000
-        self.args.max_entropy_weight = 0.002
+        self.args.max_entropy_weight = 0.005
 
         self.args.nerf_density_lr_start = 0.0005
         self.args.nerf_density_lr_end = 0.0001
@@ -1578,7 +1683,6 @@ class SceneModel:
         self.args.color_neural_network_parameters = 256
         self.args.directional_encoding_fourier_frequencies = 8
         
-        self.args.epsilon = 0.0000001
         self.args.depth_sensor_error = 0.5
         self.args.min_confidence = 2.0
 
@@ -1599,7 +1703,7 @@ class SceneModel:
         self.args.pixel_samples_per_epoch = 1024
         ###########################self.args.number_of_samples_outward_per_raycast = 360
         self.args.number_of_samples_outward_per_raycast = 360        
-        self.args.number_of_images_in_training_dataset = 120 
+        self.args.number_of_images_in_training_dataset = 2048
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256
         self.args.H_for_training = 480
         self.args.W_for_training = 640
