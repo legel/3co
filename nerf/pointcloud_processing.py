@@ -30,16 +30,16 @@ os.environ['PYTORCH_KERNEL_CACHE_PATH'] = './'
 def generate_point_clouds():
 
     dynamic_args = {
-        "base_directory" : '\'./data/philodendron\'',
-        "number_of_samples_outward_per_raycast" : 720,
-        "number_of_samples_outward_per_raycast_for_test_renders" : 720,
+        "base_directory" : '\'./data/cactus\'',
+        "number_of_samples_outward_per_raycast" : 360,
+        "number_of_samples_outward_per_raycast_for_test_renders" : 360,
         "density_neural_network_parameters" : 256,
         "percentile_of_samples_in_near_region" : 0.8,
         "number_of_pixels_per_batch_in_test_renders" : 1000,   
-        "H_for_test_renders" : 480,
-        "W_for_test_renders" : 640,
-        "H_for_training" : 480,
-        "W_for_training" : 640,
+        "H_for_test_renders" : 1440,
+        "W_for_test_renders" : 1920,
+        "H_for_training" : 1440,
+        "W_for_training" : 1920,
         #"H_for_test_renders" : 1440,
         #"W_for_test_renders" : 1920,            
         "near_maximum_depth" : 0.5,
@@ -48,7 +48,7 @@ def generate_point_clouds():
         "number_of_pixels_in_training_dataset" : 640 * 480 * 10,
         "skip_every_n_images_for_testing" : 1,
         "use_sparse_fine_rendering" : True,
-        "pretrained_models_directory" : '\'./data/philodendron/hyperparam_experiments/from_cloud/philodendron_run204/models\'',        
+        "pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run204-2/models\'',        
         #"pretrained_models_directory" : '\'./data/cactus/hyperparam_experiments/from_cloud/cactus_run43/models\'',        
         "start_epoch" : 500001,
         "load_pretrained_models" : True,            
@@ -69,10 +69,7 @@ def generate_point_clouds():
     
     # 34, 
     for image_index in scene.test_image_indices:
-
-        image_index = image_index + 30
-        
-
+        image_index = image_index + 54
         ground_truth_rgb_img, _ = scene.load_image_data(image_index * scene.skip_every_n_images_for_training)
         #ground_truth_rgb_img, _ = scene.load_image_data(image_index * 60)
 
@@ -214,8 +211,8 @@ def generate_point_cloud(
     #n_filtered_points = H * W - torch.sum(angle_condition.flatten())
     #print("filtering {}/{} points with angle condition".format(n_filtered_points, W*H))
     
-    entropy_condition = (entropy_image < 3.0).cpu()
-    #entropy_condition = (entropy_image < 2.0).cpu()
+    #entropy_condition = (entropy_image < 3.0).cpu()
+    entropy_condition = (entropy_image < 500.0).cpu()
     n_filtered_points = H * W - torch.sum(entropy_condition.flatten())
     print("filtering {}/{} points with entropy condition".format(n_filtered_points, W*H))
 

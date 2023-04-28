@@ -410,6 +410,9 @@ class SceneModel:
         torch.save(camera_intrinsics, '{}/camera_intrinsics_{}.pt'.format(dir, epoch))
         torch.save(camera_extrinsics, '{}/camera_extrinsics_{}.pt'.format(dir, epoch))
 
+        print(camera_intrinsics[:, 2,2])
+        quit()
+
         return (camera_extrinsics, camera_intrinsics)
 
 
@@ -1115,7 +1118,14 @@ class SceneModel:
             rendered_depth_for_file_coarse = (rendered_depth_for_file_coarse * 255).astype(np.uint8)        
             imageio.imwrite(depth_file_name_coarse, rendered_depth_for_file_coarse)  
         
+        a = rendered_depth_fine.flatten(start_dim=0, end_dim=1)
+        a[torch.where(a > 0.5)[0]] =  0.8
+        rendered_depth_fine = a.reshape(H, W)
         rendered_depth_data_fine = rendered_depth_fine.cpu().numpy() 
+        
+        #rendered_depth_data_fine[torch.where(rendered_depth_data_fine)]
+        
+        
         rendered_depth_for_file_fine = heatmap_to_pseudo_color(rendered_depth_data_fine)
         rendered_depth_for_file_fine = (rendered_depth_for_file_fine * 255).astype(np.uint8)        
         imageio.imwrite(color_file_name_fine, rendered_color_for_file_fine)
@@ -1633,14 +1643,14 @@ class SceneModel:
 
     def load_saved_args_train(self):
             
-        self.args.base_directory = './data/elastica_burgundy'
+        self.args.base_directory = './data/cactus'
         self.args.images_directory = 'color'
         self.args.images_data_type = 'jpg'            
-        self.args.load_pretrained_models = False
+        self.args.load_pretrained_models = True
         self.args.reset_learning_rates = False
         #self.args.pretrained_models_directory = './data/dragon_scale/hyperparam_experiments/from_cloud/dragon_scale_run39/models'
-        self.args.pretrained_models_directory = './data/philodendron/hyperparam_experiments/from_cloud/philodendron_run204/models'
-        self.args.start_epoch = 1
+        self.args.pretrained_models_directory = './data/cactus/hyperparam_experiments/from_cloud/cactus_run204-2/models'
+        self.args.start_epoch = 500001
         self.args.number_of_epochs = 500000
         
         #self.args.start_training_extrinsics_epoch = 500        
@@ -1649,9 +1659,9 @@ class SceneModel:
         self.args.start_training_intrinsics_epoch = 1000
         self.args.start_training_color_epoch = 0
         self.args.start_training_geometry_epoch = 0
-        self.args.entropy_loss_tuning_start_epoch = 5000
+        self.args.entropy_loss_tuning_start_epoch = 10000
         self.args.entropy_loss_tuning_end_epoch = 1000000
-        self.args.max_entropy_weight = 0.005
+        self.args.max_entropy_weight = 0.002
 
         self.args.nerf_density_lr_start = 0.0005
         self.args.nerf_density_lr_end = 0.0001
@@ -1687,7 +1697,7 @@ class SceneModel:
         self.args.min_confidence = 2.0
 
         ### test images
-        self.args.skip_every_n_images_for_testing = 5
+        self.args.skip_every_n_images_for_testing = 50
         self.args.number_of_test_images = 5
 
         ### test frequency parameters
@@ -1702,8 +1712,9 @@ class SceneModel:
         self.args.resample_pixels_frequency = 5000
         self.args.pixel_samples_per_epoch = 1024
         ###########################self.args.number_of_samples_outward_per_raycast = 360
-        self.args.number_of_samples_outward_per_raycast = 360        
-        self.args.number_of_images_in_training_dataset = 2048
+        self.args.number_of_samples_outward_per_raycast = 360
+        #self.args.number_of_images_in_training_dataset = 2048
+        self.args.number_of_images_in_training_dataset = 120
         self.args.number_of_pixels_in_training_dataset = 640 * 480 * 256
         self.args.H_for_training = 480
         self.args.W_for_training = 640
@@ -1712,12 +1723,13 @@ class SceneModel:
         
 
         # testing
-        self.args.number_of_pixels_per_batch_in_test_renders = 5000
+        self.args.number_of_pixels_per_batch_in_test_renders = 2500
         self.args.number_of_samples_outward_per_raycast_for_test_renders = self.args.number_of_samples_outward_per_raycast
         
         self.args.use_sparse_fine_rendering = False        
                 
-        self.args.near_maximum_depth = 0.5
+        #self.args.near_maximum_depth = 0.5
+        self.args.near_maximum_depth = 1.0
         self.args.far_maximum_depth = 3.00  
         self.args.percentile_of_samples_in_near_region = 0.80 
 
@@ -1739,8 +1751,8 @@ if __name__ == '__main__':
         
         if scene.epoch == scene.args.start_epoch:
             with torch.no_grad():                                            
-                #scene.test()
-                #quit()
+                scene.test()
+                quit()
                 print("")
                 
         #scene.print_memory_usage()
