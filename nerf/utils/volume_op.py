@@ -26,7 +26,7 @@ def volume_sampling(poses, pixel_directions, sampling_depths, perturb_depths=Tru
     else:
         resampled_depths = sampling_depths #sampling_depths.view(1, N_samples).expand(N_pixels, N_samples)        
 
-    pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)    
+    #pixel_directions_world = torch.nn.functional.normalize(pixel_directions_world, p=2, dim=1)  # (N_pixels, 3)    
     pixel_depth_samples_world_directions = pixel_directions_world.unsqueeze(1) * resampled_depths.unsqueeze(2) # (N_pixels, N_samples, 3)
     pixel_xyz_positions = poses_xyz.unsqueeze(1).expand(N_pixels, N_samples, 3) + pixel_depth_samples_world_directions # (N_pixels, N_samples, 3)
     
@@ -45,16 +45,9 @@ def volume_rendering(rgb, density, depths):
     N_pixels, N_samples = depths.shape[0], depths.shape[1]
 
     rgb = torch.sigmoid(rgb)
-    #density2 = torch.squeeze(density.relu(), dim=2).clone()  # (N_pixels, N_sample)        
     density = torch.squeeze(density.relu(), dim=2)  # (N_pixels, N_sample)        
     
-    #s = torch.sum(density2, dim=0)
-    #density2[:, : ((N_samples//5) * 4) ] = density2[:, : ((N_samples//5) * 4) ].clone() * 0.8
-    #density2[:, ((N_samples//5) * 4) : ] = density2[:, ((N_samples //5) * 4) :].clone() * 0.2          
-    #density2 = density2.clone() * s / torch.sum(density2.clone(), dim=0)
-    
-    #density = density / torch.sum()  torch.nn.functional.normalize(weight, dim=0, p=1)        
-    
+        
     # Compute distances between samples.
     # 1. compute the distances among first (N-1) samples
     # 2. the distance between the LAST sample and infinite far is 1e10

@@ -31,7 +31,7 @@ def encode_position(input, levels, inc_input=True):
     return result_list  # (..., C*(2L+1))
 
 
-def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, pixel_world_widths):
+def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, pixel_world_widths, min_xyz_values, max_xyz_range):
     
     N_pixels = sampling_depths.size(0)            
     
@@ -47,16 +47,21 @@ def encode_ipe(origin_xyz, depth_xyzs, pixel_directions, sampling_depths, pixel_
     means, covs = conical_frustum_to_gaussian(pixel_directions, t0, t1, radii[:,:])
 
     # offset mean by camera origin  
-    x = means + origin_xyz.unsqueeze(1).expand(N_pixels, sampling_depths.size(1)-1, 3)
+    #x = means + origin_xyz.unsqueeze(1).expand(N_pixels, sampling_depths.size(1)-1, 3)
+    derived_pixel_xyz = means + origin_xyz.unsqueeze(1).expand(N_pixels, sampling_depths.size(1)-1, 3) 
+
+    derived_pixel_xyz = normalize_coordinates(xyz_coordinates=derived_pixel_xyz, min_xyz_values=min_xyz_values, max_xyz_range=max_xyz_range)
+    covs = convert_distance_to_normalized(distance=covs, max_xyz_range=max_xyz_range)    
+
     x_cov_diag = covs        
 
     ##### compute expectation of fourier-encoded gaussian ####
     min_deg = 0  # 0 is default from mip-nerf code
     max_deg = 10  # 16 is default from mip-nerf code    
     scales = torch.tensor(np.array([2**i for i in range(min_deg, max_deg)])).to(torch.device('cuda:0'))
-    shape = list(x.shape[:-1]) + [-1]    
+    shape = list(derived_pixel_xyz.shape[:-1]) + [-1]    
 
-    y = torch.reshape(x[..., None, :] * scales[:,None], shape)    
+    y = torch.reshape(derived_pixel_xyz[..., None, :] * scales[:,None], shape)    
     y_var = torch.reshape(x_cov_diag[..., None, :] * scales[:,None]**2, shape)        
 
     pi = torch.tensor(np.pi).to(torch.device('cuda:0'))    
@@ -120,3 +125,13 @@ def expected_sin(x, x_var):
     #y_var = torch.max(torch.tensor([0.0]).to(torch.device('cuda:0')), 0.5 * (1 - torch.exp(-2 * x_var) * torch.cos(2 * x)) - y**2) # safe_cos?
     y_var = torch.clamp(0.5 * (1 - torch.exp(-2 * x_var) * torch.cos(2 * x)) - y**2, min=0) # safe_cos?
     return y, y_var
+
+
+def normalize_coordinates(xyz_coordinates, min_xyz_values, max_xyz_range):        
+    normalized_coordinates = 2 * (xyz_coordinates - min_xyz_values) / max_xyz_range - 1
+    return normalized_coordinates
+
+def convert_distance_to_normalized(distance, max_xyz_range):
+    return distance / (max_xyz_range / 2)
+
+
