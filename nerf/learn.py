@@ -179,7 +179,6 @@ class SceneModel:
         # prepare test evaluation indices
         self.prepare_test_data()        
 
-
         
         torch.set_float32_matmul_precision('high')
         torch._dynamo.config.verbose=True        
@@ -192,8 +191,8 @@ class SceneModel:
             print("Loading pretrained models")
             self.load_pretrained_models()                        
             #self.export_camera_extrinsics_and_intrinsics_from_trained_model('./', '150000', print_debug_info=True)
-            #self.create_blender_cameras_for_nerf2mesh()
-            #quit()
+            self.create_blender_cameras_for_nerf2mesh()
+            quit()
         else:            
             print("Training from scratch")
             
@@ -403,40 +402,6 @@ class SceneModel:
         self.all_initial_poses = torch.Tensor(convert3x4_4x4(rotations_translations)).cpu() # (N, 4, 4)        
 
 
-    def preprocess_training_image_and_depth_data_once_for_fast_loading(self):
-        # make a directory for fast reload of data for this training mode and resolution
-        directory_for_fast_reload_of_training_params = "{}/{}x{}".format(self.args.base_directory, 480, 640)
-        #if not os.path.exists(directory_for_fast_reload_of_training_params):
-
-        os.makedirs(directory_for_fast_reload_of_training_params, exist_ok=True)
-
-        all_depths = []
-        #all_images = []
-        #all_confidence = []
-
-        #for i, image_id in enumerate(self.image_ids[::self.skip_every_n_images_for_training][:self.args.number_of_images_in_training_dataset]):
-        for i, image_id in enumerate(self.image_ids):
-            depth, near_bound, far_bound, confidence = self.load_depth_data(image_id=image_id)
-            image, _ = self.load_image_data(image_id=image_id)
-
-            depths_in_mm = (depth * 1000).to(dtype=torch.int16)
-            #depths_in_mm = (depth).to(dtype=torch.int16)
-
-            #print("Preprocessing data for image {} of {}".format(i, self.args.number_of_images_in_training_dataset))
-            print("Preprocessing data for image_id {}".format(image_id))
-            all_depths.append(depths_in_mm.unsqueeze(0))
-            #all_confidence.append(confidence.unsqueeze(0))
-            #all_images.append(image.unsqueeze(0))
-
-        depths = torch.cat(all_depths, dim=0)
-        #confidences = torch.cat(all_confidence, dim=0)
-        #images = torch.cat(all_images, dim=0)
-
-        torch.save(depths, "{}/depths.pt".format(directory_for_fast_reload_of_training_params))
-        #torch.save(confidences, "{}/confidences.pt".format(directory_for_fast_reload_of_training_params))
-        #torch.save(images, "{}/images.pt".format(directory_for_fast_reload_of_training_params))
-
-
     def export_camera_extrinsics_and_intrinsics_from_trained_model(self, dir, epoch, save=True, print_debug_info=False):
         # gather the latest poses ("camera extrinsics")
         camera_extrinsics = self.models['pose']()([0]).cpu()    
@@ -454,7 +419,7 @@ class SceneModel:
         camera_intrinsics[:,0,2] = self.principal_point_x
         camera_intrinsics[:,1,2] = self.principal_point_y
         
-        # use index [2,2] in intrinsics to store the image index that the extrinsics/intrinsics correspond to
+        # use index [2,2] in intrinsics to store the image index (of full dataset) that the extrinsics/intrinsics correspond to
         image_indices = torch.arange(start=0, end=self.args.number_of_images_in_training_dataset) * self.skip_every_n_images_for_training
         camera_intrinsics[:, 2, 2] = image_indices.to(torch.float32)
 
@@ -463,8 +428,12 @@ class SceneModel:
         camera_intrinsics[:, 2, 0] = self.W
                 
         if dir is not None:
-            torch.save(camera_intrinsics, '{}/camera_intrinsics_{}.pt'.format(dir, epoch))
-            torch.save(camera_extrinsics, '{}/camera_extrinsics_{}.pt'.format(dir, epoch))
+            camera_intrinsics_dir = '{}camera_intrinsics_{}.pt'.format(dir, epoch)
+            camera_extrinsics_dir = '{}camera_extrinsics_{}.pt'.format(dir, epoch)
+
+            print("Saving camera intrinsics and extrinsics to {} and {}".format(camera_extrinsics_dir, camera_intrinsics_dir))
+            torch.save(camera_intrinsics, camera_intrinsics_dir)
+            torch.save(camera_extrinsics, camera_extrinsics_dir)
 
         if print_debug_info:
             print('image indices: ')
@@ -483,21 +452,23 @@ class SceneModel:
 
 
     def create_blender_cameras_for_nerf2mesh(self):
-
-        out_dir = '{}/{}'.format(self.args.base_directory, 'transforms.json')
-
+    
         import json
-        camera_extrinsics, camera_intrinsics = self.export_camera_extrinsics_and_intrinsics_from_trained_model(dir=None, epoch=150000)
+        
+        camera_extrinsics, camera_intrinsics = self.export_camera_extrinsics_and_intrinsics_from_trained_model(dir=None, epoch=None)
         n_cameras = camera_extrinsics.shape[0]
-
         
         cameras = []
-        for cam_i in range(n_cameras):
+        for cam_i in range(n_cameras)[::self.args.skip_every_n_images_for_testing]:
+            
             
             fl_x = camera_intrinsics[cam_i, 0, 0].item()
             fl_y = camera_intrinsics[cam_i, 1, 1].item()
+
+            cx = camera_intrinsics[cam_i, 0, 2].item()
+            cy = camera_intrinsics[cam_i, 1, 2].item()
             image_index = camera_intrinsics[cam_i, 2, 2]
-            fname = 'images_3/{}.jpg'.format(str(image_index.int().item()).zfill(6))
+            ground_truth_rgb_img_fname = 'ground_truth_rgb/{}.jpg'.format(str(image_index.int().item()).zfill(6))
 
             # swap y and z axes
             permutation_matrix = torch.tensor([
@@ -510,8 +481,7 @@ class SceneModel:
 
             transform_matrix_out = torch.zeros((4,4))
 
-            xyz_coor = camera_extrinsics[cam_i, :3, 3]
-            print(xyz_coor)
+            xyz_coor = camera_extrinsics[cam_i, :3, 3]            
 
             transform_matrix_out[:3, :3] = transform_matrix            
             transform_matrix_out[0, 3] = xyz_coor[0]
@@ -519,17 +489,18 @@ class SceneModel:
             transform_matrix_out[2, 3] = xyz_coor[1]
             transform_matrix_out[3, 3] = 1.0
 
-
             transform_matrix_out = transform_matrix_out.tolist()
 
             camera = {
                 'fl_x' : fl_x,
                 'fl_y' : fl_y,
+                'cx' : cx,
+                'cy' : cy,
                 'frames' : []
             }
 
             frame = {
-                'file_path' : fname,
+                'file_path' : ground_truth_rgb_img_fname,
                 'transform_matrix' : transform_matrix_out,
             }
 
@@ -537,24 +508,46 @@ class SceneModel:
 
             cameras.append(camera)
 
-        cameras = cameras[:100]
         
-
-
-        #with open(out_dir, 'w') as f:
-        #    json.dump(cameras, f, indent=4)
-
+        # currently using the same transforms for all three data types for ease of coding initial prototype.
+        #   we'll have to decide whether we want to implement flexibility in test indices by
+        #   constructing appropriate train, test, and tranforms here, or by changing nerf2mesh's data loading/storage
+        #   system to match ours.
+        print('Exporting tranforms to {}'.format(self.args.base_directory))
         with open('{}/{}'.format(self.args.base_directory, 'transforms_train.json'), 'w') as f:
             json.dump(cameras, f, indent=4)
         with open('{}/{}'.format(self.args.base_directory, 'transforms_test.json'), 'w') as f:
             json.dump(cameras, f, indent=4)
         with open('{}/{}'.format(self.args.base_directory, 'transforms_val.json'), 'w') as f:
             json.dump(cameras, f, indent=4)                                    
+
+
+    def export_data_for_nerf2mesh():
+        # psuedo code for steps:
+        # <list of image ids> = self.image_ids[::skip_every_n_images_for_training][::skip_every_n_images_for_testing]
+        # <list of image_ids> and <resolution>:
+        # for each image_id in <list of image_ids>,
+        #       transfer ground truth rgb image for image_id, downsampled to <resolution>, to 
+        #           '{nerf2mesh_data_dir}/{dataset_name}/ground_truth_rgb/' as str(image_id).zfill(6).jpg
+        #       render depth image for image_id at <resolution> using pretrained model, transfer to
+        #           '{nerf2mesh_data_dir}/{dataset_name}/depth_images/' as str(image_id).zfill(6).png
+        #       convert above depth images to numpy, save to 
+        #           '{nerf2mesh_data_dir}/{dataset_name}/depths, as str(image_id).zfill(6).npy
+        # compute transforms using self.create_blender_cameras_for_nerf2mesh(),
+        #       transfer to '{nerf2mesh_data_dir}/{dataset_name}/ as tranforms_train.npy, transforms_test.npy, tranforms_val.npy
+        #       (note that this includes the filenames of gt_rgb and depth that nerf2mesh will look for)
+        #
+        # NOTES: 
+        # -- we use "INTER_LINEAR" interpolation to upsample/downsample data in our nerf training/testing, while nerf2mesh uses
+        #    "BILINEAR", probably worth testing whether we should match them
+        # -- could probably make .jpg or .png for the exported images a choice, not sure whether it would break something in nerf2mesh though
+        # -- to save compute, we might be able to get away with rendering depth images at the sensor resolution and upsampling them,
+        #    but this is dubious since they're trained at the higher resolution
+        # -- no need for confidence data unless we want to try to make sensor data work consistently and/or want to express
+        #    confidence for our learned dephts        
+        quit()
+
         
-
-
-
-
 
     # create a point cloud using open3d
     def create_point_cloud(self, xyz_coordinates, colors, normals=None, flatten_xyz=True, flatten_image=True):
@@ -595,9 +588,7 @@ class SceneModel:
         neighbor_distance_per_pixel = []
         self.sample_image = torch.zeros(self.H, self.W)
 
-        self.all_xyz = []
-        
-        
+        self.all_xyz = []                
     
         n_pixels_in_training_dataset = self.args.number_of_pixels_in_training_dataset
         n_images = self.args.number_of_images_in_training_dataset
@@ -1288,10 +1279,15 @@ class SceneModel:
         rendered_depth_data_fine = rendered_depth_fine.cpu().numpy() 
         
         #rendered_depth_data_fine[torch.where(rendered_depth_data_fine)]
+        raw_depth_file_name_fine = '{}.{}'.format(depth_file_name_fine.split('.')[0], 'npy')
+        print(raw_depth_file_name_fine)
         
-        
+        np.save(raw_depth_file_name_fine, rendered_depth_data_fine)        
+                
         rendered_depth_for_file_fine = heatmap_to_pseudo_color(rendered_depth_data_fine)
         rendered_depth_for_file_fine = (rendered_depth_for_file_fine * 255).astype(np.uint8)        
+
+
         imageio.imwrite(color_file_name_fine, rendered_color_for_file_fine)
         imageio.imwrite(depth_file_name_fine, rendered_depth_for_file_fine)         
 
@@ -1770,7 +1766,7 @@ class SceneModel:
         self.args.min_confidence = 2.0
 
         ### test images
-        self.args.skip_every_n_images_for_testing = 1
+        self.args.skip_every_n_images_for_testing = 10
         self.args.number_of_test_images = 1024
 
         ### test frequency parameters
@@ -1822,19 +1818,16 @@ class SceneModel:
     ##################### Main function ##############################
     ##################################################################
 if __name__ == '__main__':
-    
+        
     with torch.no_grad():
         scene = SceneModel(args=parse_args(), experiment_args='train')
 
     while scene.epoch < scene.args.start_epoch + scene.args.number_of_epochs:    
         
-        if scene.epoch == scene.args.start_epoch:
-            with torch.no_grad():                                            
-                scene.test()
-                quit()
-                print("")
-                
-        #scene.print_memory_usage()
+        with torch.no_grad():            
+            scene.test()
+            quit()
+            print("")                        
         
         with torch.no_grad():
             if scene.epoch != scene.args.start_epoch and (scene.epoch-1) % scene.args.resample_pixels_frequency == 0:
