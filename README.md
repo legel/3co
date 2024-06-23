@@ -26,6 +26,6 @@ We especially recommend looking into our [3D reconstruction code](https://github
   - Cool 3D simulations of animated robot design ([_1_](https://www.3co.ai/iris1.mp4), [_2_](https://www.3co.ai/iris_3d.mp4))
   - Live demo of prototype 3D scanning machine ([_3_](https://www.3co.ai/iris_by_3co.mp4)),
   - Provisional patent filing ([_4_](https://www.3co.ai/inverse_rendering_with_3d_coordinate_measuring_machines.pdf))
-  - Google Cloud: "3co reinvents the digital shopping experience with augmented reality on Google Cloud" [_5_](https://cloud.google.com/blog/topics/startups/3co-scales-ar-commerce-with-3d-scanning) 
+  - Google Cloud: "3co reinvents the digital shopping experience with augmented reality on Google Cloud" ([_5_](https://cloud.google.com/blog/topics/startups/3co-scales-ar-commerce-with-3d-scanning))
 
-Please reach out to us (specifically, [Lance]()) if anything comes up.
+Please reach out to us (specifically, [Lance](https://www.linkedin.com/in/legel/)) if anything comes up.
