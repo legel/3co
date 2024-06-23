@@ -29,4 +29,10 @@ We especially recommend looking into our [3D reconstruction code](https://github
   - Eventually we filed a broad provisional patent on related hardware, vision, and AI ([_4_](https://www.3co.ai/inverse_rendering_with_3d_coordinate_measuring_machines.pdf))
   - Google Cloud Blog: _"3co reinvents the digital shopping experience with augmented reality..."_ ([_5_](https://cloud.google.com/blog/topics/startups/3co-scales-ar-commerce-with-3d-scanning))
 
+### Photorealistic 3D model production from iPhone Pro
+![](media/scan.gif)
+![](media/show.gif)
+- Here is an extraordinarily precise 3D point cloud of an orchid, from our pipeline ([_1_](https://www.3co.ai/orchid.mp4))
+- Video a plant being scanned ([_2_](https://www.3co.ai/3D_scan.mp4)), rendered ([_3_](https://www.3co.ai/3D_render.mp4)), and brought to augmented reality ([_4_](https://www.3co.ai/augmented.mp4))  
+
 Please reach out to us (specifically, [Lance](https://www.linkedin.com/in/legel/)) if anything comes up.
