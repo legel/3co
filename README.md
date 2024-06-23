@@ -32,7 +32,9 @@ We especially recommend looking into our [3D reconstruction code](https://github
 ### Photorealistic 3D model production from iPhone Pro
 ![](media/scan.gif)
 ![](media/show.gif)
-- Here is an extraordinarily precise 3D point cloud of an orchid, from our pipeline ([_1_](https://www.3co.ai/orchid.mp4))
-- Video a plant being scanned ([_2_](https://www.3co.ai/3D_scan.mp4)), rendered ([_3_](https://www.3co.ai/3D_render.mp4)), and brought to augmented reality ([_4_](https://www.3co.ai/augmented.mp4))  
+- For reference, a video of a real _Alocasia baginda_ being scanned ([_1_](https://www.3co.ai/3D_scan.mp4))
+- This neural 360 degree rendering of that plant looks really cool ([_2_](https://www.3co.ai/3D_render.mp4))
+- Controling a 3D meshed model of that plant in augmented reality ([_3_](https://www.3co.ai/augmented.mp4))  
+- See this amazingly precise 3D point cloud of a _Phalaenopsis_ orchid ([_4_](https://www.3co.ai/orchid.mp4))
 
 Please reach out to us (specifically, [Lance](https://www.linkedin.com/in/legel/)) if anything comes up.
