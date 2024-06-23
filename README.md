@@ -30,7 +30,6 @@ We especially recommend looking into our [3D reconstruction code](https://github
   - Google Cloud Blog: _"3co reinvents the digital shopping experience with augmented reality..."_ ([_5_](https://cloud.google.com/blog/topics/startups/3co-scales-ar-commerce-with-3d-scanning))
 
 ### Photorealistic 3D model production from iPhone Pro
-![](media/scan.gif)
 ![](media/show.gif)
 - For reference, a video of a real _Alocasia baginda_ being scanned ([_1_](https://www.3co.ai/3D_scan.mp4))
 - This neural 360 degree rendering of that plant looks really cool ([_2_](https://www.3co.ai/3D_render.mp4))
