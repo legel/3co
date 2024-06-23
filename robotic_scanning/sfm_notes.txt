@@ -1,0 +1,65 @@
+# Congratulations!
+# We've got a structure from motion system built.
+# And now all we have to do is actually code it.
+# Here are the tasks that come up:
+
+1. Focus on reconstruct_() interface, which is called by the current reconstruct() that has the same arguments:
+	- We have found that we can provide both camera intrinsics and distortion parameters! Hard-code those parameters.
+	- Set refinement=false
+	- Ensure that LibMV parameters are set to optimum
+	- Look into parallelization (eventually)
+
+2. Edit the command line interface for the file we will use in production so that all it asks for is the input data file name
+
+3. For the camera motion .txt input data file, keep in mind that all it needs is X_pixel + Y_pixel location for every ChArUco coordinate in every image, and then -1,-1 if not found.
+   Get this out of each ChAruCo sub-pixel detections, focusing on simple data structures for writing to this file data structure:
+	 image_1 : x1 y1 x2 y2 ... xTOTAL_SEEN_CHARUCO_POINTS yTOTAL_SEEN_CHARUCO_POINTS\n
+	 image_2 : x1 y1 x2 y2 ... xTOTAL_SEEN_CHARUCO_POINTS yTOTAL_SEEN_CHARUCO_POINTS\n
+	 ...
+	 image_N : x1 y1 x2 y2 ... xTOTAL_SEEN_CHARUCO_POINTS yTOTAL_SEEN_CHARUCO_POINTS\n
+
+4. Recompile OpenCV + SFM with the following:
+
+rm -rf /home/sense/liblivre/opencv/build && mkdir /home/sense/liblivre/opencv/build && cd /home/sense/liblivre/opencv/build
+
+cmake -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -G "Sublime Text 2 - Unix Makefiles" -D BUILD_EXAMPLES=ON -D CMAKE_INSTALL_PREFIX=/home/sense/liblivre/install/opencv -D BUILD_PERF_TESTS=FALSE -D BUILD_DOCS=OFF -D BUILD_TESTS=FALSE -D INSTALL_PYTHON_EXAMPLES=OFF -D OPENCV_PYTHON3_INSTALL_PATH=/home/sense/OpenCV-master-py3/lib/python3.6/site-packages -D WITH_TBB=ON -D WITH_VTK=ON -D VTK_DIR=/home/sense/vtk-inst/lib/cmake/vtk-9.0 ../../opencv
+make -j$(nproc) && make install
+
+
+cmake -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -G "Sublime Text 2 - Unix Makefiles" -D BUILD_EXAMPLES=ON -D CMAKE_INSTALL_PREFIX=/home/sense/liblivre/install/opencv -D BUILD_PERF_TESTS=FALSE -D BUILD_DOCS=OFF -D BUILD_TESTS=FALSE -D INSTALL_PYTHON_EXAMPLES=OFF -D OPENCV_PYTHON3_INSTALL_PATH=/home/sense/OpenCV-master-py3/lib/python3.6/site-packages -D WITH_TBB=ON -D WITH_VTK=ON -D VTK_DIR=/home/sense/vtk-inst/lib/cmake/vtk-9.0 ../../opencv
+
+
+cmake -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -G "Sublime Text 2 - Unix Makefiles" -D BUILD_EXAMPLES=ON -D CMAKE_INSTALL_PREFIX=/home/sense/liblivre/install/opencv -D BUILD_PERF_TESTS=FALSE -D BUILD_DOCS=OFF -D BUILD_TESTS=FALSE -D INSTALL_PYTHON_EXAMPLES=OFF -D OPENCV_PYTHON3_INSTALL_PATH=/home/sense/OpenCV-master-py3/lib/python3.6/site-packages -D WITH_TBB=ON -D WITH_VTK=ON -D VTK_DIR=/home/sense/vtk-inst/lib/cmake/vtk-9.0 ../../opencv
+
+cmake -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -G "Sublime Text 2 - Unix Makefiles" -D BUILD_EXAMPLES=ON -D CMAKE_INSTALL_PREFIX=/home/sense/liblivre/install/opencv -D BUILD_PERF_TESTS=FALSE -D BUILD_DOCS=OFF -D BUILD_TESTS=FALSE -D INSTALL_PYTHON_EXAMPLES=OFF -D OPENCV_PYTHON3_INSTALL_PATH=/home/sense/OpenCV-master-py3/lib/python3.6/site-packages -D WITH_TBB=ON -D WITH_VTK=ON -D VTK_DIR=/home/sense/vtk-inst/lib/cmake/vtk-9.0 ../../opencv
+
+cmake -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -G "Sublime Text 2 - Unix Makefiles" -D BUILD_EXAMPLES=ON -D CMAKE_INSTALL_PREFIX=/home/sense/liblivre/install/opencv -D BUILD_PERF_TESTS=FALSE -D BUILD_DOCS=OFF -D BUILD_TESTS=FALSE -D INSTALL_PYTHON_EXAMPLES=OFF -D OPENCV_PYTHON3_INSTALL_PATH=/home/sense/OpenCV-master-py3/lib/python3.6/site-packages -D WITH_TBB=ON -D WITH_VTK=ON -D VTK_DIR=/home/sense/vtk-inst/lib/cmake/vtk-9.0 ../../opencv
+
+
+sudo ldconfig -v
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/sense/vtk-inst/lib/
+
+cmake -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -G "Sublime Text 2 - Unix Makefiles" -D BUILD_EXAMPLES=OFF -D CMAKE_INSTALL_PREFIX=/home/sense/liblivre/install/opencv -D BUILD_PERF_TESTS=FALSE -D BUILD_DOCS=OFF -D BUILD_TESTS=FALSE -D INSTALL_PYTHON_EXAMPLES=OFF -D OPENCV_PYTHON3_INSTALL_PATH=/home/sense/OpenCV-master-py3/lib/python3.6/site-packages -D WITH_TBB=ON ../../opencv
+
+# So, why did the examples not compile this time? Is it because maybe some kind of linker was not activated during this bash session? (LD_LIBRARY)
+
+pkg-config --libs --cflags opencv
+
+
+5. Run with this command, tuning the file location
+/home/sense/liblivre/opencv/build/bin/example_sfm_trajectory_reconstruction /home/sense/liblivre/opencv_contrib/modules/sfm/samples/data/desktop_tracks.txt 1914 640 360
+
+6. Check visualization for a grid-like reconstruction.  Write a parser for the output camera translations and rotations.
+7. Use scanning.py code for multiplying these translations and rotations by the self.x, self.y, self.z point clouds
+
+# documentation: 	https://docs.opencv.org/master/de/d42/classcv_1_1sfm_1_1SFMLibmvEuclideanReconstruction.html
+					https://docs.opencv.org/master/d5/dab/tutorial_sfm_trajectory_estimation.html
+
+
+
+# # # # 
+
+# The system is running, but it's so fast, and the actual camera translaton values are weird.
+# So we need to either confirm what's up with fixing visualization module
+# OR just try to go straight to the point cloud multiplication step...
+# Is there maybe just not enough data - i.e. 50 points across 10 cameras?

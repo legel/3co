@@ -1,0 +1,8 @@
+ffmpeg -ss 8 -i 00017.MTS -c copy -t 10 v4.mts
+ffmpeg -i v3.mts -itsoffset 0.150 -i v3.mts -map 1:0 -map 0:1 -c:v libx264 -preset veryslow -qp 0 v3.mp4
+
+
+ffmpeg -i v1.mp4 -vcodec libx264 -pix_fmt yuv420p -preset slow -qp 10 v1_x.mp4
+ffmpeg -i v2.mp4 -vcodec libx264 -pix_fmt yuv420p -preset slow -qp 10 v2_x.mp4 
+&& ffmpeg -i v3.mp4 -vcodec libx264 -pix_fmt yuv420p -preset slow -qp 10 v3_x.mp4 && 
+ffmpeg -i v4.mp4 -vcodec libx264 -pix_fmt yuv420p -preset slow -qp 10 v4_x.mp4

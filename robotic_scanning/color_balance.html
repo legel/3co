@@ -1,0 +1,22 @@
+<!DOCTYPE html><HTML><HEAD><meta charset="UTF-8"></HEAD><BODY><!--StartFragment--><style type="text/css">pre {font-family: Monospace, Monospace; font-size: 12pt; background: #282923;}.c0 { color:#f92472; }.c1 { color:#ac80ff; }.c2 { color:#a6e22c; }.c3 { color:#f8f8f2; }.c4 { color:#67d8ef;font-style: italic; }.c5 { color:#e7db74; }.c6 { color:#fd9621;font-style: italic; }.c7 { color:#67d8ef; }</style><pre><span class=c4>def </span><span class=c2>simplest_cb</span><span class=c3>(</span><span class=c6>image_name</span><span class=c3>, </span><span class=c6>image_data</span><span class=c3>, </span><span class=c6>percent</span><span class=c0>=</span><span class=c1>1</span><span class=c3>):
+    out_channels </span><span class=c0>= </span><span class=c3>[]
+    cumstops </span><span class=c0>= </span><span class=c3>(
+        image_data.shape[</span><span class=c1>0</span><span class=c3>] </span><span class=c0>* </span><span class=c3>image_data.shape[</span><span class=c1>1</span><span class=c3>] </span><span class=c0>* </span><span class=c3>percent </span><span class=c0>/ </span><span class=c1>200.0</span><span class=c3>,
+        image_data.shape[</span><span class=c1>0</span><span class=c3>] </span><span class=c0>* </span><span class=c3>image_data.shape[</span><span class=c1>1</span><span class=c3>] </span><span class=c0>* </span><span class=c3>(</span><span class=c1>1 </span><span class=c0>- </span><span class=c3>percent </span><span class=c0>/ </span><span class=c1>200.0</span><span class=c3>)
+    )
+    </span><span class=c0>for </span><span class=c3>channel </span><span class=c0>in </span><span class=c3>cv.</span><span class=c7>split</span><span class=c3>(image_data):
+        cumhist </span><span class=c0>= </span><span class=c3>np.</span><span class=c7>cumsum</span><span class=c3>(cv.</span><span class=c7>calcHist</span><span class=c3>([channel], [</span><span class=c1>0</span><span class=c3>], </span><span class=c1>None</span><span class=c3>, [</span><span class=c1>256</span><span class=c3>], (</span><span class=c1>0</span><span class=c3>,</span><span class=c1>256</span><span class=c3>)))
+        low_cut, high_cut </span><span class=c0>= </span><span class=c3>np.</span><span class=c7>searchsorted</span><span class=c3>(cumhist, cumstops)
+        lut </span><span class=c0>= </span><span class=c3>np.</span><span class=c7>concatenate</span><span class=c3>((
+            np.</span><span class=c7>zeros</span><span class=c3>(low_cut),
+            np.</span><span class=c7>around</span><span class=c3>(np.</span><span class=c7>linspace</span><span class=c3>(</span><span class=c1>0</span><span class=c3>, </span><span class=c1>255</span><span class=c3>, high_cut </span><span class=c0>- </span><span class=c3>low_cut </span><span class=c0>+ </span><span class=c1>1</span><span class=c3>)),
+            </span><span class=c1>255 </span><span class=c0>* </span><span class=c3>np.</span><span class=c7>ones</span><span class=c3>(</span><span class=c1>255 </span><span class=c0>- </span><span class=c3>high_cut)
+        ))
+        out_channels.</span><span class=c7>append</span><span class=c3>(cv.</span><span class=c7>LUT</span><span class=c3>(channel, lut.</span><span class=c7>astype</span><span class=c3>(</span><span class=c5>'uint8'</span><span class=c3>)))
+    merged </span><span class=c0>= </span><span class=c3>cv.</span><span class=c7>merge</span><span class=c3>(out_channels)
+    cv.</span><span class=c7>imwrite</span><span class=c3>(image_name, merged) 
+
+</span><span class=c4>def </span><span class=c2>normalize_colors</span><span class=c3>(</span><span class=c6>image_name</span><span class=c3>):
+    image_data </span><span class=c0>= </span><span class=c3>cv.</span><span class=c7>imread</span><span class=c3>(image_name)
+    </span><span class=c7>simplest_cb</span><span class=c3>(</span><span class=c6>image_name</span><span class=c0>=</span><span class=c3>image_name, </span><span class=c6>image_data</span><span class=c0>=</span><span class=c3>image_data)</span>
+</pre><!--EndFragment--></BODY></HTML>

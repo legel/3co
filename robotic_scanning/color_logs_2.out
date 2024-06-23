@@ -1,0 +1,41 @@
+73
+Projector centre: -1.333130, 121.736145, -1.133850. SN: 924
+73
+73
+Projector centre: -1.333130, 121.736145, -1.133850. SN: 924
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+73
+Projector centre: -1.333130, 121.736145, -1.133850. SN: 924
+73
+73
+libpng warning: Image width is zero in IHDR
+libpng warning: Image height is zero in IHDR
+libpng error: Invalid IHDR data
+libpng warning: Image width is zero in IHDR
+libpng warning: Image height is zero in IHDR
+libpng error: Invalid IHDR data
+libpng warning: Image width is zero in IHDR
+libpng warning: Image height is zero in IHDR
+libpng error: Invalid IHDR data
+libpng warning: Image width is zero in IHDR
+libpng warning: Image height is zero in IHDR
+libpng error: Invalid IHDR data
+System failure: 'NoneType' object has no attribute 'shape'
+Projector centre: -1.333130, 121.736145, -1.133850. SN: 924
+2020-12-16 17:20:51.020953: F ./tensorflow/core/kernels/gather_functor_gpu.cu.h:100] Non-OK-status: GpuLaunchKernel( GatherOpKernel<T, Index, true>, config.block_count, config.thread_per_block, 0, d.stream(), params.data(), indices.data(), out.data(), gather_dim_size, indices_size, slice_size, out_size) status: Internal: out of memory
