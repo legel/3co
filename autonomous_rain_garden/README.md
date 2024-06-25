@@ -1,4 +1,4 @@
-### Autonomous vertical rainforest garden
+### Autonomous LED-powered vertical tropical rainforest garden
 ![](../media/autonomous_rain_garden_full.jpg)
 
   - An LED-powered, automated watering vertical garden built in collaboration with Fabguru ([_1_](https://www.fabguru.com/))
