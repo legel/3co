@@ -19,7 +19,7 @@ We especially recommend looking into our [3D reconstruction code](https://github
 
 #### [Augmented reality app for home & garden e-commerce](augmented_reality)
 
-#### [Laser-scanning robotics for 3D scanning plants](robotic_scanning)
+#### [Robotic 3D scanning with lasers](robotic_scanning)
 
 #### [Autonomous LED-powered vertical tropical rainforest garden](autonomous_rain_garden)
 
