@@ -12,9 +12,9 @@
 
 ![](../media/iris_in_amsterdam_2020.jpg)
 
-[](../media/calibration.jpg)
+![](../media/calibration.jpg)
 
-[](../media/robot_and_garden.png)
+![](../media/robot_and_garden.png)
 
 ![](../media/frame_design.png)
 
