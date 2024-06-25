@@ -22,7 +22,7 @@
 
 ![](../media/drawing.jpeg)
 
-![](../media/plant_placement.jpeg)
+![](../media/plant_placement.jpg)
 
 ![](../media/plant_list.png)
 
