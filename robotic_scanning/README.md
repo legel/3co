@@ -5,9 +5,15 @@
   - Eventually we filed a broad provisional patent on related hardware, vision, and AI ([_4_](https://www.3co.ai/inverse_rendering_with_3d_coordinate_measuring_machines.pdf))
   - Google Cloud Blog: _"3co reinvents the digital shopping experience with augmented reality..."_ ([_5_](https://cloud.google.com/blog/topics/startups/3co-scales-ar-commerce-with-3d-scanning))
 
-![](https://www.3co.ai/iris_portrait.jpg)
+#### 3 years of R&D in photos
+![](../media/3cobot.jpg)
 
-![](/media/iris_visual_diagram.png)
+![](../media/iris_3d_1.png)
 
-![](/media/iris_conceptual_diagram.png)
+![](../media/iris_in_amsterdam_2020.png)
 
+![](../media/frame_design.png)
+
+![](../media/iris_visual_diagram.png)
+
+![](../media/iris_conceptual_diagram.png)
