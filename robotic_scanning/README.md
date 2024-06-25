@@ -10,7 +10,7 @@
 
 ![](../media/iris_3d_1.png)
 
-![](../media/iris_in_amsterdam_2020.png)
+![](../media/iris_in_amsterdam_2020.jpg)
 
 ![](../media/frame_design.png)
 
