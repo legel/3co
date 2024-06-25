@@ -17,7 +17,7 @@ Processing pipeline from iPhone Pro to 3D mesh generation:
 
 ![](../media/photo_of_plant.jpg)
 
-![](../media/xyz_of_plant.jpg)
+![](../media/xyz_of_plant.png)
 
 ![](../media/3D_mesh_of_plant.png)
 
