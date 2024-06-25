@@ -21,6 +21,8 @@ We especially recommend looking into our [3D reconstruction code](https://github
 
 ### [Laser-scanning robotics for 3D scanning plants](robotic_scanning)
 
+### [Autonomous LED-powered vertical tropical rainforest garden](autonomous_rain_garden)
+
 ### [Photorealistic 3D model production from iPhone Pro](reconstruction)
 
 Please reach out to us (specifically, [Lance](https://www.linkedin.com/in/legel/)) if anything comes up.
