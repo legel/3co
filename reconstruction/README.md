@@ -31,7 +31,7 @@ Processing pipeline from iPhone Pro to 3D mesh generation:
 
 ![](../media/strelitzia_camera.jpg)
 
-![](../media/strelitzia_depth.jpg)
+![](../media/strelitzia_depth.png)
 
 ![](../media/strelitzia.jpg)
 
