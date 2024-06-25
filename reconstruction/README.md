@@ -1,6 +1,6 @@
 ### Photorealistic 3D model production from iPhone Pro
-![](media/scan.gif)
-![](media/show.gif)
+![](../media/scan.gif)
+![](../media/show.gif)
 - For reference, a video of a real _Alocasia baginda_ being scanned ([_1_](https://www.3co.ai/3D_scan.mp4))
 - This neural 360 degree rendering of that plant looks really cool ([_2_](https://www.3co.ai/3D_render.mp4))
 - Controling a 3D meshed model of that plant in augmented reality ([_3_](https://www.3co.ai/augmented.mp4))  
