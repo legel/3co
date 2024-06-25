@@ -13,3 +13,26 @@ Processing pipeline from iPhone Pro to 3D mesh generation:
 4. This is converted into a 3D mesh representation using mesh_extraction.py.
 5. The mesh then has UV textures that are differentiably optimized through a PyTorch3D inverse rendering process in inverse_rendering.py.
 
+#### 2 years of R&D in photos
+
+![](../media/photo_of_plant.jpg)
+
+![](../media/xyz_of_plant.jpg)
+
+![](../media/3D_mesh_of_plant.png)
+
+![](../media/3D_rendered_mesh_with_textures.png)
+
+![](../media/3D_orchid_point_cloud.jpg)
+
+![](../media/surfaces.png)
+
+![](../media/entertainment.png)
+
+![](../media/strelitzia_camera.jpg)
+
+![](../media/strelitzia_depth.jpg)
+
+![](../media/strelitzia.jpg)
+
+![](../media/cactus.png)
