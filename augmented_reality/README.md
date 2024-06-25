@@ -12,6 +12,6 @@
 
 ![](../media/app_design.jpg)
 
-![](../media/app_hero_shot.jpg)
+![](../media/app_hero_shot.png)
 
 ![](../media/3co_3d_commerce.jpg)
