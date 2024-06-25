@@ -2,7 +2,7 @@
 ![](../media/autonomous_rain_garden_full.jpg)
 
   - An LED-powered, automated watering vertical garden built in collaboration with Fabguru ([_1_](https://www.fabguru.com/))
-  - Video showing the vertical garden while "raining" ([_1_](https://ecodash.ai/images/hack.mp4))
+  - Video showing the vertical garden while "raining" ([_2_](https://ecodash.ai/images/hack.mp4))
 
 #### 1 month of R&D in photos
 
