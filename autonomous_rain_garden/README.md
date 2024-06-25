@@ -1,8 +1,9 @@
 ### Autonomous vertical rainforest garden
 ![](../media/autonomous_rain_garden_full.jpg)
+
   - Video showing a vertical garden designed by 3co for an Amsterdam Makerspace ([_1_](https://ecodash.ai/images/hack.mp4))
 
-#### 2 months of R&D in photos
+#### 1 month of R&D in photos
 ![](../media/rendered_design_1.png)
 
 ![](../media/rendered_design_2.png)
@@ -20,6 +21,10 @@
 ![](../media/stack_1.jpg)
 
 ![](../media/drawing.jpeg)
+
+![](../media/plant_placement.jpeg)
+
+![](../media/plant_list.png)
 
 ![](../media/supply.jpg)
 
