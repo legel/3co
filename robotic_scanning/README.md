@@ -16,6 +16,8 @@
 
 ![](../media/calibration.jpg)
 
+![](../media/founders_with_robot.png)
+
 ![](../media/frame_design.png)
 
 ![](../media/iris_visual_diagram.png)
