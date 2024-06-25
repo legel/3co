@@ -19,7 +19,7 @@ We especially recommend looking into our [3D reconstruction code](https://github
 
 ### [Augmented reality app for home & garden e-commerce](augmented_reality)
 
-### [Autonomous robotics for photorealistic 3D reconstruction of plants](robotic_scanning)
+### [Laser-scanning robotics for 3D scanning plants](robotic_scanning)
 
 ### [Photorealistic 3D model production from iPhone Pro](reconstruction)
 
