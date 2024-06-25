@@ -15,14 +15,16 @@ We especially recommend looking into our [3D reconstruction code](https://github
 
 ![](media/3D_model_render_with_geometry_revealed.png)
 
-## Past R&D + cool demos 
+## Highlighted R&D with cool demos 
 
-### [Augmented reality app for home & garden e-commerce](augmented_reality)
+#### [Augmented reality app for home & garden e-commerce](augmented_reality)
 
-### [Laser-scanning robotics for 3D scanning plants](robotic_scanning)
+#### [Laser-scanning robotics for 3D scanning plants](robotic_scanning)
 
-### [Autonomous LED-powered vertical tropical rainforest garden](autonomous_rain_garden)
+#### [Autonomous LED-powered vertical tropical rainforest garden](autonomous_rain_garden)
 
-### [Photorealistic 3D model production from iPhone Pro](reconstruction)
+#### [Photorealistic 3D model production from iPhone Pro](reconstruction)
 
-Please reach out to us (specifically, [Lance](https://www.linkedin.com/in/legel/)) if anything comes up.
+## Say hello 
+
+Please reach out to [Lance](https://www.linkedin.com/in/legel/) if anything comes up.
