@@ -1,4 +1,4 @@
-### Laser-scanning robotics for 3D scanning plants
+### Robotic 3D scanning with lasers
 ![](../media/iris1.gif)
   - Here are a few videos showing the design of our proprietary 3D vision robot called _Iris_ ([_1_](https://www.3co.ai/iris1.mp4), [_2_](https://www.3co.ai/iris_3d.mp4))
   - For a few looks at a real prototype, check out the duct tape on this machine, based in Amsterdam circa 2020 ([_3_](https://www.3co.ai/iris_by_3co.mp4), [_4_](https://www.3co.ai/iris_vision.mp4)), 
