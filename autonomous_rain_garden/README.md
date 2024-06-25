@@ -4,6 +4,9 @@
   - Video showing a vertical garden designed by 3co for an Amsterdam Makerspace ([_1_](https://ecodash.ai/images/hack.mp4))
 
 #### 1 month of R&D in photos
+
+![](../media/contact_makerspace.jpg)
+
 ![](../media/rendered_design_1.png)
 
 ![](../media/rendered_design_2.png)
@@ -27,8 +30,6 @@
 ![](../media/plant_list.png)
 
 ![](../media/supply.jpg)
-
-![](../media/contact_makerspace.jpg)
 
 ![](../media/bud.jpg)
 
