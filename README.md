@@ -8,7 +8,7 @@ The company has been researching and developing artificial intelligence since 20
 Along the way, the company has also aquired mastery over 3D scanning photonics, computer vision, 3D reconstruction, graphics, and robotics.
 It feels liked we've earned a few extra PhDs and a few extra grey hairs from this.
 
-![](media/augmented_amsterdam.png)
+![](media/augmented.png)
 ![](media/3cobot.jpg)
 ![](media/3co_rgb.gif)
 ![](media/surfaces.png)
