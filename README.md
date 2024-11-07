@@ -28,6 +28,8 @@ We especially recommend looking into our [3D reconstruction code](https://github
 
 #### [Photorealistic 3D model production from iPhone Pro](reconstruction)
 
+#### [Plant Species Classification (2017 & 2023)](plant_classification)
+
 ## Say hello 
 
 Please reach out to [Lance](https://www.linkedin.com/in/legel/) if anything comes up.
