@@ -8,7 +8,10 @@ The company has been researching and developing artificial intelligence since 20
 Along the way, the company has also aquired mastery over 3D scanning photonics, computer vision, 3D reconstruction, graphics, and robotics.
 It feels liked we've earned a few extra PhDs and a few extra grey hairs from this.
 
+![](media/augmented_amsterdam.png)
+![](media/3cobot.jpg)
 ![](media/3co_rgb.gif)
+![](media/surfaces.png)
 
 You're welcome to explore our code, get a sense of our technical capabilities, and reach out with any questions.
 We especially recommend looking into our [3D reconstruction code](https://github.com/legel/3co/tree/master/reconstruction) based on iPhone Pro LiDAR data.  Its accuracy and precision can lead to photorealistic 3D models.
