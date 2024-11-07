@@ -4,7 +4,7 @@
 - **2023:** Prior to a workshop that we co-hosted at the University of Florida with the Environmental Horticulture department on [Intelligent Cultivation of Urban Ecosystems](https://hort.ifas.ufl.edu/intelligent-cultivation-urban-ecosystems/), we fine-tuned a [DinoV2](https://dinov2.metademolab.com/) vision transformer for species classification. This system was trained on 27 million images from [GBIF](https://gbif.org) for the classification of 33,000 plant species.  It featured similar data augmentations, as well as a deep encoding of GPS.  It achieved over 80% testing accuracy including very rare species.  This model was never fully tuned, but the direction of combining geographic knowledge and visual knowledge embedded in modern biodiversity datasets remains extremely promising.
 
 ### 2023
-A pull request is outstanding [here](https://github.com/facebookresearch/dinov2/pull/305) with Meta DinoV2 for plant species classification code, that is also uploaded here as a notebook.  Below are details on this more recent model, which I also discussed in a presentation [here](https://youtu.be/jN5aHoidQZQ?si=H2In-dbeYRiwi_bm&t=1507).
+A pull request is outstanding [here](https://github.com/facebookresearch/dinov2/pull/305) with Meta DinoV2 for plant species classification code, that is also uploaded here as a notebook.  Below are details on this more recent model, which was also discussed in a presentation [here](https://youtu.be/jN5aHoidQZQ?si=H2In-dbeYRiwi_bm&t=1507).
 
 ![](../media/plant_classifier_v2_1.png)
 ![](../media/plant_classifier_v2_2.png)
