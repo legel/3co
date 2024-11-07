@@ -6,17 +6,17 @@
 ### 2023
 A pull request is outstanding [here](https://github.com/facebookresearch/dinov2/pull/305) with Meta DinoV2 for plant species classification code, that is also uploaded here as a notebook.  Below are details on this more recent model, which I also discussed in a presentation [here](https://youtu.be/jN5aHoidQZQ?si=H2In-dbeYRiwi_bm&t=1507).
 
-![](media/plant_classifier_v2_1.png)
-![](media/plant_classifier_v2_2.png)
-![](media/plant_classifier_v2_3.png)
-![](media/plant_classifier_v2_4.png)
-![](media/plant_classifier_v2_5.png)
+![](../media/plant_classifier_v2_1.png)
+![](../media/plant_classifier_v2_2.png)
+![](../media/plant_classifier_v2_3.png)
+![](../media/plant_classifier_v2_4.png)
+![](../media/plant_classifier_v2_5.png)
 
 ### 2017
-![](media/plant_classifier_v1_0.png)
-![](media/plant_classifier_v1_1.png)
-![](media/plant_classifier_v1_2.png)
-![](media/plant_classifier_v1_3.png)
-![](media/plant_classifier_v1_4.png)
+![](../media/plant_classifier_v1_0.png)
+![](../media/plant_classifier_v1_1.png)
+![](../media/plant_classifier_v1_2.png)
+![](../media/plant_classifier_v1_3.png)
+![](../media/plant_classifier_v1_4.png)
 
 
