@@ -16,8 +16,6 @@ It feels liked we've earned a few extra PhDs and a few extra grey hairs from thi
 You're welcome to explore our code, get a sense of our technical capabilities, and reach out with any questions.
 We especially recommend looking into our [3D reconstruction code](https://github.com/legel/3co/tree/master/reconstruction) based on iPhone Pro LiDAR data.  Its accuracy and precision can lead to photorealistic 3D models.
 
-![](media/3D_model_render_with_geometry_revealed.png)
-
 ## Highlighted R&D with cool demos 
 
 #### [Augmented reality app for home & garden e-commerce](augmented_reality)
