@@ -1,10 +1,9 @@
 ### Robotic 3D scanning with lasers
-![](../media/iris1.gif)
+![](../media/robot_scanning_in_action.jpg)
+
   - Here are a few videos showing the design of our proprietary 3D vision robot called _Iris_ ([_1_](https://www.3co.ai/iris1.mp4), [_2_](https://www.3co.ai/iris_3d.mp4))
   - Eventually we filed a broad provisional patent on related hardware, vision, and AI ([_3_](https://www.3co.ai/inverse_rendering_with_3d_coordinate_measuring_machines.pdf))
   - Google Cloud Blog: _"3co reinvents the digital shopping experience with augmented reality..."_ ([_4_](https://cloud.google.com/blog/topics/startups/3co-scales-ar-commerce-with-3d-scanning))
-    
-![](../media/iris_vision.gif)
 
 #### 3 years of R&D in photos
 ![](../media/3cobot.jpg)
@@ -22,3 +21,10 @@
 ![](../media/iris_visual_diagram.png)
 
 ![](../media/iris_conceptual_diagram.png)
+
+![](../media/robot_communication.jpg)
+
+![](../media/iris1.gif)
+
+![](../media/iris_vision.gif)
+
