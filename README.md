@@ -1,7 +1,7 @@
 ## Welcome to the 3co lab!
 3co, Inc. is a [Techstars](https://techstars.com/) company that was founded by [Steven T. Jenkins](https://www.linkedin.com/in/steventjenkins/), [Robert W. Cohn](https://rwcohn.github.io/homepage/), and [Lance Legel](https://www.linkedin.com/in/legel/).
 
-The company has been researching and developing artificial intelligence since 2018.  Our deep technical focus has always been on spatial and visual computing, especially for the design of beautiful and functional real world environments with plants.
+The company has been researching and developing artificial intelligence since 2018.  Our deep technical focus has always been on spatial and visual computing, especially for the design of beautiful and functional real world environments.
 
 ![](media/vertical_rain_garden.jpg)
 
