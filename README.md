@@ -14,7 +14,7 @@ Along the way, the company has also aquired mastery over 3D scanning photonics, 
 
 Our [3D reconstruction AI](https://github.com/legel/3co/tree/master/reconstruction) from 2022 trained a neural radiance fields ([NeRF](https://www.matthewtancik.com/nerf)) model directly from smartphone camera and sensor data. It featured a state-of-the-art [3D surface entropy minimization loss regularization](https://github.com/legel/3co/blob/19b6c64f96b61c1f27362a796addf4d1bac34a81/reconstruction/nerf.py#L2600).
 
-For recent 3D environmental reconstruction based on Gaussian Splatting, please see: https://github.com/legel/digitaltwin
+For 3D environmental reconstruction based on Gaussian Splatting, please see: https://github.com/legel/digitaltwin
 
 ## Highlighted R&D with cool demos 
 
